@@ -1,0 +1,215 @@
+from rest_framework import views, status, generics
+from rest_framework.response import Response
+from rest_framework.permissions import AllowAny, IsAuthenticated
+from rest_framework import serializers
+from django.shortcuts import get_object_or_404
+from .models import Cart, CartItem
+from products.models import Product, ProductVariant
+from recommendations.services import record_product_event
+from .serializers import (
+    CartSerializer,
+    AddToCartSerializer,
+    CartItemSerializer,
+    LocalCartSyncSerializer,
+)
+
+def get_or_create_cart(request):
+    if request.user.is_authenticated:
+        cart, _ = Cart.objects.get_or_create(user=request.user)
+    else:
+        guest_session_id = request.headers.get('X-Guest-Session-Id')
+        if not guest_session_id:
+            import uuid
+            guest_session_id = str(uuid.uuid4())
+        cart, _ = Cart.objects.get_or_create(guest_session_id=guest_session_id)
+    return cart
+
+def merge_cart(user, guest_session_id):
+    if not guest_session_id:
+        return
+    guest_cart = Cart.objects.filter(guest_session_id=guest_session_id).first()
+    if not guest_cart:
+        return
+    
+    user_cart, _ = Cart.objects.get_or_create(user=user)
+    
+    for item in guest_cart.items.all():
+        # Check if item with same product/variant already exists in user cart
+        existing_item = user_cart.items.filter(product=item.product, variant=item.variant).first()
+        if existing_item:
+            existing_item.quantity += item.quantity
+            existing_item.save()
+        else:
+            item.cart = user_cart
+            item.save()
+    
+    # Optionally delete guest cart or clear its session ID
+    guest_cart.delete()
+
+
+def get_available_stock(product, variant=None):
+    return variant.stock if variant else product.stock
+
+
+def validate_cart_quantity(product, quantity, variant=None, existing_quantity=0):
+    available_stock = get_available_stock(product, variant)
+    requested_quantity = existing_quantity + quantity
+    if requested_quantity > available_stock:
+        raise serializers.ValidationError({
+            'error': f"{product.name} uchun omborda {available_stock} dona mavjud."
+        })
+
+
+def upsert_cart_item(cart, product, quantity, variant=None):
+    existing_item = CartItem.objects.filter(cart=cart, product=product, variant=variant).first()
+    validate_cart_quantity(
+        product,
+        quantity,
+        variant=variant,
+        existing_quantity=existing_item.quantity if existing_item else 0,
+    )
+
+    item, created = CartItem.objects.get_or_create(
+        cart=cart,
+        product=product,
+        variant=variant,
+        defaults={'quantity': quantity},
+    )
+    if not created:
+        item.quantity += quantity
+        item.save(update_fields=['quantity'])
+    return item
+
+class CartView(views.APIView):
+    permission_classes = (AllowAny,)
+    
+    def get(self, request, *args, **kwargs):
+        cart = get_or_create_cart(request)
+        serializer = CartSerializer(cart, context={'request': request})
+        headers = {}
+        if not request.user.is_authenticated and cart.guest_session_id:
+            headers['X-Guest-Session-Id'] = cart.guest_session_id
+        return Response(serializer.data, headers=headers)
+
+class AddToCartView(views.APIView):
+    permission_classes = (AllowAny,)
+    
+    def post(self, request, *args, **kwargs):
+        serializer = AddToCartSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        
+        cart = get_or_create_cart(request)
+        product = get_object_or_404(Product, id=serializer.validated_data['product_id'], is_active=True)
+        
+        variant_id = serializer.validated_data.get('variant_id')
+        variant = None
+        if variant_id:
+            variant = get_object_or_404(ProductVariant, id=variant_id, product=product)
+
+        quantity = serializer.validated_data.get('quantity', 1)
+        
+        upsert_cart_item(cart, product, quantity, variant)
+
+        record_product_event(
+            request,
+            product,
+            'cart',
+            variant=variant,
+            guest_session_id=cart.guest_session_id if not request.user.is_authenticated else None,
+        )
+            
+        headers = {}
+        if not request.user.is_authenticated and cart.guest_session_id:
+            headers['X-Guest-Session-Id'] = cart.guest_session_id
+        return Response(
+            CartSerializer(cart, context={'request': request}).data,
+            status=status.HTTP_200_OK,
+            headers=headers,
+        )
+
+
+class SyncLocalCartView(views.APIView):
+    permission_classes = (IsAuthenticated,)
+
+    def post(self, request, *args, **kwargs):
+        serializer = LocalCartSyncSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        cart, _ = Cart.objects.get_or_create(user=request.user)
+        synced_count = 0
+        skipped_items = []
+
+        for item_data in serializer.validated_data['items']:
+            try:
+                product = Product.objects.get(id=item_data['product_id'], is_active=True)
+            except Product.DoesNotExist:
+                skipped_items.append({
+                    'product_id': item_data['product_id'],
+                    'reason': 'Mahsulot topilmadi yoki aktiv emas.',
+                })
+                continue
+
+            variant = None
+            variant_id = item_data.get('variant_id')
+            if variant_id:
+                try:
+                    variant = ProductVariant.objects.get(id=variant_id, product=product)
+                except ProductVariant.DoesNotExist:
+                    skipped_items.append({
+                        'product_id': product.id,
+                        'variant_id': variant_id,
+                        'reason': 'Variant topilmadi.',
+                    })
+                    continue
+
+            quantity = item_data.get('quantity', 1)
+            try:
+                upsert_cart_item(cart, product, quantity, variant)
+                synced_count += 1
+            except serializers.ValidationError as exc:
+                skipped_items.append({
+                    'product_id': product.id,
+                    'variant_id': variant_id,
+                    'reason': exc.detail.get('error', 'Omborda yetarli mahsulot yo\'q.'),
+                })
+                continue
+
+            record_product_event(request, product, 'cart', variant=variant)
+
+        payload = {
+            'cart': CartSerializer(cart, context={'request': request}).data,
+            'synced_count': synced_count,
+            'skipped_items': skipped_items,
+        }
+        return Response(payload, status=status.HTTP_200_OK)
+
+class UpdateCartItemView(generics.UpdateAPIView, generics.DestroyAPIView):
+    queryset = CartItem.objects.all()
+    serializer_class = CartItemSerializer
+    permission_classes = (AllowAny,)
+
+    def get_queryset(self):
+        cart = get_or_create_cart(self.request)
+        return CartItem.objects.filter(cart=cart)
+
+    def update(self, request, *args, **kwargs):
+        item = self.get_object()
+        quantity = request.data.get('quantity')
+        try:
+            quantity = int(quantity)
+        except (TypeError, ValueError):
+            raise serializers.ValidationError({'quantity': "Miqdor to'g'ri raqam bo'lishi kerak."})
+        if quantity < 1:
+            raise serializers.ValidationError({'quantity': "Miqdor kamida 1 bo'lishi kerak."})
+
+        validate_cart_quantity(item.product, quantity, variant=item.variant)
+        item.quantity = quantity
+        item.save(update_fields=['quantity'])
+
+        cart = get_or_create_cart(request)
+        return Response(CartSerializer(cart, context={'request': request}).data)
+
+    def destroy(self, request, *args, **kwargs):
+        super().destroy(request, *args, **kwargs)
+        cart = get_or_create_cart(request)
+        return Response(CartSerializer(cart, context={'request': request}).data)

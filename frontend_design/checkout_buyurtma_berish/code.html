@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+
+<html class="light" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Bozor - Checkout</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "primary-fixed": "#6ffbbe",
+                        "surface-container-lowest": "#ffffff",
+                        "primary-fixed-dim": "#4edea3",
+                        "on-tertiary-fixed": "#410005",
+                        "surface-container": "#e7eeff",
+                        "on-tertiary-fixed-variant": "#842225",
+                        "primary": "#006c49",
+                        "tertiary": "#a43a3a",
+                        "surface-dim": "#cfdaf2",
+                        "outline": "#6c7a71",
+                        "on-error": "#ffffff",
+                        "secondary-fixed": "#ffddb8",
+                        "on-primary-container": "#00422b",
+                        "on-secondary": "#ffffff",
+                        "on-background": "#111c2d",
+                        "secondary": "#855300",
+                        "on-secondary-container": "#684000",
+                        "error": "#ba1a1a",
+                        "surface-variant": "#d8e3fb",
+                        "surface-container-low": "#f0f3ff",
+                        "on-primary": "#ffffff",
+                        "tertiary-container": "#fc7c78",
+                        "on-secondary-fixed-variant": "#653e00",
+                        "surface-container-high": "#dee8ff",
+                        "surface-tint": "#006c49",
+                        "tertiary-fixed": "#ffdad7",
+                        "inverse-primary": "#4edea3",
+                        "on-tertiary": "#ffffff",
+                        "surface-bright": "#f9f9ff",
+                        "surface-container-highest": "#d8e3fb",
+                        "tertiary-fixed-dim": "#ffb3af",
+                        "on-primary-fixed": "#002113",
+                        "primary-container": "#10b981",
+                        "on-tertiary-container": "#711419",
+                        "error-container": "#ffdad6",
+                        "on-secondary-fixed": "#2a1700",
+                        "outline-variant": "#bbcabf",
+                        "on-surface": "#111c2d",
+                        "inverse-on-surface": "#ecf1ff",
+                        "on-primary-fixed-variant": "#005236",
+                        "inverse-surface": "#263143",
+                        "secondary-fixed-dim": "#ffb95f",
+                        "on-error-container": "#93000a",
+                        "background": "#f9f9ff",
+                        "on-surface-variant": "#3c4a42",
+                        "secondary-container": "#fea619",
+                        "surface": "#f9f9ff"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    "spacing": {
+                        "3xl": "64px",
+                        "2xl": "48px",
+                        "container-max": "1280px",
+                        "margin-mobile": "16px",
+                        "lg": "24px",
+                        "md": "16px",
+                        "base": "4px",
+                        "margin-desktop": "32px",
+                        "sm": "8px",
+                        "xl": "32px",
+                        "gutter": "16px",
+                        "xs": "4px"
+                    },
+                    "fontFamily": {
+                        "h2": ["Inter"],
+                        "label-md": ["Inter"],
+                        "body-lg": ["Inter"],
+                        "h3": ["Inter"],
+                        "h1": ["Inter"],
+                        "body-md": ["Inter"],
+                        "body-sm": ["Inter"],
+                        "price": ["Inter"]
+                    },
+                    "fontSize": {
+                        "h2": ["30px", { "lineHeight": "1.2", "letterSpacing": "-0.01em", "fontWeight": "700" }],
+                        "label-md": ["14px", { "lineHeight": "1.0", "letterSpacing": "0.05em", "fontWeight": "600" }],
+                        "body-lg": ["18px", { "lineHeight": "1.6", "fontWeight": "400" }],
+                        "h3": ["24px", { "lineHeight": "1.3", "fontWeight": "600" }],
+                        "h1": ["48px", { "lineHeight": "1.1", "letterSpacing": "-0.02em", "fontWeight": "700" }],
+                        "body-md": ["16px", { "lineHeight": "1.5", "fontWeight": "400" }],
+                        "body-sm": ["14px", { "lineHeight": "1.4", "fontWeight": "400" }],
+                        "price": ["20px", { "lineHeight": "1.0", "fontWeight": "700" }]
+                    }
+                }
+            }
+        }
+    </script>
+</head>
+<body class="bg-background text-on-background font-body-md min-h-screen flex flex-col">
+<!-- TopNavBar: Suppressed. Checkout is a transactional flow. -->
+<!-- Main Content Canvas -->
+<main class="flex-grow w-full max-w-container-max mx-auto px-margin-mobile md:px-margin-desktop py-lg pb-3xl">
+<header class="mb-lg">
+<h1 class="font-h1 text-h1 text-on-surface">Checkout</h1>
+<p class="font-body-md text-body-md text-on-surface-variant mt-sm">Complete your order details below.</p>
+</header>
+<div class="grid grid-cols-1 lg:grid-cols-12 gap-lg lg:gap-xl">
+<!-- Left Column: Forms -->
+<div class="lg:col-span-8 flex flex-col gap-lg">
+<!-- 1. Delivery Information -->
+<section class="bg-surface-container-lowest rounded-xl border border-surface-variant shadow-sm p-lg">
+<h2 class="font-h3 text-h3 text-on-surface mb-md border-b border-surface-variant pb-sm">Delivery Information</h2>
+<div class="grid grid-cols-1 md:grid-cols-2 gap-md mb-md">
+<div class="flex flex-col">
+<label class="font-label-md text-label-md text-on-surface-variant mb-xs" for="firstName">First Name</label>
+<input class="border border-outline-variant rounded-lg px-sm py-sm focus:ring-primary focus:border-primary bg-surface-bright" id="firstName" placeholder="John" type="text"/>
+</div>
+<div class="flex flex-col">
+<label class="font-label-md text-label-md text-on-surface-variant mb-xs" for="lastName">Last Name</label>
+<input class="border border-outline-variant rounded-lg px-sm py-sm focus:ring-primary focus:border-primary bg-surface-bright" id="lastName" placeholder="Doe" type="text"/>
+</div>
+<div class="flex flex-col md:col-span-2">
+<label class="font-label-md text-label-md text-on-surface-variant mb-xs" for="phone">Phone Number</label>
+<input class="border border-outline-variant rounded-lg px-sm py-sm focus:ring-primary focus:border-primary bg-surface-bright" id="phone" placeholder="+998 90 123 45 67" type="tel"/>
+</div>
+</div>
+<div class="flex flex-col mb-md">
+<label class="font-label-md text-label-md text-on-surface-variant mb-xs">Delivery Address</label>
+<div class="w-full h-[200px] bg-surface-container rounded-lg border border-outline-variant overflow-hidden relative">
+<img alt="Map" class="w-full h-full object-cover opacity-80" data-alt="clean, modern map interface showing city streets with a subtle emerald green marker pin indicating a selected location" data-location="Tashkent" src="https://lh3.googleusercontent.com/aida-public/AB6AXuAlk_lDbtLUSs411SbhzLpcI6NvmH9f-gdmgAu0tl1v1sLG6W7VUV4KjBkXLuacGKuUcg1T_UWPkHdufiB0Vk54YR8ueuPPWeA9LZO_piwBSoXJi_L3LXdhGDtiTIFzrOrkVEG-8lrAa0Yzl5C-_7UUM-CEk2m5UAvPnuc7-ZPoczaHFF4AnO3PIFhqaauoY4uuXvYuzxaFBTvo4K5zV7cgN2J7ylVVQkeSQjUp15ck9tC1p77NmoT9JU_uEtuU7xmIn3rGU6c2emg"/>
+<div class="absolute inset-0 flex items-center justify-center pointer-events-none">
+<span class="material-symbols-outlined text-primary text-[40px]" style="font-variation-settings: 'FILL' 1;">location_on</span>
+</div>
+</div>
+<input class="mt-sm border border-outline-variant rounded-lg px-sm py-sm focus:ring-primary focus:border-primary bg-surface-bright" placeholder="Street, building, apartment" type="text"/>
+</div>
+</section>
+<!-- 2. Payment Methods -->
+<section class="bg-surface-container-lowest rounded-xl border border-surface-variant shadow-sm p-lg">
+<h2 class="font-h3 text-h3 text-on-surface mb-md border-b border-surface-variant pb-sm">Payment Method</h2>
+<div class="grid grid-cols-1 md:grid-cols-3 gap-md">
+<!-- Card Payment -->
+<label class="cursor-pointer">
+<input checked="" class="peer sr-only" name="payment" type="radio"/>
+<div class="border border-outline-variant rounded-xl p-md flex flex-col items-center text-center gap-sm peer-checked:border-primary peer-checked:bg-surface-container-low transition-colors h-full">
+<span class="material-symbols-outlined text-on-surface-variant peer-checked:text-primary text-[32px]">credit_card</span>
+<span class="font-label-md text-label-md text-on-surface">Card Online</span>
+<span class="font-body-sm text-body-sm text-on-surface-variant text-xs">Uzcard, Humo</span>
+</div>
+</label>
+<!-- Cash -->
+<label class="cursor-pointer">
+<input class="peer sr-only" name="payment" type="radio"/>
+<div class="border border-outline-variant rounded-xl p-md flex flex-col items-center text-center gap-sm peer-checked:border-primary peer-checked:bg-surface-container-low transition-colors h-full">
+<span class="material-symbols-outlined text-on-surface-variant peer-checked:text-primary text-[32px]">payments</span>
+<span class="font-label-md text-label-md text-on-surface">Cash</span>
+<span class="font-body-sm text-body-sm text-on-surface-variant text-xs">On Delivery</span>
+</div>
+</label>
+<!-- Cashback -->
+<label class="cursor-pointer">
+<input class="peer sr-only" name="payment" type="radio"/>
+<div class="border border-outline-variant rounded-xl p-md flex flex-col items-center text-center gap-sm peer-checked:border-primary peer-checked:bg-surface-container-low transition-colors h-full">
+<span class="material-symbols-outlined text-on-surface-variant peer-checked:text-primary text-[32px]">account_balance_wallet</span>
+<span class="font-label-md text-label-md text-on-surface">Bozor Wallet</span>
+<span class="font-body-sm text-body-sm text-on-surface-variant text-xs">Use Balance</span>
+</div>
+</label>
+</div>
+</section>
+</div>
+<!-- Right Column: Order Summary -->
+<div class="lg:col-span-4">
+<section class="bg-surface-container-lowest rounded-xl border border-surface-variant shadow-sm p-lg sticky top-lg">
+<h2 class="font-h3 text-h3 text-on-surface mb-md">Order Summary</h2>
+<div class="space-y-sm mb-md pb-md border-b border-surface-variant">
+<div class="flex justify-between items-center">
+<span class="font-body-md text-body-md text-on-surface-variant">Subtotal (2 items)</span>
+<span class="font-body-md text-body-md text-on-surface">245,000 UZS</span>
+</div>
+<div class="flex justify-between items-center">
+<span class="font-body-md text-body-md text-on-surface-variant">Delivery</span>
+<span class="font-body-md text-body-md text-on-surface">15,000 UZS</span>
+</div>
+<div class="flex justify-between items-center">
+<span class="font-body-md text-body-md text-tertiary">Discount</span>
+<span class="font-body-md text-body-md text-tertiary">-10,000 UZS</span>
+</div>
+</div>
+<div class="flex justify-between items-center mb-lg">
+<span class="font-h3 text-h3 text-on-surface">Total</span>
+<span class="font-price text-price text-primary">250,000 UZS</span>
+</div>
+<!-- Place Order Button -->
+<button class="w-full bg-secondary-container text-on-secondary-container font-label-md text-label-md py-md rounded-lg hover:opacity-90 transition-opacity flex justify-center items-center gap-sm">
+                        Place Order
+                        <span class="material-symbols-outlined text-[20px]">arrow_forward</span>
+</button>
+<div class="mt-md flex items-center justify-center gap-xs text-on-surface-variant">
+<span class="material-symbols-outlined text-[16px]">verified_user</span>
+<span class="font-body-sm text-body-sm text-xs">Secure Checkout</span>
+</div>
+</section>
+</div>
+</div>
+<!-- Success State Placeholder (Hidden by default, shown here for representation) -->
+<!-- <div class="hidden fixed inset-0 z-[100] bg-surface-container-lowest flex flex-col items-center justify-center p-lg">
+            <div class="bg-primary-container text-on-primary-container p-lg rounded-full mb-md">
+                <span class="material-symbols-outlined text-[64px]" style="font-variation-settings: 'FILL' 1;">check_circle</span>
+            </div>
+            <h2 class="font-h2 text-h2 text-on-surface mb-sm">Order Placed Successfully!</h2>
+            <p class="font-body-lg text-body-lg text-on-surface-variant text-center max-w-md mb-lg">Your order #BZ-987654 has been confirmed. You will receive a tracking link via SMS shortly.</p>
+            <button class="bg-primary text-on-primary font-label-md text-label-md px-lg py-md rounded-lg">Return to Home</button>
+        </div> -->
+</main>
+<!-- Navigation Suppressed for Checkout Flow -->
+</body></html>

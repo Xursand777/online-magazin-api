@@ -1,0 +1,615 @@
+BOZOR MOBILE APP UCHUN TEXNIK TOPSHIRIQ (TZ)
+Versiya: 1.0
+Sana: 2026-05-01
+
+1. LOYIHA MAQSADI
+
+Bozor web saytiga mos, lekin mobile qurilmalar uchun alohida qulay, tez, zamonaviy va professional e-commerce ilova ishlab chiqish kerak. Ilova mavjud backend API bilan ishlashi, web saytdagi asosiy biznes logikani saqlashi va mobil foydalanuvchi uchun ergonomik interfeys berishi kerak.
+
+Ilova quyidagi asosiy bo'limlardan iborat bo'ladi:
+- Home
+- Catalog
+- Savat
+- Profile
+
+Qo'shimcha kiriladigan sahifalar:
+- Search natijalari
+- Product detail
+- Section pages: Tavsiya etamiz, Chegirmadagi mahsulotlar, Yangi mahsulotlar, Ommabop mahsulotlar
+- Checkout
+- Order detail
+- Auth: telefon raqam, 6 xonali kod/parol, ro'yxatdan o'tish
+- Settings: theme, account, logout
+
+Ilova web sayt bilan bir xil backenddan ma'lumot oladi. Admin panel mobile ilovaga kiritilmaydi, lekin admin web panel orqali qo'shilgan mahsulotlar, bannerlar, kategoriyalar, variantlar va buyurtma statuslari mobile ilovada to'g'ri ko'rinishi shart.
+
+2. TEXNOLOGIYA TALABLARI
+
+Tavsiya etilgan stack:
+- React Native + Expo + TypeScript
+- TanStack Query yoki shunga teng server-state manager
+- Zustand yoki Redux Toolkit cart/auth/theme state uchun
+- React Navigation
+- Expo SecureStore tokenlar uchun
+- AsyncStorage guest cart, theme, search history uchun
+- Axios API client
+- Reanimated/Moti animatsiyalar uchun
+
+Sabab:
+- Hozirgi frontend React/TypeScriptga yaqin.
+- API client va state logicni webdagi uslubga yaqin yozish oson.
+- iOS va Android uchun bitta codebase.
+
+Ilova minimum qo'llab-quvvatlashi:
+- iOS 14+
+- Android 8+
+- Responsive mobile layout: 360px dan 430px gacha telefon ekranlari, planshet uchun kengaytirilgan grid.
+
+3. UMUMIY DIZAYN YO'NALISHI
+
+Ilova Bozor web saytining identitetiga mos bo'ladi:
+- Asosiy rang: yashil/emerald primary
+- Ikkinchi rang: narx va chegirma joylarida amber/orange
+- Light mode: oq, och kulrang, yashil accent
+- Dark mode: juda qora emas, professional dark gray style
+- Buttonlar: 10-14px radius, bosilganda scale/opacity feedback
+- Cardlar: aniq border, yumshoq shadow, clean spacing
+- Matnlar: o'qilishi oson, narxlar katta va aniq
+- Raqam formatlari: 1 000 000 UZS yoki 1 000 000 so'm formatida chalkashmasdan chiqishi kerak
+
+Dark/light mode:
+- Header yoki Profile/Settingsdan toggle qilinadi.
+- Tanlangan mode local storage/AsyncStorageda saqlanadi.
+- Barcha ekranlar, cardlar, modal, toast, bottom tab, skeleton loading, search dropdown dark/lightga mos bo'lishi shart.
+- Mode almashganda 200-300ms silliq animatsiya bo'ladi.
+
+4. NAVIGATSIYA
+
+Bottom tab navigation:
+1. Home
+2. Catalog
+3. Savat
+4. Profile
+
+Tab iconlari:
+- Home: home
+- Catalog: grid/menu
+- Savat: cart badge bilan
+- Profile: user icon/avatar
+
+Tab behavior:
+- Har bir tab mustaqil stackga ega bo'ladi.
+- Savat badge barcha sahifalarda umumiy cart state asosida yangilanadi.
+- Profile badge kerak bo'lsa order status notification uchun ishlatiladi.
+- Tab bar sticky bottom bo'ladi, safe area hisobga olinadi.
+
+Header:
+- Home ekranida Bozor logo, search, theme toggle yoki compact icon.
+- Product detailda back button, share, favorite.
+- Catalogda back/search/filter.
+- Checkoutda back va title.
+
+5. API VA BACKEND INTEGRATSIYA
+
+Mobile app mavjud backend API bilan ishlaydi.
+
+Kerakli APIlar:
+- GET /api/main/
+- GET /api/banners/
+- GET /api/products/
+- GET /api/products/{id}/
+- GET /api/products/{id}/similar/
+- GET /api/search/products/?q=&track=true
+- GET /api/categories/
+- GET /api/categories/{id}/products/
+- GET /api/products/discounts/
+- GET /api/products/new/
+- GET /api/products/popular/
+- POST /api/auth/login/
+- POST /api/auth/verify-otp/
+- POST /api/auth/login-password/
+- POST /api/auth/register/
+- POST /api/auth/refresh/
+- GET /api/profile/
+- PATCH /api/profile/
+- GET /api/cart/
+- POST /api/cart/items/
+- PATCH /api/cart/items/{id}/
+- DELETE /api/cart/items/{id}/
+- POST /api/cart/sync-local/
+- POST /api/orders/from-cart/
+- POST /api/orders/quick/
+- GET /api/orders/
+- GET /api/orders/{id}/
+- POST /api/orders/{id}/cancel/
+
+Token:
+- access token SecureStoreda saqlanadi.
+- refresh token SecureStoreda saqlanadi.
+- 401 bo'lsa refresh ishlaydi.
+- Refresh ham xato bersa user logout qilinadi va login screen ochiladi.
+
+Offline/minimal network behavior:
+- Home, catalog va product detailda cached data ko'rsatiladi.
+- Internet yo'q bo'lsa aniq empty/error state chiqadi.
+- Cart guest mode localda ishlashi mumkin.
+- Checkout, order create, login faqat internet bilan ishlaydi.
+
+6. AUTH FLOW
+
+Kirish:
+1. Telefon raqam kiritish.
+2. Telefon tasdiqlangandan keyin 6 xonali kod/parol maydoni chiqadi.
+3. Kod/parol kiritiladi.
+4. Muvaffaqiyatli login bo'lsa:
+   - tokenlar saqlanadi
+   - local cart backendga sync qilinadi
+   - user redirect qilingan sahifaga qaytariladi
+
+Telefon input:
+- +998 prefix alohida ko'rinadi.
+- Faqat 9 raqam kiritiladi.
+- Mask: 90 123 45 67 yoki 91 1234567 uslubida bo'lishi mumkin.
+
+Kod/parol input:
+- 6 xonali alohida cell input.
+- Auto focus keyingi cellga o'tadi.
+- Paste qilsa 6 xonani avtomatik tarqatadi.
+- Xato kodda input shake animatsiya va error text.
+
+Register:
+- Telefon raqam
+- Parol
+- Parol tasdiqlash
+- Terms accepted checkbox
+- Muvaffaqiyatli bo'lsa verify flow.
+
+Guest behavior:
+- Login qilmagan user mahsulotni savatga qo'sha oladi.
+- Checkout bosilganda login talab qilinadi.
+- Login bo'lgandan keyin local cart backend cartga sync bo'ladi va local cart tozalanadi.
+
+7. HOME EKRANI
+
+Home mobile ilovada asosiy savdo ekrani bo'ladi.
+
+Home layout:
+1. Header:
+   - Bozor logo
+   - compact theme toggle yoki profile shortcut
+2. Search block:
+   - Katalog button
+   - search input
+   - search icon
+3. Banner slider:
+   - admin paneldan kelgan home banners
+   - agar banner yo'q bo'lsa fallback banners
+   - auto slide
+   - swipe bilan o'tkazish
+   - dots indicator
+   - banner bosilganda product detail yoki catalogga o'tadi
+4. Quick category chips:
+   - popular categories yoki 3-5 ta asosiy kategoriya
+5. Tavsiya etamiz strip:
+   - personalized recommended_products
+   - bir qator horizontal carousel
+6. Chegirmadagi mahsulotlar:
+   - 2 qator horizontal grid yoki carousel
+   - "Barchasini ko'rish" section pagega olib o'tadi
+7. Yangi mahsulotlar
+8. Ommabop mahsulotlar
+
+Home search behavior:
+- Inputga yozganda backend search API chaqiriladi.
+- Debounce: 250-350ms.
+- Natija search dropdown/bottom sheetda chiqadi:
+  - category
+  - nomi
+  - ID
+  - narxi
+  - rasm
+- Result bosilsa product detailga o'tadi.
+- Search submit qilinsa Catalog search resultga o'tadi.
+- Search track=true bilan yuborilsa interest profile yangilanadi.
+
+Recommendation:
+- Login bo'lmasa guest session asosida.
+- Login bo'lsa user profile asosida.
+- User ilgari qidirgan/ko'rgan mahsulotlariga o'xshash tavsiyalar chiqadi.
+
+Banner:
+- Background gradient: background_color -> accent_color.
+- product_image hech qanday filter/mix-blend bilan buzilmasin.
+- product_image qanday yuklangan bo'lsa shunday chiqsin.
+- Text uzun bo'lsa font scale va line clamp bo'lishi kerak.
+- Bannerning mobil balandligi 180-240px oralig'ida.
+
+8. CATALOG EKRANI
+
+Catalog webga aynan ko'chirilmaydi, lekin uslub jihatdan mos va mobile uchun qulay bo'ladi.
+
+Catalog main:
+- Yuqorida search input.
+- Kategoriya ro'yxati:
+  - parent categories
+  - subcategories
+  - icon/image bo'lsa ko'rsatiladi
+- Product grid:
+  - 2 ustun mobile
+  - tablet 3 ustun
+- Filter button:
+  - bottom sheet ko'rinishida
+  - kategoriya
+  - chegirma
+  - yangi
+  - ommabop
+  - narx oralig'i
+  - stock bor/yo'q
+- Sort:
+  - yangi
+  - ommabop
+  - arzon
+  - qimmat
+  - chegirmadagi
+
+Category navigation:
+- Parent category bosilganda subcategorylar chiqadi.
+- Subcategory bosilganda shu category productlari chiqadi.
+- Breadcrumb mobileda chip/back style bo'ladi.
+
+Search result:
+- Search query saqlanadi.
+- Agar result bo'lmasa:
+  - "Mahsulot topilmadi"
+  - boshqa kategoriya yoki tavsiya mahsulotlar ko'rsatiladi
+
+9. PRODUCT CARD
+
+Har bir product card:
+- Rasm
+- Badge: Yangi / Chegirma
+- Favorite icon
+- Nomi 2 line clamp
+- Rating mock yoki real rating
+- Eski narx line-through
+- Yangi narx katta
+- Savatga button yoki - / quantity / + stepper
+
+Cart sync:
+- Home, Catalog, Product Detail, Savat bir xil cart state ishlatadi.
+- Bir joyda + bosilsa barcha joyda son yangilanadi.
+- Stock limitga yetganda + disabled bo'ladi.
+- Stock 0 bo'lsa "Omborda yo'q".
+
+10. PRODUCT DETAIL EKRANI
+
+Product detail sahifa mobile ilovadagi eng muhim sahifa.
+
+Tarkib:
+1. Header:
+   - Back
+   - share
+   - favorite
+2. Image gallery:
+   - asosiy rasm
+   - thumbnails
+   - pinch/zoom modal optional
+3. Product info:
+   - nomi
+   - stock badge
+   - delivery badge
+   - narx
+   - eski narx va discount foiz
+4. Variant selector:
+   - agar variantda image_url bo'lsa rasmli thumbnail selector
+   - agar image_url bo'lmasa color_hex swatch selector
+   - agar color_hex ham bo'lmasa color name bo'yicha fallback swatch
+   - stock 0 variant disabled va diagonal line bilan
+   - tanlangan variant nomi: "Rangi: Ko'k"
+   - model/xotira alohida chiplar
+5. Actions:
+   - Savatga qo'shish yoki - / quantity / +
+   - Tezkor zakaz
+6. Store info:
+   - Bozor Rasmiy Do'kon
+   - Tasdiqlangan sotuvchi
+   - 99.8% ijobiy baho
+7. Mahsulot haqida:
+   - description
+8. O'xshash mahsulotlar:
+   - GET /api/products/{id}/similar/
+   - 2 ustun card grid yoki horizontal carousel
+
+Variant behavior:
+- Tanlangan color variantda rasm bo'lsa asosiy rasm shu variant image bilan almashadi.
+- Savatga qo'shishda tanlangan variant_id backendga yuborilishi kerak.
+- Agar variant tanlash majburiy bo'lsa, tanlanmagan holatda error chiqadi.
+
+11. SAVAT EKRANI
+
+Savat juda qulay bo'lishi kerak.
+
+Tarkib:
+- Header: Savat, item count
+- Cart item list:
+  - rasm
+  - nomi
+  - variant: rang/model/xotira
+  - price
+  - - / quantity / +
+  - delete icon
+- Order summary:
+  - Mahsulotlar soni
+  - subtotal
+  - delivery: bepul
+  - jami
+- CTA:
+  - login bo'lmagan user: "Kirish va rasmiylashtirish"
+  - login bo'lgan user: "Rasmiylashtirish"
+
+Guest cart:
+- AsyncStorageda saqlanadi.
+- App yopilib ochilsa ham saqlanadi.
+- Login bo'lganda backendga sync qilinadi.
+- Syncdan keyin local cart tozalanadi.
+
+Authenticated cart:
+- Backend cart ishlaydi.
+- Har bir update optimistik yangilanadi.
+- Backend xato qaytarsa cart refresh qilinadi va toast chiqadi.
+
+Stock:
+- Quantity stockdan oshmasligi kerak.
+- Stock tugasa userga aniq xabar:
+  - "Omborda 3 dona mavjud"
+
+12. CHECKOUT EKRANI
+
+Checkout faqat login qilingan user uchun.
+
+Maydonlar:
+- Receiver name
+- Receiver phone
+- Delivery address
+- Payment method:
+  - cash
+  - card/payme/click kelajakda
+- Comment optional
+
+Validation:
+- majburiy maydonlar to'ldirilmasa error
+- telefon formati noto'g'ri bo'lsa error
+- cart bo'sh bo'lsa checkoutga kiritilmaydi
+
+Submit:
+- POST /api/orders/from-cart/
+- Muvaffaqiyatli bo'lsa:
+  - cart tozalanadi/refetch
+  - Profile ordersga redirect
+  - toast: "Buyurtma qabul qilindi"
+
+13. PROFILE EKRANI
+
+Profile:
+- User telefon raqami
+- account info
+- theme settings
+- orders list
+- logout
+
+Orders:
+- Status badge:
+  - PENDING: To'lov kutilmoqda/Yangi
+  - CONFIRMED: Rasmiylashtirildi
+  - PACKING: Yig'ilmoqda
+  - SHIPPING: Yo'lda
+  - DELIVERED: Yetib keldi
+  - CANCELLED: Bekor qilindi
+- Har bir order card:
+  - order ID
+  - created_at
+  - total price
+  - status
+  - first 3 product image
+  - "Batafsil"
+
+Order detail:
+- Productlar
+- Delivery address
+- Payment info
+- Order history timeline
+- Cancellation reason agar bekor qilingan bo'lsa
+
+Cancel order:
+- User faqat ruxsat berilgan statuslarda bekor qila oladi.
+- Sabab yozish majburiy.
+- POST /api/orders/{id}/cancel/
+- Cancel bo'lsa stock restore backendda bo'ladi.
+
+14. ORDER STATUS UX
+
+Status timeline:
+1. Yangi
+2. Rasmiylashtirildi
+3. Yig'ilmoqda
+4. Yo'lda
+5. Yetib keldi
+
+UI:
+- Timeline vertical mobileda.
+- Har bir bosqichda icon va vaqt.
+- Admin status o'zgartirganda backend OrderHistoryga yozadi.
+- User profileda tarixni ko'radi.
+
+Cancellation:
+- CANCELLED_BY_USER
+- CANCELLED_BY_ADMIN
+- SYSTEM_AUTO_CANCEL
+
+Userga ko'rinish:
+- "Bekor qilindi"
+- Sabab
+- Kim bekor qilgani
+- Pul qaytarish statusi agar payment paid bo'lsa
+
+15. NOTIFICATION, TOAST, LOADING
+
+Toast:
+- Savatga qo'shildi
+- Xatolik yuz berdi
+- Buyurtma qabul qilindi
+- Cart sync qilindi
+- Order bekor qilindi
+
+Toast joylashuvi:
+- Mobileda top safe area yoki bottom tab ustidan chiqadi.
+- Bottom tabni bosib ketmasin.
+- Ramka ixcham, textga mos.
+
+Loading:
+- Skeleton cardlar ishlatiladi.
+- Searchda mini spinner.
+- Checkout submitda button spinner.
+
+Empty states:
+- Cart empty
+- Search no result
+- Orders empty
+- Catalog empty
+
+Error states:
+- Network error
+- API validation error
+- 401 auth expired
+- Stock error
+
+16. FAVORITES
+
+Agar backendda favorites API bo'lmasa:
+- birinchi bosqichda local favorites qilish mumkin.
+
+Kelajak API:
+- GET /api/favorites/
+- POST /api/favorites/{product_id}/
+- DELETE /api/favorites/{product_id}/
+
+UI:
+- Product card heart
+- Product detail heart
+- Profileda "Saralanganlar" section optional
+
+17. PERFORMANCE TALABLARI
+
+- Home first load 2 sekunddan kam bo'lishi kerak.
+- Image lazy loading.
+- Product list pagination yoki infinite scroll.
+- Search debounce.
+- Query cache.
+- Heavy images compressed.
+- Banner images responsive size.
+- App startupda token refresh bloklamasligi kerak, parallel boot.
+
+18. SECURITY
+
+- Tokenlar SecureStoreda.
+- No sensitive data AsyncStorageda.
+- HTTPS productionda majburiy.
+- API errorlar userga professional matn bilan chiqadi.
+- Admin endpointlar mobile appda ishlatilmaydi.
+
+19. ACCESSIBILITY
+
+- Buttonlar kamida 44x44px touch target.
+- Text contrast light/darkda yaxshi.
+- Screen reader labels:
+  - Savatga qo'shish
+  - Ko'paytirish
+  - Kamaytirish
+  - Orqaga
+  - Qidirish
+- Dynamic font uchun layout buzilmasin.
+
+20. QA TEST SCENARIYLARI
+
+Home:
+- Banner chiqadi.
+- Search natija chiqaradi.
+- Product card detailga o'tadi.
+- Tavsiya bo'limlari ishlaydi.
+
+Catalog:
+- Category tanlanadi.
+- Filter ishlaydi.
+- Search query bilan product chiqadi.
+- Barchasini ko'rish page ishlaydi.
+
+Product detail:
+- Variant swatch chiqadi.
+- Variant image chiqadi.
+- Variant tanlanganda main image almashadi.
+- Savatga qo'shish stepperga aylanadi.
+- O'xshash mahsulotlar chiqadi.
+
+Savat:
+- Guest add/update/remove.
+- Login bo'lganda sync.
+- Stock oshirilmaydi.
+- Checkoutga o'tadi.
+
+Auth:
+- Telefon input mask.
+- 6 xonali kod.
+- Login success.
+- Wrong code error.
+
+Checkout:
+- Required validation.
+- Order create.
+- Profilega redirect.
+
+Profile:
+- Orders list.
+- Order detail.
+- Cancel order.
+- Order history timeline.
+
+Theme:
+- Dark/light barcha ekranlarda.
+- Toggle app restartdan keyin ham saqlanadi.
+
+21. ACCEPTANCE CRITERIA
+
+Ilova tayyor deb qabul qilinadi, agar:
+- Home/Catalog/Savat/Profile to'liq ishlasa.
+- Backend API bilan real bog'langan bo'lsa.
+- Guest cart va login cart sync professional ishlasa.
+- Product variantlar rang/rasm ko'rinishida chiroyli chiqsa.
+- Buyurtma flow xatosiz ishlasa.
+- Dark/light mode barcha ekranlarda mos bo'lsa.
+- Search va recommendations ishlasa.
+- iOS va Androidda UI buzilmasa.
+- Build productionga tayyor bo'lsa.
+
+22. DESIGN TONE
+
+Ilova marketplace/e-commerce uchun sokin, professional, tez ishlatiladigan bo'lishi kerak.
+Marketing landing page emas, to'g'ridan-to'g'ri xarid qilishga yo'naltirilgan operational shopping app bo'ladi.
+
+Asosiy prinsip:
+- kam bosqich
+- tez qidirish
+- tez savatga qo'shish
+- aniq narx
+- aniq stock
+- aniq order status
+- toza dark/light theme
+
+23. KEYINGI BOSQICH
+
+1. Figma mobile design qilish.
+2. API contractlarni yakuniy tekshirish.
+3. React Native Expo project scaffold.
+4. Auth/cart/theme core store.
+5. Home/Catalog/ProductDetail.
+6. Cart/Checkout/Profile/Orders.
+7. QA va production build.

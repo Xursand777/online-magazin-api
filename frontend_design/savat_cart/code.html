@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+
+<html class="light" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Savat - Bozor</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;900&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "primary-fixed": "#6ffbbe",
+                        "surface-container-lowest": "#ffffff",
+                        "primary-fixed-dim": "#4edea3",
+                        "on-tertiary-fixed": "#410005",
+                        "surface-container": "#e7eeff",
+                        "on-tertiary-fixed-variant": "#842225",
+                        "primary": "#006c49",
+                        "tertiary": "#a43a3a",
+                        "surface-dim": "#cfdaf2",
+                        "outline": "#6c7a71",
+                        "on-error": "#ffffff",
+                        "secondary-fixed": "#ffddb8",
+                        "on-primary-container": "#00422b",
+                        "on-secondary": "#ffffff",
+                        "on-background": "#111c2d",
+                        "secondary": "#855300",
+                        "on-secondary-container": "#684000",
+                        "error": "#ba1a1a",
+                        "surface-variant": "#d8e3fb",
+                        "surface-container-low": "#f0f3ff",
+                        "on-primary": "#ffffff",
+                        "tertiary-container": "#fc7c78",
+                        "on-secondary-fixed-variant": "#653e00",
+                        "surface-container-high": "#dee8ff",
+                        "surface-tint": "#006c49",
+                        "tertiary-fixed": "#ffdad7",
+                        "inverse-primary": "#4edea3",
+                        "on-tertiary": "#ffffff",
+                        "surface-bright": "#f9f9ff",
+                        "surface-container-highest": "#d8e3fb",
+                        "tertiary-fixed-dim": "#ffb3af",
+                        "on-primary-fixed": "#002113",
+                        "primary-container": "#10b981",
+                        "on-tertiary-container": "#711419",
+                        "error-container": "#ffdad6",
+                        "on-secondary-fixed": "#2a1700",
+                        "outline-variant": "#bbcabf",
+                        "on-surface": "#111c2d",
+                        "inverse-on-surface": "#ecf1ff",
+                        "on-primary-fixed-variant": "#005236",
+                        "inverse-surface": "#263143",
+                        "secondary-fixed-dim": "#ffb95f",
+                        "on-error-container": "#93000a",
+                        "background": "#f9f9ff",
+                        "on-surface-variant": "#3c4a42",
+                        "secondary-container": "#fea619",
+                        "surface": "#f9f9ff"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    "spacing": {
+                        "3xl": "64px",
+                        "2xl": "48px",
+                        "container-max": "1280px",
+                        "margin-mobile": "16px",
+                        "lg": "24px",
+                        "md": "16px",
+                        "base": "4px",
+                        "margin-desktop": "32px",
+                        "sm": "8px",
+                        "xl": "32px",
+                        "gutter": "16px",
+                        "xs": "4px"
+                    },
+                    "fontFamily": {
+                        "h2": ["Inter"],
+                        "label-md": ["Inter"],
+                        "body-lg": ["Inter"],
+                        "h3": ["Inter"],
+                        "h1": ["Inter"],
+                        "body-md": ["Inter"],
+                        "body-sm": ["Inter"],
+                        "price": ["Inter"]
+                    },
+                    "fontSize": {
+                        "h2": ["30px", {"lineHeight": "1.2", "letterSpacing": "-0.01em", "fontWeight": "700"}],
+                        "label-md": ["14px", {"lineHeight": "1.0", "letterSpacing": "0.05em", "fontWeight": "600"}],
+                        "body-lg": ["18px", {"lineHeight": "1.6", "fontWeight": "400"}],
+                        "h3": ["24px", {"lineHeight": "1.3", "fontWeight": "600"}],
+                        "h1": ["48px", {"lineHeight": "1.1", "letterSpacing": "-0.02em", "fontWeight": "700"}],
+                        "body-md": ["16px", {"lineHeight": "1.5", "fontWeight": "400"}],
+                        "body-sm": ["14px", {"lineHeight": "1.4", "fontWeight": "400"}],
+                        "price": ["20px", {"lineHeight": "1.0", "fontWeight": "700"}]
+                    }
+                }
+            }
+        }
+    </script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+    </style>
+</head>
+<body class="bg-background text-on-background font-body-md min-h-screen flex flex-col">
+<!-- TopNavBar -->
+<header class="hidden md:flex bg-white text-emerald-500 font-sans text-sm font-medium docked full-width top-0 shadow-sm flex justify-between items-center px-4 md:px-12 py-3 w-full sticky top-0 z-50">
+<div class="flex items-center gap-8">
+<div class="text-2xl font-black tracking-tight text-emerald-600">Bozor</div>
+<nav class="flex gap-6">
+<a class="text-slate-600 hover:text-emerald-500 transition-colors" href="#">Catalog</a>
+<a class="text-slate-600 hover:text-emerald-500 transition-colors" href="#">Deals</a>
+<a class="text-slate-600 hover:text-emerald-500 transition-colors" href="#">Official Stores</a>
+</nav>
+</div>
+<div class="flex items-center gap-4">
+<button aria-label="shopping_cart" class="text-emerald-600 border-b-2 border-emerald-600 pb-2 hover:text-emerald-500 transition-colors active:opacity-80 active:scale-95">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">shopping_cart</span>
+</button>
+<button aria-label="person" class="text-slate-600 hover:text-emerald-500 transition-colors active:opacity-80 active:scale-95">
+<span class="material-symbols-outlined">person</span>
+</button>
+</div>
+</header>
+<!-- Main Content Canvas -->
+<main class="flex-grow w-full max-w-container-max mx-auto px-margin-mobile md:px-margin-desktop py-lg pb-3xl md:pb-lg">
+<div class="mb-lg">
+<h1 class="font-h1 text-h1 text-on-background">Savat</h1>
+</div>
+<div class="flex flex-col lg:flex-row gap-lg items-start">
+<!-- Left Column: Cart Items -->
+<div class="w-full lg:flex-1 flex flex-col gap-md">
+<!-- Cart Item 1 -->
+<div class="bg-surface-container-lowest p-md rounded-lg border border-[#e2e8f0] flex flex-col sm:flex-row gap-md shadow-[0_4px_12px_rgba(30,41,59,0.02)]">
+<div class="w-full sm:w-32 h-32 bg-[#f8fafc] rounded flex-shrink-0 relative overflow-hidden">
+<img alt="Apple Watch Series 8" class="object-cover w-full h-full mix-blend-multiply" data-alt="close-up of a sleek modern smartwatch with a black band on a light neutral background studio lighting" src="https://lh3.googleusercontent.com/aida-public/AB6AXuDwD919TpQHSM6xWRULvV_lT1qRwnZFJx6g45X81NS4dZvc8INCvomML5W0n2gqKxwTKjd3cNlfTYWjbDxfGYf5v0gFrHTHZR6M8eorbo807ZcJUze-gIR0NmB1E_lbyCaN9-pEPb5dUCuy47I2iX5zilF-SzgB7Cuz6i3dBAn9Jd2h0Pscz0b4l4dlrE289QiECpIwagKEGd6F1l2d4DNVvKjGIdqaLwO2P-Y-SUBqYve-IZdJYbEG952bJNbkFFB9SO5FuhuWTpA"/>
+</div>
+<div class="flex-grow flex flex-col justify-between">
+<div class="flex justify-between items-start gap-sm">
+<div>
+<h3 class="font-h3 text-body-md text-on-surface">Apple Watch Series 8 GPS 45mm Midnight Aluminum Case</h3>
+<p class="font-body-sm text-body-sm text-outline mt-xs">Rangi: Qora | Hajmi: 45mm</p>
+</div>
+<button aria-label="Remove item" class="text-outline hover:text-error transition-colors p-1">
+<span class="material-symbols-outlined">delete</span>
+</button>
+</div>
+<div class="flex justify-between items-end mt-md">
+<div class="flex items-center border border-[#e2e8f0] rounded-md bg-surface-bright">
+<button aria-label="Decrease quantity" class="px-3 py-1 text-on-surface-variant hover:bg-surface-container-low transition-colors rounded-l-md">
+<span class="material-symbols-outlined text-[18px]">remove</span>
+</button>
+<span class="px-4 py-1 font-body-md text-body-md border-x border-[#e2e8f0]">1</span>
+<button aria-label="Increase quantity" class="px-3 py-1 text-on-surface-variant hover:bg-surface-container-low transition-colors rounded-r-md">
+<span class="material-symbols-outlined text-[18px]">add</span>
+</button>
+</div>
+<div class="text-right">
+<div class="font-price text-price text-on-background">5 200 000 so'm</div>
+</div>
+</div>
+</div>
+</div>
+<!-- Cart Item 2 -->
+<div class="bg-surface-container-lowest p-md rounded-lg border border-[#e2e8f0] flex flex-col sm:flex-row gap-md shadow-[0_4px_12px_rgba(30,41,59,0.02)]">
+<div class="w-full sm:w-32 h-32 bg-[#f8fafc] rounded flex-shrink-0 relative overflow-hidden">
+<img alt="Sony Wireless Headphones" class="object-cover w-full h-full mix-blend-multiply" data-alt="premium over-ear wireless headphones in silver color on a clean white background studio lighting" src="https://lh3.googleusercontent.com/aida-public/AB6AXuCATvPOB-HQhq3-LE5LRLCCU0PuiLg3L2_xY7Ml-_LZ_D6WPnAF3nbqTudMhHKwMN6pYvznA30gJqtGrkEfbE0Y8DmDSiajkkIka3D2cuXSDDNe6im-_q0NEM3VrBuLNLJFaPuZee1w6fzzVYYupilB9qBr19gAGRZMWn-JHfBj_Jn_hXtSXobgkglwJPYj11ou8_d5isxYgINvUqaSsbnmGz9DjQjLd9dZnniasycFvho5uBhU58E2o97Q_muteMZWPZ2XsQaxOgM"/>
+</div>
+<div class="flex-grow flex flex-col justify-between">
+<div class="flex justify-between items-start gap-sm">
+<div>
+<h3 class="font-h3 text-body-md text-on-surface">Sony WH-1000XM5 Wireless Noise Canceling Headphones</h3>
+<p class="font-body-sm text-body-sm text-outline mt-xs">Rangi: Kumush</p>
+</div>
+<button aria-label="Remove item" class="text-outline hover:text-error transition-colors p-1">
+<span class="material-symbols-outlined">delete</span>
+</button>
+</div>
+<div class="flex justify-between items-end mt-md">
+<div class="flex items-center border border-[#e2e8f0] rounded-md bg-surface-bright">
+<button aria-label="Decrease quantity" class="px-3 py-1 text-on-surface-variant hover:bg-surface-container-low transition-colors rounded-l-md">
+<span class="material-symbols-outlined text-[18px]">remove</span>
+</button>
+<span class="px-4 py-1 font-body-md text-body-md border-x border-[#e2e8f0]">1</span>
+<button aria-label="Increase quantity" class="px-3 py-1 text-on-surface-variant hover:bg-surface-container-low transition-colors rounded-r-md">
+<span class="material-symbols-outlined text-[18px]">add</span>
+</button>
+</div>
+<div class="text-right">
+<div class="font-price text-price text-on-background">4 100 000 so'm</div>
+<div class="font-body-sm text-body-sm text-outline line-through">4 500 000 so'm</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+<!-- Right Column: Order Summary (Sticky) -->
+<div class="w-full lg:w-96 flex-shrink-0 lg:sticky lg:top-24">
+<div class="bg-surface-container-lowest p-lg rounded-xl border border-[#e2e8f0] shadow-[0_4px_12px_rgba(30,41,59,0.05)]">
+<h2 class="font-h3 text-h3 text-on-background mb-lg">Buyurtma xulosasi</h2>
+<div class="flex flex-col gap-md mb-lg">
+<div class="flex justify-between items-center font-body-md text-body-md">
+<span class="text-on-surface-variant">Mahsulotlar (2):</span>
+<span class="text-on-background">9 700 000 so'm</span>
+</div>
+<div class="flex justify-between items-center font-body-md text-body-md">
+<span class="text-on-surface-variant">Chegirma:</span>
+<span class="text-error">- 400 000 so'm</span>
+</div>
+<div class="flex justify-between items-center font-body-md text-body-md">
+<span class="text-on-surface-variant">Yetkazib berish:</span>
+<span class="text-primary font-medium">Bepul</span>
+</div>
+</div>
+<div class="border-t border-[#e2e8f0] pt-md mb-lg">
+<div class="flex justify-between items-end">
+<span class="font-h3 text-body-lg text-on-background">Jami:</span>
+<span class="font-price text-h2 text-on-background">9 300 000 so'm</span>
+</div>
+</div>
+<button class="w-full bg-secondary-container text-on-secondary-container font-label-md text-label-md py-3 rounded-lg hover:bg-secondary-fixed transition-colors flex justify-center items-center gap-2 uppercase tracking-wide">
+                        Rasmiylashtirish
+                        <span class="material-symbols-outlined">arrow_forward</span>
+</button>
+<div class="mt-md flex items-center justify-center gap-2 text-outline font-body-sm text-body-sm">
+<span class="material-symbols-outlined text-[16px]">verified_user</span>
+                        Xavfsiz to'lov kafolatlangan
+                    </div>
+</div>
+</div>
+</div>
+</main>
+<!-- BottomNavBar (Mobile Only) -->
+<nav class="md:hidden bg-white/95 backdrop-blur-md text-[11px] font-semibold font-sans docked full-width bottom-0 border-t border-slate-200 shadow-[0_-2px_10px_rgba(0,0,0,0.05)] fixed bottom-0 left-0 w-full z-50 flex justify-around items-center px-2 pb-safe pt-2">
+<a class="flex flex-col items-center justify-center text-slate-500 active:bg-slate-100 p-2 rounded-lg transition-transform active:scale-90 duration-150" href="#">
+<span class="material-symbols-outlined mb-1">home</span>
+            Home
+        </a>
+<a class="flex flex-col items-center justify-center text-slate-500 active:bg-slate-100 p-2 rounded-lg transition-transform active:scale-90 duration-150" href="#">
+<span class="material-symbols-outlined mb-1">grid_view</span>
+            Catalog
+        </a>
+<a class="flex flex-col items-center justify-center text-emerald-600 bg-emerald-50 rounded-xl px-3 py-1 transition-transform active:scale-90 duration-150 relative" href="#">
+<span class="material-symbols-outlined mb-1" style="font-variation-settings: 'FILL' 1;">shopping_cart</span>
+            Cart
+            <span class="absolute top-0 right-1 w-2 h-2 bg-error rounded-full"></span>
+</a>
+<a class="flex flex-col items-center justify-center text-slate-500 active:bg-slate-100 p-2 rounded-lg transition-transform active:scale-90 duration-150" href="#">
+<span class="material-symbols-outlined mb-1">person</span>
+            Profile
+        </a>
+</nav>
+</body></html>

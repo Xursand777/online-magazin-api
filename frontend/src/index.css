@@ -1,0 +1,176 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    color-scheme: light;
+    --color-primary-fixed: 111 251 190;
+    --color-surface-container-lowest: 255 255 255;
+    --color-primary-fixed-dim: 78 222 163;
+    --color-on-tertiary-fixed: 65 0 5;
+    --color-surface-container: 231 238 255;
+    --color-on-tertiary-fixed-variant: 132 34 37;
+    --color-primary: 0 108 73;
+    --color-tertiary: 164 58 58;
+    --color-surface-dim: 207 218 242;
+    --color-outline: 108 122 113;
+    --color-on-error: 255 255 255;
+    --color-secondary-fixed: 255 221 184;
+    --color-on-primary-container: 0 66 43;
+    --color-on-secondary: 255 255 255;
+    --color-on-background: 17 28 45;
+    --color-secondary: 133 83 0;
+    --color-on-secondary-container: 104 64 0;
+    --color-error: 186 26 26;
+    --color-surface-variant: 216 227 251;
+    --color-surface-container-low: 240 243 255;
+    --color-on-primary: 255 255 255;
+    --color-tertiary-container: 252 124 120;
+    --color-on-secondary-fixed-variant: 101 62 0;
+    --color-surface-container-high: 222 232 255;
+    --color-surface-tint: 0 108 73;
+    --color-tertiary-fixed: 255 218 215;
+    --color-inverse-primary: 78 222 163;
+    --color-on-tertiary: 255 255 255;
+    --color-surface-bright: 249 249 255;
+    --color-surface-container-highest: 216 227 251;
+    --color-tertiary-fixed-dim: 255 179 175;
+    --color-on-primary-fixed: 0 33 19;
+    --color-primary-container: 16 185 129;
+    --color-on-tertiary-container: 113 20 25;
+    --color-error-container: 255 218 214;
+    --color-on-secondary-fixed: 42 23 0;
+    --color-outline-variant: 187 202 191;
+    --color-on-surface: 17 28 45;
+    --color-inverse-on-surface: 236 241 255;
+    --color-on-primary-fixed-variant: 0 82 54;
+    --color-inverse-surface: 38 49 67;
+    --color-secondary-fixed-dim: 255 185 95;
+    --color-on-error-container: 147 0 10;
+    --color-background: 249 249 255;
+    --color-on-surface-variant: 60 74 66;
+    --color-secondary-container: 254 166 25;
+    --color-surface: 249 249 255;
+  }
+
+  .dark {
+    color-scheme: dark;
+    --color-primary-fixed: 120 255 197;
+    --color-surface-container-lowest: 39 42 48;
+    --color-primary-fixed-dim: 68 217 154;
+    --color-on-tertiary-fixed: 58 8 12;
+    --color-surface-container: 52 56 64;
+    --color-on-tertiary-fixed-variant: 255 196 197;
+    --color-primary: 75 222 158;
+    --color-tertiary: 255 154 158;
+    --color-surface-dim: 32 34 39;
+    --color-outline: 155 161 169;
+    --color-on-error: 58 6 8;
+    --color-secondary-fixed: 255 218 166;
+    --color-on-primary-container: 220 255 237;
+    --color-on-secondary: 48 29 0;
+    --color-on-background: 247 248 249;
+    --color-secondary: 255 197 109;
+    --color-on-secondary-container: 255 239 211;
+    --color-error: 255 138 138;
+    --color-surface-variant: 68 73 82;
+    --color-surface-container-low: 45 48 55;
+    --color-on-primary: 0 38 25;
+    --color-tertiary-container: 120 42 48;
+    --color-on-secondary-fixed-variant: 91 56 0;
+    --color-surface-container-high: 61 65 74;
+    --color-surface-tint: 75 222 158;
+    --color-tertiary-fixed: 255 218 219;
+    --color-inverse-primary: 0 108 73;
+    --color-on-tertiary: 61 9 13;
+    --color-surface-bright: 58 62 70;
+    --color-surface-container-highest: 72 77 86;
+    --color-tertiary-fixed-dim: 255 179 181;
+    --color-on-primary-fixed: 0 34 21;
+    --color-primary-container: 20 154 103;
+    --color-on-tertiary-container: 255 218 219;
+    --color-error-container: 111 37 38;
+    --color-on-secondary-fixed: 40 24 0;
+    --color-outline-variant: 87 93 103;
+    --color-on-surface: 247 248 249;
+    --color-inverse-on-surface: 20 21 24;
+    --color-on-primary-fixed-variant: 0 89 58;
+    --color-inverse-surface: 232 234 238;
+    --color-secondary-fixed-dim: 255 187 94;
+    --color-on-error-container: 255 218 218;
+    --color-background: 34 36 41;
+    --color-on-surface-variant: 210 214 220;
+    --color-secondary-container: 245 158 11;
+    --color-surface: 41 44 50;
+  }
+
+  html {
+    min-height: 100%;
+    background: rgb(var(--color-background));
+    color: rgb(var(--color-on-background));
+  }
+
+  body,
+  #root {
+    min-height: 100vh;
+  }
+
+  body {
+    background: rgb(var(--color-background));
+    color: rgb(var(--color-on-background));
+    transition:
+      background-color 300ms ease,
+      color 300ms ease;
+  }
+
+  *,
+  ::before,
+  ::after {
+    transition-property: background-color, border-color, color, fill, stroke, box-shadow, opacity, transform;
+    transition-duration: 180ms;
+    transition-timing-function: ease;
+  }
+
+  .material-symbols-outlined {
+    font-family: 'Material Symbols Outlined';
+    font-weight: normal;
+    font-style: normal;
+    font-size: 24px;
+    line-height: 1;
+    letter-spacing: normal;
+    text-transform: none;
+    display: inline-block;
+    white-space: nowrap;
+    word-wrap: normal;
+    direction: ltr;
+    -webkit-font-feature-settings: 'liga';
+    -webkit-font-smoothing: antialiased;
+    font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+  }
+  
+  .material-symbols-outlined.fill-icon {
+    font-variation-settings: 'FILL' 1;
+  }
+}
+
+@layer components {
+  #toast-root.bozor-toast-root {
+    top: max(16px, env(safe-area-inset-top));
+    right: 16px;
+    left: 16px;
+    z-index: 45;
+    width: auto;
+    align-items: stretch;
+  }
+
+  @screen md {
+    #toast-root.bozor-toast-root {
+      top: calc(64px + 16px);
+      right: 24px;
+      left: auto;
+      width: min(360px, calc(100vw - 48px));
+      align-items: flex-end;
+    }
+  }
+}

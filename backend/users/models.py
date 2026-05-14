@@ -1,0 +1,66 @@
+from django.db import models
+from django.contrib.auth.models import AbstractUser
+from django.utils.translation import gettext_lazy as _
+
+class User(AbstractUser):
+    username = models.CharField(max_length=150, blank=True, null=True)
+    phone = models.CharField(_("Phone number"), max_length=15, unique=True)
+    
+    is_verified = models.BooleanField(default=False, help_text="Designates whether this user has verified their phone number.")
+    
+    USERNAME_FIELD = 'phone'
+    REQUIRED_FIELDS = []
+
+    def __str__(self):
+        return self.phone
+
+class UserProfile(models.Model):
+    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='profile')
+    avatar = models.ImageField(upload_to='users/avatars/', null=True, blank=True)
+    birth_date = models.DateField(null=True, blank=True)
+    gender_choices = [
+        ('M', 'Male'),
+        ('F', 'Female'),
+        ('O', 'Other'),
+    ]
+    gender = models.CharField(max_length=1, choices=gender_choices, null=True, blank=True)
+    language = models.CharField(max_length=10, default='uz')
+
+    def __str__(self):
+        return f"{self.user.phone} Profile"
+
+class Address(models.Model):
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='addresses')
+    title = models.CharField(max_length=255, help_text="E.g., Home, Work")
+    city = models.CharField(max_length=100)
+    district = models.CharField(max_length=100)
+    street = models.CharField(max_length=255)
+    latitude = models.DecimalField(max_length=20, max_digits=9, decimal_places=6, null=True, blank=True)
+    longitude = models.DecimalField(max_length=20, max_digits=9, decimal_places=6, null=True, blank=True)
+    is_default = models.BooleanField(default=False)
+
+    def __str__(self):
+        return f"{self.title} - {self.user.phone}"
+
+class StaffProfile(models.Model):
+    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='staff_profile')
+    position = models.CharField(max_length=100)
+    salary = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
+    permissions = models.JSONField(default=dict, blank=True)
+
+    def __str__(self):
+        return f"Staff: {self.user.phone}"
+
+class Feedback(models.Model):
+    STATUS_CHOICES = [
+        ('new', 'New'),
+        ('read', 'Read'),
+        ('resolved', 'Resolved'),
+    ]
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='feedbacks')
+    message = models.TextField()
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='new')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"Feedback from {self.user.phone} - {self.status}"

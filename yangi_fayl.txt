@@ -1,0 +1,164 @@
+Loyiha Maqsadi
+Mobile ilova uchun public va private ishlaydigan online magazin API yaratish. Ilova ochilganda login oynasi chiqmaydi, avval Main ochiladi. Foydalanuvchi mahsulotlarni ko‘ra oladi, qidiradi, savatga qo‘shadi. Login qilgan foydalanuvchi uchun qidiruv tarixi va qiziqishlariga qarab mos mahsulotlar chiqariladi.
+
+Asosiy Rollar
+
+Guest: login qilmagan foydalanuvchi, mahsulot va katalogni ko‘radi.
+User: ro‘yxatdan o‘tgan mijoz, savat, buyurtma, profil, manzil va tarixdan foydalanadi.
+Admin: mahsulot, kategoriya, katalog, buyurtma, foydalanuvchi va xodimlarni boshqaradi.
+Staff: admin belgilagan huquqlar bilan buyurtmalar yoki mahsulotlarni boshqaradi.
+Mobile Ilova Bo‘limlari
+
+Bosh sahifa: chegirma mahsulotlar, yangi mahsulotlar, ommabop mahsulotlar, har birida 6 tadan mahsulot.
+Katalog: asosiy kataloglar, ichki kategoriyalar, subkategoriyalar, professional daraxt ko‘rinishida.
+Savat: tanlangan mahsulotlar, soni, rangi, modeli, narxi, chegirma, jami narx.
+Profil: login, buyurtmalarim, saqlangan ma’lumotlar, manzil, til, ijtimoiy tarmoqlar, aloqa, fikr, hisobni o‘chirish, chiqish.
+Backend Modullar
+
+Authentication: telefon raqam, register, login, SMS OTP, JWT token.
+Users: profil, shaxsiy ma’lumotlar, manzillar, saqlangan ma’lumotlar.
+Products: mahsulotlar, rasmlar, ranglar, modellari, variantlari, narx, chegirma.
+Categories: katalog, kategoriya, subkategoriya.
+Cart: savatga qo‘shish, o‘chirish, sonini o‘zgartirish.
+Orders: tezkor zakaz, savatdan zakaz, buyurtma statuslari.
+Payments: naqd, cashback, keyinchalik click/payme/stripe integratsiya uchun tayyor struktura.
+Uploads: product image upload, gallery images.
+Recommendations: user qidiruv tarixi va ko‘rgan mahsulotlari asosida mos mahsulotlar.
+Admin: mahsulot, kategoriya, buyurtma, user, staff, hisobotlar.
+Authentication Talablari
+
+Register: phone, password, confirm_password, terms_accepted.
+Login: phone kiritiladi, SMS kod yuboriladi, kod tasdiqlansa JWT beriladi.
+JWT: access_token va refresh_token.
+Guest foydalanuvchi mahsulotlarni ko‘ra oladi, lekin buyurtma/profil uchun login kerak.
+Telefon raqam unique bo‘lishi kerak.
+SMS OTP muddati masalan 2-5 daqiqa.
+OTP ko‘p xato kiritilsa vaqtinchalik blok qo‘yiladi.
+Asosiy Database Modellar
+
+User: phone, password, first_name, last_name, role, is_active, is_verified, created_at.
+UserProfile: user, avatar, birth_date, gender, language.
+Address: user, title, city, district, street, latitude, longitude, is_default.
+Category: name, slug, parent, image, order, is_active.
+Product: name, slug, description, category, price, discount_price, stock, is_active, is_popular, is_new, is_discount.
+ProductImage: product, image, order, is_main.
+ProductVariant: product, color, model, size/quality, extra_price, stock, sku.
+Cart: user yoki guest_session_id, created_at.
+CartItem: cart, product, variant, quantity, price_snapshot.
+Order: user, receiver_name, receiver_phone, address, payment_method, status, total_price, delivery_price, discount_price.
+OrderItem: order, product, variant, quantity, price_snapshot.
+Payment: order, method, status, amount, transaction_id.
+SearchHistory: user, query, created_at.
+ProductViewHistory: user, product, created_at.
+StaffProfile: user, position, salary, permissions.
+Feedback: user, message, status, created_at.
+API Endpointlar
+
+POST /api/auth/register/
+POST /api/auth/send-otp/
+POST /api/auth/verify-otp/
+POST /api/auth/login/
+POST /api/auth/refresh/
+POST /api/auth/logout/
+GET /api/products/
+GET /api/products/{id}/
+GET /api/products/discounts/
+GET /api/products/new/
+GET /api/products/popular/
+GET /api/products/recommended/
+GET /api/categories/
+GET /api/categories/{id}/products/
+GET /api/search/?q=...
+GET /api/cart/
+POST /api/cart/items/
+PATCH /api/cart/items/{id}/
+DELETE /api/cart/items/{id}/
+POST /api/orders/quick/
+POST /api/orders/from-cart/
+GET /api/orders/
+GET /api/orders/{id}/
+GET /api/profile/
+PATCH /api/profile/
+GET /api/addresses/
+POST /api/addresses/
+PATCH /api/addresses/{id}/
+DELETE /api/addresses/{id}/
+POST /api/feedback/
+Main Sahifa API Javobi
+
+{
+  "discount_products": [],
+  "new_products": [],
+  "popular_products": [],
+  "recommended_products": []
+}
+Har bir bo‘limda default 6 ta mahsulot qaytadi. Hammasini ko‘rish bosilganda pagination bilan to‘liq ro‘yxat ochiladi.
+
+Product Detail Talablari
+Mahsulot detail oynasida katta rasmlar, mahsulot nomi, narxi, chegirma narxi, ranglar, modellari, mavjud soni, tavsif, savatga qo‘shish, tezkor zakaz bo‘lishi kerak.
+
+Order Talablari
+Buyurtma berishda receiver_name, receiver_phone, delivery_address, payment_method, items, delivery_price, discount_price, total_price saqlanadi. Statuslar: new, accepted, preparing, delivering, delivered, cancelled.
+
+Admin Panel Talablari
+Admin mahsulot qo‘shadi, rasm yuklaydi, katalog va kategoriya yaratadi, buyurtmalarni ko‘radi, status o‘zgartiradi, foydalanuvchilarni ko‘radi, xodimlar ma’lumotini va oyliklarini yuritadi, feedbacklarni ko‘radi, chegirma/yangi/ommabop mahsulotlarni belgilaydi.
+
+Muhim Texnik Talablar
+
+API faqat JSON qaytaradi.
+Har bir list endpointda pagination bo‘ladi.
+Rasm upload uchun media/products/ struktura ishlatiladi.
+Katta loyiha uchun keyin S3/Cloudflare R2ga o‘tishga tayyor qilish kerak.
+Barcha narxlar backendda qayta hisoblanadi, mobile’dan kelgan jami narxga ishonilmaydi.
+JWT protected endpointlar faqat login user uchun ishlaydi.
+Public endpointlar login talab qilmaydi.
+Admin endpointlar faqat admin/staff role uchun ochiq bo‘ladi.
+
+Backend uchun sizga eng mos stack:
+
+Django REST Framework + PostgreSQL + JWT
+Frontend ReactJS bo‘lsa, frontend uchun:
+
+React.js + Vite + TypeScript
+Backend
+Asosiy framework: Django REST Framework
+
+Nima uchun:
+
+Mobile app va React frontend uchun JSON API beradi.
+Register, Login, JWT, Product, Category, Cart, Order, Payment, Image upload uchun juda mos.
+Django Admin panel tayyor bor, admin qismni tezroq qilish mumkin.
+PostgreSQL bilan professional ishlaydi.
+Backendda ishlatiladigan asosiy kutubxonalar:
+
+Django
+Django REST Framework
+PostgreSQL
+psycopg
+SimpleJWT
+django-cors-headers
+Pillow
+drf-spectacular yoki drf-yasg
+Frontend
+Asosiy framework/library: React.js
+
+Tavsiya qilinadigan frontend stack:
+
+React.js
+Vite
+TypeScript
+React Router
+Axios
+TanStack Query
+Zustand yoki Redux Toolkit
+Tailwind CSS
+Nima uchun:
+
+React.js sahifalar va componentlar uchun.
+Vite projectni tez ishlatish uchun.
+TypeScript xatolarni oldindan ushlash uchun.
+React Router sahifalar orasida yurish uchun.
+Axios backend API bilan ishlash uchun.
+TanStack Query productlar, categorylar, cart, orderlarni API’dan olish uchun.
+Zustand yoki Redux Toolkit savat, token, user state uchun.
+Tailwind CSS tez va chiroyli UI qilish uchun.

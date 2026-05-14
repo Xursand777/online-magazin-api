@@ -1,0 +1,345 @@
+<!DOCTYPE html>
+
+<html class="light" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Profile Page - Bozor</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "primary-fixed": "#6ffbbe",
+                        "surface-container-lowest": "#ffffff",
+                        "primary-fixed-dim": "#4edea3",
+                        "on-tertiary-fixed": "#410005",
+                        "surface-container": "#e7eeff",
+                        "on-tertiary-fixed-variant": "#842225",
+                        "primary": "#006c49",
+                        "tertiary": "#a43a3a",
+                        "surface-dim": "#cfdaf2",
+                        "outline": "#6c7a71",
+                        "on-error": "#ffffff",
+                        "secondary-fixed": "#ffddb8",
+                        "on-primary-container": "#00422b",
+                        "on-secondary": "#ffffff",
+                        "on-background": "#111c2d",
+                        "secondary": "#855300",
+                        "on-secondary-container": "#684000",
+                        "error": "#ba1a1a",
+                        "surface-variant": "#d8e3fb",
+                        "surface-container-low": "#f0f3ff",
+                        "on-primary": "#ffffff",
+                        "tertiary-container": "#fc7c78",
+                        "on-secondary-fixed-variant": "#653e00",
+                        "surface-container-high": "#dee8ff",
+                        "surface-tint": "#006c49",
+                        "tertiary-fixed": "#ffdad7",
+                        "inverse-primary": "#4edea3",
+                        "on-tertiary": "#ffffff",
+                        "surface-bright": "#f9f9ff",
+                        "surface-container-highest": "#d8e3fb",
+                        "tertiary-fixed-dim": "#ffb3af",
+                        "on-primary-fixed": "#002113",
+                        "primary-container": "#10b981",
+                        "on-tertiary-container": "#711419",
+                        "error-container": "#ffdad6",
+                        "on-secondary-fixed": "#2a1700",
+                        "outline-variant": "#bbcabf",
+                        "on-surface": "#111c2d",
+                        "inverse-on-surface": "#ecf1ff",
+                        "on-primary-fixed-variant": "#005236",
+                        "inverse-surface": "#263143",
+                        "secondary-fixed-dim": "#ffb95f",
+                        "on-error-container": "#93000a",
+                        "background": "#f9f9ff",
+                        "on-surface-variant": "#3c4a42",
+                        "secondary-container": "#fea619",
+                        "surface": "#f9f9ff"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    "spacing": {
+                        "3xl": "64px",
+                        "2xl": "48px",
+                        "container-max": "1280px",
+                        "margin-mobile": "16px",
+                        "lg": "24px",
+                        "md": "16px",
+                        "base": "4px",
+                        "margin-desktop": "32px",
+                        "sm": "8px",
+                        "xl": "32px",
+                        "gutter": "16px",
+                        "xs": "4px"
+                    },
+                    "fontFamily": {
+                        "h2": ["Inter"],
+                        "label-md": ["Inter"],
+                        "body-lg": ["Inter"],
+                        "h3": ["Inter"],
+                        "h1": ["Inter"],
+                        "body-md": ["Inter"],
+                        "body-sm": ["Inter"],
+                        "price": ["Inter"]
+                    },
+                    "fontSize": {
+                        "h2": ["30px", { "lineHeight": "1.2", "letterSpacing": "-0.01em", "fontWeight": "700" }],
+                        "label-md": ["14px", { "lineHeight": "1.0", "letterSpacing": "0.05em", "fontWeight": "600" }],
+                        "body-lg": ["18px", { "lineHeight": "1.6", "fontWeight": "400" }],
+                        "h3": ["24px", { "lineHeight": "1.3", "fontWeight": "600" }],
+                        "h1": ["48px", { "lineHeight": "1.1", "letterSpacing": "-0.02em", "fontWeight": "700" }],
+                        "body-md": ["16px", { "lineHeight": "1.5", "fontWeight": "400" }],
+                        "body-sm": ["14px", { "lineHeight": "1.4", "fontWeight": "400" }],
+                        "price": ["20px", { "lineHeight": "1.0", "fontWeight": "700" }]
+                    }
+                }
+            }
+        }
+    </script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+    </style>
+</head>
+<body class="bg-background text-on-background min-h-screen flex flex-col font-body-md text-body-md">
+<!-- TopNavBar -->
+<header class="bg-white dark:bg-slate-900 font-sans text-sm font-medium docked full-width top-0 border-b border-slate-200 dark:border-slate-800 shadow-sm flex justify-between items-center px-4 md:px-12 py-3 w-full sticky top-0 z-50">
+<div class="flex items-center gap-6">
+<div class="text-2xl font-black tracking-tight text-emerald-600 dark:text-emerald-400">Bozor</div>
+<nav class="hidden md:flex gap-6">
+<a class="text-slate-600 dark:text-slate-400 hover:text-emerald-500 transition-colors" href="#">Catalog</a>
+<a class="text-slate-600 dark:text-slate-400 hover:text-emerald-500 transition-colors" href="#">Deals</a>
+<a class="text-slate-600 dark:text-slate-400 hover:text-emerald-500 transition-colors" href="#">Official Stores</a>
+</nav>
+</div>
+<div class="flex items-center gap-4">
+<div class="relative hidden md:block">
+<input class="border border-outline/30 rounded-md py-1.5 px-3 text-body-sm font-body-sm focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary bg-surface-container-lowest text-on-surface" placeholder="Search..." type="text"/>
+<span class="material-symbols-outlined absolute right-2 top-1/2 -translate-y-1/2 text-outline text-sm">search</span>
+</div>
+<button aria-label="shopping_cart" class="text-emerald-500 dark:text-emerald-400 hover:text-emerald-500 transition-colors">
+<span class="material-symbols-outlined">shopping_cart</span>
+</button>
+<button aria-label="person" class="text-emerald-600 dark:text-emerald-400 border-b-2 border-emerald-600 pb-2 hover:text-emerald-500 transition-colors opacity-80 scale-95">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">person</span>
+</button>
+</div>
+</header>
+<main class="flex-grow max-w-[container-max] mx-auto w-full px-margin-mobile md:px-margin-desktop py-lg grid grid-cols-1 md:grid-cols-[250px_1fr] gap-lg mb-2xl">
+<!-- Not Logged In State (Demonstration) -->
+<section class="col-span-full md:col-span-2 mb-2xl">
+<div class="bg-surface-container-lowest border border-outline/20 rounded-xl p-xl shadow-[0_4px_12px_rgba(30,41,59,0.05)] text-center max-w-md mx-auto mt-2xl">
+<span class="material-symbols-outlined text-4xl text-outline mb-md block">account_circle</span>
+<h2 class="font-h3 text-h3 text-on-surface mb-sm">Welcome to Bozor</h2>
+<p class="font-body-md text-body-md text-on-surface-variant mb-lg">Please log in to view your orders, saved items, and account settings.</p>
+<button class="bg-primary text-on-primary font-label-md text-label-md px-lg py-sm rounded-md hover:bg-primary/90 transition-colors w-full mb-md shadow-sm">Log In</button>
+<button class="border border-outline text-on-surface font-label-md text-label-md px-lg py-sm rounded-md hover:bg-surface-container transition-colors w-full">Sign Up</button>
+</div>
+</section>
+<!-- Divider to show Logged In State below -->
+<div class="col-span-full border-t border-outline/20 my-lg relative">
+<span class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-background px-md text-outline font-label-md text-label-md">Logged In State Below</span>
+</div>
+<!-- Logged In State: Sidebar -->
+<aside class="hidden md:block">
+<div class="bg-surface-container-lowest border border-outline/20 rounded-xl shadow-[0_4px_12px_rgba(30,41,59,0.05)] overflow-hidden sticky top-24">
+<div class="p-md border-b border-outline/20 flex items-center gap-md bg-surface-container-low">
+<img alt="User Avatar" class="w-12 h-12 rounded-full border-2 border-white shadow-sm object-cover" data-alt="professional headshot of a person looking friendly against a neutral background" src="https://lh3.googleusercontent.com/aida-public/AB6AXuAb7ZlYvI8-5tK8x_cSYmembyPuM_YE_9Kmtc1GPlRLNz-_uWlAr2Ja8ZpVzO4H9aiG5mgolGDAB3OcLQS3zlXCBSmrot7npaDgQGyOtLxBcbGnnXpqp9rUoVivxHweReJI9uGx0_7DzIWM-JB0YpK8IOKVu7UlSnZbYthREB6biSW91srFT9rlZMrgHot8ltdGYL18LtYyTko4mpHym-gq0tSDrrwVcwQ0i0LKBahqR6L2u3CaN20q3wbOhXXYFalMPqwfH9942CA"/>
+<div>
+<h3 class="font-label-md text-label-md text-on-surface">Azizbek K.</h3>
+<p class="font-body-sm text-body-sm text-on-surface-variant">+998 90 *** ** 45</p>
+</div>
+</div>
+<nav class="flex flex-col py-sm">
+<a class="flex items-center gap-md px-md py-sm text-primary bg-primary-fixed/20 border-l-4 border-primary font-label-md text-label-md" href="#">
+<span class="material-symbols-outlined text-xl" style="font-variation-settings: 'FILL' 1;">person</span>
+                        Profile Overview
+                    </a>
+<a class="flex items-center gap-md px-md py-sm text-on-surface hover:bg-surface-container-low transition-colors font-body-md text-body-md" href="#">
+<span class="material-symbols-outlined text-xl text-outline">list_alt</span>
+                        My Orders
+                    </a>
+<a class="flex items-center gap-md px-md py-sm text-on-surface hover:bg-surface-container-low transition-colors font-body-md text-body-md" href="#">
+<span class="material-symbols-outlined text-xl text-outline">favorite</span>
+                        Saved Items
+                    </a>
+<a class="flex items-center gap-md px-md py-sm text-on-surface hover:bg-surface-container-low transition-colors font-body-md text-body-md" href="#">
+<span class="material-symbols-outlined text-xl text-outline">location_on</span>
+                        Addresses
+                    </a>
+<hr class="my-xs border-outline/20"/>
+<a class="flex items-center gap-md px-md py-sm text-on-surface hover:bg-surface-container-low transition-colors font-body-md text-body-md" href="#">
+<span class="material-symbols-outlined text-xl text-outline">language</span>
+                        Language
+                    </a>
+<a class="flex items-center gap-md px-md py-sm text-on-surface hover:bg-surface-container-low transition-colors font-body-md text-body-md" href="#">
+<span class="material-symbols-outlined text-xl text-outline">support_agent</span>
+                        Contact Us
+                    </a>
+<a class="flex items-center gap-md px-md py-sm text-on-surface hover:bg-surface-container-low transition-colors font-body-md text-body-md" href="#">
+<span class="material-symbols-outlined text-xl text-outline">settings</span>
+                        Settings
+                    </a>
+<button class="flex items-center gap-md px-md py-sm text-error hover:bg-error-container/20 transition-colors font-body-md text-body-md text-left mt-sm">
+<span class="material-symbols-outlined text-xl">logout</span>
+                        Log Out
+                    </button>
+</nav>
+</div>
+</aside>
+<!-- Logged In State: Main Content -->
+<section class="flex flex-col gap-lg">
+<!-- User Info Bento Box -->
+<div class="grid grid-cols-1 sm:grid-cols-2 gap-md">
+<div class="bg-surface-container-lowest border border-outline/20 rounded-xl p-md shadow-[0_4px_12px_rgba(30,41,59,0.05)] flex items-start gap-md">
+<div class="bg-primary-fixed/30 p-sm rounded-lg text-primary">
+<span class="material-symbols-outlined">account_balance_wallet</span>
+</div>
+<div>
+<p class="font-body-sm text-body-sm text-on-surface-variant">Bozor Wallet Balance</p>
+<h4 class="font-price text-price text-on-surface mt-xs">125,000 UZS</h4>
+<a class="font-label-md text-label-md text-primary mt-sm inline-block hover:underline" href="#">Top Up</a>
+</div>
+</div>
+<div class="bg-surface-container-lowest border border-outline/20 rounded-xl p-md shadow-[0_4px_12px_rgba(30,41,59,0.05)] flex items-start gap-md">
+<div class="bg-secondary-fixed/50 p-sm rounded-lg text-secondary">
+<span class="material-symbols-outlined">stars</span>
+</div>
+<div>
+<p class="font-body-sm text-body-sm text-on-surface-variant">Reward Points</p>
+<h4 class="font-h3 text-h3 text-on-surface mt-xs">450</h4>
+<p class="font-body-sm text-body-sm text-on-surface-variant mt-sm">Available to spend</p>
+</div>
+</div>
+</div>
+<!-- Recent Orders (Glassmorphism inspired) -->
+<div class="bg-surface-container-lowest/80 backdrop-blur-sm border border-outline/20 rounded-xl shadow-[0_4px_12px_rgba(30,41,59,0.05)] p-lg">
+<div class="flex justify-between items-center mb-md border-b border-outline/20 pb-sm">
+<h2 class="font-h3 text-h3 text-on-surface">Recent Orders</h2>
+<a class="font-label-md text-label-md text-primary hover:underline flex items-center" href="#">View All <span class="material-symbols-outlined text-sm ml-xs">arrow_forward</span></a>
+</div>
+<div class="flex flex-col gap-md">
+<!-- Order Item 1 -->
+<div class="flex flex-col sm:flex-row gap-md border border-outline/10 rounded-lg p-md hover:bg-surface-container-low/50 transition-colors">
+<div class="w-16 h-16 bg-[#f8fafc] border border-outline/20 rounded-md overflow-hidden shrink-0">
+<img alt="Headphones" class="w-full h-full object-cover" data-alt="sleek modern over-ear wireless headphones on a clean light background" src="https://lh3.googleusercontent.com/aida-public/AB6AXuBLWUU6EJxFO9kovRva6dkdAqUpD2tCxQyAOxwXgr7oOiJul_sNBlhRQrBXzJR8Ynz3g22EhxmeIrF_BfuKgS477Yr98NSdv5zXWMjRVgodDwkYgjuurxs24VSOVnLoTT1Z0exzhYb3lNXqzVgoFlOILRx86QBS4Y6maFVeO6WQxr-8v71iUf_ckOZcdCmKSu6pEy4E4wMCSmVNfB3p9-ixp4N-u3tfg3F5OQIhtQl-OPj1hIu9MulA0ymW5laldhOPL-276onV7jM"/>
+</div>
+<div class="flex-grow flex flex-col justify-center">
+<div class="flex justify-between items-start">
+<div>
+<span class="inline-block bg-primary/10 text-primary font-body-sm text-body-sm px-2 py-0.5 rounded text-xs mb-xs font-semibold">Delivered</span>
+<h4 class="font-label-md text-label-md text-on-surface">Sony WH-1000XM4 Wireless Headphones</h4>
+<p class="font-body-sm text-body-sm text-on-surface-variant mt-xs">Order #BZ-49201 • 12 Oct 2023</p>
+</div>
+<div class="text-right hidden sm:block">
+<p class="font-price text-price text-on-surface text-base">3,450,000 UZS</p>
+</div>
+</div>
+</div>
+<div class="sm:hidden mt-2 flex justify-between items-center">
+<p class="font-price text-price text-on-surface text-base">3,450,000 UZS</p>
+<button class="border border-outline text-on-surface font-label-md text-label-md px-3 py-1 rounded-md text-xs">Buy Again</button>
+</div>
+<div class="hidden sm:flex items-center">
+<button class="border border-outline text-on-surface font-label-md text-label-md px-md py-sm rounded-md hover:bg-surface-container transition-colors whitespace-nowrap">Buy Again</button>
+</div>
+</div>
+<!-- Order Item 2 -->
+<div class="flex flex-col sm:flex-row gap-md border border-outline/10 rounded-lg p-md hover:bg-surface-container-low/50 transition-colors">
+<div class="w-16 h-16 bg-[#f8fafc] border border-outline/20 rounded-md overflow-hidden shrink-0">
+<img alt="Smartwatch" class="w-full h-full object-cover" data-alt="modern smartwatch with a dark screen and black band on a light surface" src="https://lh3.googleusercontent.com/aida-public/AB6AXuCj0q31LUS3lVNvIq10PIrQbrc25nK7BiVSU48xf6UFAYhCP5WwEFsOOf_nK6FB-YxFymNjHueCooCPcWwSO48FuBk54OgsrgcgTejayc4tOORjs0nSy6C_Syqr-rQyQAnoTKqy_zFyApypdv-on_p1cffTlnsLegd68khNxwHJ-B8S70p0hK_K-A1sbF3Jhi8Ppofe09RVvE7rGkGaK1DRLQX-Ri5346XCBoOiR4CJAdw0TDttX5Tp63D7G3ldSkdsH9xGO_RvIs8"/>
+</div>
+<div class="flex-grow flex flex-col justify-center">
+<div class="flex justify-between items-start">
+<div>
+<span class="inline-block bg-secondary-container/20 text-on-secondary-container font-body-sm text-body-sm px-2 py-0.5 rounded text-xs mb-xs font-semibold">In Transit</span>
+<h4 class="font-label-md text-label-md text-on-surface">Apple Watch SE 2nd Gen</h4>
+<p class="font-body-sm text-body-sm text-on-surface-variant mt-xs">Order #BZ-49882 • 24 Oct 2023</p>
+</div>
+<div class="text-right hidden sm:block">
+<p class="font-price text-price text-on-surface text-base">3,100,000 UZS</p>
+</div>
+</div>
+</div>
+<div class="sm:hidden mt-2 flex justify-between items-center">
+<p class="font-price text-price text-on-surface text-base">3,100,000 UZS</p>
+<button class="border border-outline text-on-surface font-label-md text-label-md px-3 py-1 rounded-md text-xs">Track</button>
+</div>
+<div class="hidden sm:flex items-center">
+<button class="border border-outline text-on-surface font-label-md text-label-md px-md py-sm rounded-md hover:bg-surface-container transition-colors whitespace-nowrap">Track Order</button>
+</div>
+</div>
+</div>
+</div>
+<!-- Quick Links for Mobile (replaces sidebar functionality on small screens) -->
+<div class="md:hidden grid grid-cols-2 gap-sm mt-md">
+<a class="bg-surface-container-lowest border border-outline/20 rounded-lg p-sm shadow-sm flex flex-col items-center justify-center gap-xs hover:bg-surface-container-low" href="#">
+<span class="material-symbols-outlined text-outline">list_alt</span>
+<span class="font-label-md text-label-md text-on-surface text-xs text-center">My Orders</span>
+</a>
+<a class="bg-surface-container-lowest border border-outline/20 rounded-lg p-sm shadow-sm flex flex-col items-center justify-center gap-xs hover:bg-surface-container-low" href="#">
+<span class="material-symbols-outlined text-outline">favorite</span>
+<span class="font-label-md text-label-md text-on-surface text-xs text-center">Saved Items</span>
+</a>
+<a class="bg-surface-container-lowest border border-outline/20 rounded-lg p-sm shadow-sm flex flex-col items-center justify-center gap-xs hover:bg-surface-container-low" href="#">
+<span class="material-symbols-outlined text-outline">location_on</span>
+<span class="font-label-md text-label-md text-on-surface text-xs text-center">Addresses</span>
+</a>
+<a class="bg-surface-container-lowest border border-outline/20 rounded-lg p-sm shadow-sm flex flex-col items-center justify-center gap-xs hover:bg-surface-container-low" href="#">
+<span class="material-symbols-outlined text-outline">settings</span>
+<span class="font-label-md text-label-md text-on-surface text-xs text-center">Settings</span>
+</a>
+</div>
+</section>
+</main>
+<!-- BottomNavBar -->
+<nav class="md:hidden bg-white/95 dark:bg-slate-900/95 backdrop-blur-md text-[11px] font-semibold font-sans docked full-width bottom-0 border-t border-slate-200 dark:border-slate-800 shadow-[0_-2px_10px_rgba(0,0,0,0.05)] fixed bottom-0 left-0 w-full z-50 flex justify-around items-center px-2 pb-safe pt-2 pb-2">
+<a class="flex flex-col items-center justify-center text-slate-500 dark:text-slate-400 active:bg-slate-100 dark:active:bg-slate-800 scale-90 duration-150 p-2 rounded-xl" href="#">
+<span class="material-symbols-outlined text-xl mb-1">home</span>
+            Home
+        </a>
+<a class="flex flex-col items-center justify-center text-slate-500 dark:text-slate-400 active:bg-slate-100 dark:active:bg-slate-800 scale-90 duration-150 p-2 rounded-xl" href="#">
+<span class="material-symbols-outlined text-xl mb-1">grid_view</span>
+            Catalog
+        </a>
+<a class="flex flex-col items-center justify-center text-slate-500 dark:text-slate-400 active:bg-slate-100 dark:active:bg-slate-800 scale-90 duration-150 p-2 rounded-xl" href="#">
+<span class="material-symbols-outlined text-xl mb-1">shopping_cart</span>
+            Cart
+        </a>
+<a class="flex flex-col items-center justify-center text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-900/20 rounded-xl px-3 py-1 scale-90 duration-150" href="#">
+<span class="material-symbols-outlined text-xl mb-1" style="font-variation-settings: 'FILL' 1;">person</span>
+            Profile
+        </a>
+</nav>
+<!-- Footer -->
+<footer class="bg-slate-50 dark:bg-slate-950 font-sans text-sm text-slate-500 dark:text-slate-400 full-width py-12 px-8 border-t border-slate-200 dark:border-slate-800 mt-16 pb-24 md:pb-12">
+<div class="grid grid-cols-1 md:grid-cols-4 gap-8 max-w-7xl mx-auto">
+<div class="col-span-1 md:col-span-1">
+<div class="text-lg font-bold text-emerald-600 mb-4">Bozor</div>
+<p>© 2024 Bozor. All rights reserved. Registered Marketplace of Uzbekistan.</p>
+</div>
+<div class="flex flex-col gap-2">
+<a class="text-slate-500 hover:text-emerald-500 hover:underline" href="#">About Us</a>
+<a class="text-slate-500 hover:text-emerald-500 hover:underline" href="#">Delivery Policy</a>
+</div>
+<div class="flex flex-col gap-2">
+<a class="text-slate-500 hover:text-emerald-500 hover:underline" href="#">Payment Methods</a>
+<a class="text-slate-500 hover:text-emerald-500 hover:underline" href="#">Help Center</a>
+</div>
+<div class="flex flex-col gap-2">
+<a class="text-slate-500 hover:text-emerald-500 hover:underline" href="#">Terms &amp; Conditions</a>
+</div>
+</div>
+</footer>
+</body></html>

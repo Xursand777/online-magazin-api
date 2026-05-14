@@ -1,0 +1,49 @@
+# Dependency directories
+node_modules/
+venv/
+env/
+ENV/
+
+# Build outputs
+dist/
+dist-ssr/
+build/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Database
+db.sqlite3
+*.db
+*.sqlite
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# IDEs
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Local env files
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Media and logs
+media/
+logs/
+*.log

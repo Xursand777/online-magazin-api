@@ -1,0 +1,357 @@
+<!DOCTYPE html>
+
+<html class="light" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Bozor - Product Detail</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "primary-fixed": "#6ffbbe",
+                        "surface-container-lowest": "#ffffff",
+                        "primary-fixed-dim": "#4edea3",
+                        "on-tertiary-fixed": "#410005",
+                        "surface-container": "#e7eeff",
+                        "on-tertiary-fixed-variant": "#842225",
+                        "primary": "#006c49",
+                        "tertiary": "#a43a3a",
+                        "surface-dim": "#cfdaf2",
+                        "outline": "#6c7a71",
+                        "on-error": "#ffffff",
+                        "secondary-fixed": "#ffddb8",
+                        "on-primary-container": "#00422b",
+                        "on-secondary": "#ffffff",
+                        "on-background": "#111c2d",
+                        "secondary": "#855300",
+                        "on-secondary-container": "#684000",
+                        "error": "#ba1a1a",
+                        "surface-variant": "#d8e3fb",
+                        "surface-container-low": "#f0f3ff",
+                        "on-primary": "#ffffff",
+                        "tertiary-container": "#fc7c78",
+                        "on-secondary-fixed-variant": "#653e00",
+                        "surface-container-high": "#dee8ff",
+                        "surface-tint": "#006c49",
+                        "tertiary-fixed": "#ffdad7",
+                        "inverse-primary": "#4edea3",
+                        "on-tertiary": "#ffffff",
+                        "surface-bright": "#f9f9ff",
+                        "surface-container-highest": "#d8e3fb",
+                        "tertiary-fixed-dim": "#ffb3af",
+                        "on-primary-fixed": "#002113",
+                        "primary-container": "#10b981",
+                        "on-tertiary-container": "#711419",
+                        "error-container": "#ffdad6",
+                        "on-secondary-fixed": "#2a1700",
+                        "outline-variant": "#bbcabf",
+                        "on-surface": "#111c2d",
+                        "inverse-on-surface": "#ecf1ff",
+                        "on-primary-fixed-variant": "#005236",
+                        "inverse-surface": "#263143",
+                        "secondary-fixed-dim": "#ffb95f",
+                        "on-error-container": "#93000a",
+                        "background": "#f9f9ff",
+                        "on-surface-variant": "#3c4a42",
+                        "secondary-container": "#fea619",
+                        "surface": "#f9f9ff"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    "spacing": {
+                        "3xl": "64px",
+                        "2xl": "48px",
+                        "container-max": "1280px",
+                        "margin-mobile": "16px",
+                        "lg": "24px",
+                        "md": "16px",
+                        "base": "4px",
+                        "margin-desktop": "32px",
+                        "sm": "8px",
+                        "xl": "32px",
+                        "gutter": "16px",
+                        "xs": "4px"
+                    },
+                    "fontFamily": {
+                        "h2": ["Inter"],
+                        "label-md": ["Inter"],
+                        "body-lg": ["Inter"],
+                        "h3": ["Inter"],
+                        "h1": ["Inter"],
+                        "body-md": ["Inter"],
+                        "body-sm": ["Inter"],
+                        "price": ["Inter"]
+                    },
+                    "fontSize": {
+                        "h2": ["30px", { "lineHeight": "1.2", "letterSpacing": "-0.01em", "fontWeight": "700" }],
+                        "label-md": ["14px", { "lineHeight": "1.0", "letterSpacing": "0.05em", "fontWeight": "600" }],
+                        "body-lg": ["18px", { "lineHeight": "1.6", "fontWeight": "400" }],
+                        "h3": ["24px", { "lineHeight": "1.3", "fontWeight": "600" }],
+                        "h1": ["48px", { "lineHeight": "1.1", "letterSpacing": "-0.02em", "fontWeight": "700" }],
+                        "body-md": ["16px", { "lineHeight": "1.5", "fontWeight": "400" }],
+                        "body-sm": ["14px", { "lineHeight": "1.4", "fontWeight": "400" }],
+                        "price": ["20px", { "lineHeight": "1.0", "fontWeight": "700" }]
+                    }
+                }
+            }
+        }
+    </script>
+<style>
+        body { font-family: 'Inter', sans-serif; }
+    </style>
+</head>
+<body class="bg-background text-on-background min-h-screen flex flex-col antialiased">
+<!-- TopNavBar -->
+<header class="bg-surface-container-lowest text-primary font-sans text-sm font-medium docked full-width top-0 border-b border-surface-container-highest shadow-sm flex justify-between items-center px-margin-mobile md:px-margin-desktop py-3 w-full sticky z-50">
+<div class="flex items-center gap-md">
+<span class="text-2xl font-black tracking-tight text-primary">Bozor</span>
+</div>
+<div class="hidden md:flex items-center gap-lg">
+<a class="text-on-surface-variant hover:text-primary transition-colors" href="#">Catalog</a>
+<a class="text-on-surface-variant hover:text-primary transition-colors" href="#">Deals</a>
+<a class="text-on-surface-variant hover:text-primary transition-colors" href="#">Official Stores</a>
+</div>
+<div class="flex items-center gap-md">
+<div class="relative hidden sm:block">
+<input class="border border-surface-container-highest rounded-md py-1 px-3 text-sm focus:outline-none focus:border-primary" placeholder="Search products..." type="text"/>
+<span class="material-symbols-outlined absolute right-2 top-1.5 text-on-surface-variant text-base">search</span>
+</div>
+<button aria-label="shopping_cart" class="hover:text-primary transition-colors relative">
+<span class="material-symbols-outlined" data-icon="shopping_cart">shopping_cart</span>
+</button>
+<button aria-label="person" class="hover:text-primary transition-colors">
+<span class="material-symbols-outlined" data-icon="person">person</span>
+</button>
+</div>
+</header>
+<!-- Main Content Canvas -->
+<main class="flex-grow max-w-container-max mx-auto w-full px-margin-mobile md:px-margin-desktop py-lg grid grid-cols-1 md:grid-cols-12 gap-lg lg:gap-2xl">
+<!-- Breadcrumbs -->
+<nav class="md:col-span-12 flex items-center gap-sm text-body-sm font-body-sm text-on-surface-variant mb-md">
+<a class="hover:text-primary" href="#">Catalog</a>
+<span class="material-symbols-outlined text-sm">chevron_right</span>
+<a class="hover:text-primary" href="#">Electronics</a>
+<span class="material-symbols-outlined text-sm">chevron_right</span>
+<a class="hover:text-primary" href="#">Smartphones</a>
+<span class="material-symbols-outlined text-sm">chevron_right</span>
+<span class="text-on-surface">Apple iPhone 15 Pro Max</span>
+</nav>
+<!-- Product Image Gallery (Left) -->
+<section class="md:col-span-6 lg:col-span-5 flex flex-col gap-md">
+<div class="aspect-square bg-surface-container-lowest border border-surface-container-highest rounded-lg overflow-hidden flex items-center justify-center relative">
+<img alt="iPhone 15 Pro Max Natural Titanium" class="w-full h-full object-contain p-lg" data-alt="close up of a modern smartphone in natural titanium finish, resting on a clean white surface with soft studio lighting, showcasing its premium build quality" src="https://lh3.googleusercontent.com/aida-public/AB6AXuAAycSInLkWJMBWZXDYpE6j4s_Z-5XcI4UE4jGi4wktn8NhirKXm-VA0Z2MZ7AbklRF-SMACi1heegoaa6iy55J2t2FwG32YxmP07cXZBA9Du04xq_mZtSWccerj8ZXbobEP7yaE9yYJzjy8jHzH0jlso3iehJp6Gw8uI-kMCoufiIhabJzEajPk9BZUL5e2u53kR7KZgdnco9oTSJT-rpnpUXRmUPNVKuIjRSaCxI1BJaU9p7029VvvACIpBgb164Up3TypYplmew"/>
+<!-- Trust Badge Overlay -->
+<div class="absolute top-sm right-sm bg-surface-container-lowest/90 backdrop-blur-sm border border-surface-container-highest rounded-full px-2 py-1 flex items-center gap-1 shadow-sm">
+<span class="material-symbols-outlined text-[14px] text-primary">verified</span>
+<span class="text-[10px] font-label-md text-on-surface">Official</span>
+</div>
+</div>
+<!-- Thumbnails -->
+<div class="flex gap-sm overflow-x-auto pb-2 scrollbar-hide">
+<button class="w-20 h-20 flex-shrink-0 bg-surface-container-lowest border-2 border-primary rounded-md overflow-hidden flex items-center justify-center">
+<img alt="Thumbnail 1" class="w-full h-full object-contain p-2" data-alt="small thumbnail of a modern smartphone in natural titanium finish, front view" src="https://lh3.googleusercontent.com/aida-public/AB6AXuBydvO2FvnyRshO3Bk5wi-GMWpmul7Ro3InyD5pSE4khxgdt5N8_bfpaTRgWkkSurkIZ7MgBGnHIgUpwfG9xzo2RxT_uxtuGKp-tYOu4gBzEu8Nzg0lRJHIS2bV4rczVoS1-4aI7rydLE8Q8FdbDZghVBo4oJT7apPmrvmrbwGrQRU8HKRXAs9IC9uhOjitl3FdLHP7dnfXkrMP_3mq1_ZCacGH8pBRNAsSrg1LDBcmoxOQepXjYEH2tDKcaRQSpbM-H5jsyTcbUSI"/>
+</button>
+<button class="w-20 h-20 flex-shrink-0 bg-surface-container-lowest border border-surface-container-highest rounded-md overflow-hidden flex items-center justify-center hover:border-outline-variant transition-colors">
+<img alt="Thumbnail 2" class="w-full h-full object-contain p-2" data-alt="small thumbnail of a modern smartphone showing the back camera lenses, premium finish" src="https://lh3.googleusercontent.com/aida-public/AB6AXuB3VWE7k0-y-pLCSqatHSB1URTjsoLFDArn5CiRLNxlUqayhH0CnOHqAh7cVwaPvQtmedIh6-Qh4jRYTjkCvHhNtot9jnzajlDfvvZtL7esLUEPT6xgFb-d7-b1Anm5gU03hvwFvlcMBzGeennxB-8CmFcAprr6g5VI4JftE-rjGAP5aQ0UAJOgkNTepcVlbxX2l_3TonB-me6Qwan4-3oxL6TAeOsS6MzsaNZoh7heHdqSC3xoFQ_UBCRQ-jVZiu9Du501beudbYs"/>
+</button>
+<button class="w-20 h-20 flex-shrink-0 bg-surface-container-lowest border border-surface-container-highest rounded-md overflow-hidden flex items-center justify-center hover:border-outline-variant transition-colors">
+<img alt="Thumbnail 3" class="w-full h-full object-contain p-2" data-alt="small thumbnail of a modern smartphone side profile showing titanium edge" src="https://lh3.googleusercontent.com/aida-public/AB6AXuCP6zHFW8e2HOI_dEWAWKABiSqjbg2UqOlrh_iNZz2mlM-xKrSU1QAAMERG-dP5r7Ixsi2dDYTsDZFhrTJzOuQnmKoDfvMetdd0RWcX7ayLey_1CGm9CVC0eioRU32y0dnVpewswfWWHIu8CdkadNt_gjxUlA0SY6MWRtiysHHb5FgrM4ILYHOpCkXINzEcuE4abtYzWMXNi8w1SgYuSvTLqaaIoq7UTEoqQbX18rJTHzOQsaCARfbH93RdvIOB3PEwfnSEpP1zzcU"/>
+</button>
+</div>
+</section>
+<!-- Product Info (Right) -->
+<section class="md:col-span-6 lg:col-span-7 flex flex-col gap-lg">
+<!-- Header & Price -->
+<div class="flex flex-col gap-sm">
+<div class="flex justify-between items-start">
+<h1 class="text-h2 font-h2 text-on-surface">Apple iPhone 15 Pro Max 256GB Natural Titanium</h1>
+<button aria-label="favorite" class="text-on-surface-variant hover:text-tertiary transition-colors">
+<span class="material-symbols-outlined text-2xl">favorite_border</span>
+</button>
+</div>
+<div class="flex items-center gap-md text-body-sm font-body-sm">
+<div class="flex items-center text-secondary-container">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">star</span>
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">star</span>
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">star</span>
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">star</span>
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">star_half</span>
+<span class="ml-1 text-on-surface-variant">4.8 (124 reviews)</span>
+</div>
+<span class="text-surface-container-highest">|</span>
+<span class="text-primary font-medium flex items-center gap-1">
+<span class="material-symbols-outlined text-sm">local_shipping</span> Free Delivery
+                    </span>
+</div>
+<div class="mt-xs">
+<div class="flex items-baseline gap-sm">
+<span class="text-h2 font-h2 text-on-surface">15 499 000 UZS</span>
+<span class="text-body-lg font-body-lg text-on-surface-variant line-through">16 200 000 UZS</span>
+<span class="bg-tertiary-container text-on-tertiary-container text-[12px] font-label-md px-2 py-0.5 rounded-full ml-2">-4%</span>
+</div>
+<p class="text-body-sm font-body-sm text-on-surface-variant mt-1">1 291 583 UZS x 12 months with Uzum Nasiya</p>
+</div>
+</div>
+<!-- Variants Selection -->
+<div class="flex flex-col gap-md border-t border-b border-surface-container-highest py-md">
+<!-- Color -->
+<div class="flex flex-col gap-sm">
+<span class="text-label-md font-label-md text-on-surface uppercase">Color: <span class="font-normal text-on-surface-variant normal-case">Natural Titanium</span></span>
+<div class="flex gap-sm">
+<button aria-label="Natural Titanium" class="w-10 h-10 rounded-full border-2 border-primary p-0.5 flex items-center justify-center">
+<span class="w-full h-full rounded-full bg-[#B5B3AE] block border border-surface-container-highest"></span>
+</button>
+<button aria-label="Blue Titanium" class="w-10 h-10 rounded-full border border-surface-container-highest p-0.5 flex items-center justify-center hover:border-outline-variant transition-colors">
+<span class="w-full h-full rounded-full bg-[#2E3641] block border border-surface-container-highest"></span>
+</button>
+<button aria-label="White Titanium" class="w-10 h-10 rounded-full border border-surface-container-highest p-0.5 flex items-center justify-center hover:border-outline-variant transition-colors">
+<span class="w-full h-full rounded-full bg-[#F2F1ED] block border border-surface-container-highest"></span>
+</button>
+<button aria-label="Black Titanium" class="w-10 h-10 rounded-full border border-surface-container-highest p-0.5 flex items-center justify-center hover:border-outline-variant transition-colors">
+<span class="w-full h-full rounded-full bg-[#3D3C3B] block border border-surface-container-highest"></span>
+</button>
+</div>
+</div>
+<!-- Storage -->
+<div class="flex flex-col gap-sm mt-xs">
+<span class="text-label-md font-label-md text-on-surface uppercase">Storage</span>
+<div class="flex flex-wrap gap-sm">
+<button class="px-4 py-2 rounded-md border-2 border-primary bg-surface-container-low text-primary font-label-md text-label-md">256 GB</button>
+<button class="px-4 py-2 rounded-md border border-surface-container-highest bg-surface-container-lowest text-on-surface hover:border-outline-variant transition-colors font-label-md text-label-md">512 GB</button>
+<button class="px-4 py-2 rounded-md border border-surface-container-highest bg-surface-container-lowest text-on-surface hover:border-outline-variant transition-colors font-label-md text-label-md">1 TB</button>
+</div>
+</div>
+</div>
+<!-- Actions & Seller -->
+<div class="flex flex-col gap-md">
+<div class="flex flex-col sm:flex-row gap-sm w-full">
+<button class="flex-1 bg-primary text-on-primary py-3 px-6 rounded-md font-label-md text-label-md shadow-sm hover:bg-primary-fixed-dim transition-colors flex items-center justify-center gap-2">
+<span class="material-symbols-outlined">shopping_cart</span>
+                        Savatga qo'shish
+                    </button>
+<button class="flex-1 bg-secondary-container text-on-secondary-container py-3 px-6 rounded-md font-label-md text-label-md shadow-sm hover:opacity-90 transition-opacity flex items-center justify-center gap-2">
+<span class="material-symbols-outlined">bolt</span>
+                        Tezkor zakaz
+                    </button>
+</div>
+<!-- Seller Info Box -->
+<div class="bg-surface-container-low rounded-lg p-md border border-surface-container-highest flex items-center justify-between mt-sm">
+<div class="flex items-center gap-md">
+<div class="w-12 h-12 bg-surface-container-lowest rounded-md flex items-center justify-center border border-surface-container-highest shadow-sm">
+<span class="material-symbols-outlined text-primary text-2xl">storefront</span>
+</div>
+<div>
+<h3 class="text-body-md font-body-md text-on-surface font-semibold">iStore Official</h3>
+<p class="text-body-sm font-body-sm text-on-surface-variant flex items-center gap-1">
+<span class="material-symbols-outlined text-[14px] text-primary" style="font-variation-settings: 'FILL' 1;">verified</span>
+                                Verified Seller
+                            </p>
+</div>
+</div>
+<div class="text-right">
+<div class="text-body-sm font-body-sm text-on-surface font-semibold">99.8%</div>
+<div class="text-body-sm font-body-sm text-on-surface-variant">Positive Feedback</div>
+</div>
+</div>
+</div>
+</section>
+<!-- Description & Specs -->
+<section class="md:col-span-12 mt-lg flex flex-col gap-lg border-t border-surface-container-highest pt-lg">
+<h2 class="text-h3 font-h3 text-on-surface">Product Information</h2>
+<div class="grid grid-cols-1 md:grid-cols-2 gap-xl">
+<!-- Specs List -->
+<div class="bg-surface-container-lowest border border-surface-container-highest rounded-lg p-lg">
+<h3 class="text-label-md font-label-md text-on-surface uppercase mb-md text-on-surface-variant">Technical Specifications</h3>
+<ul class="divide-y divide-surface-container-highest">
+<li class="py-2 flex justify-between text-body-sm font-body-sm">
+<span class="text-on-surface-variant">Display</span>
+<span class="text-on-surface font-medium text-right">6.7" Super Retina XDR OLED</span>
+</li>
+<li class="py-2 flex justify-between text-body-sm font-body-sm">
+<span class="text-on-surface-variant">Processor</span>
+<span class="text-on-surface font-medium text-right">A17 Pro chip</span>
+</li>
+<li class="py-2 flex justify-between text-body-sm font-body-sm">
+<span class="text-on-surface-variant">Main Camera</span>
+<span class="text-on-surface font-medium text-right">48MP + 12MP + 12MP</span>
+</li>
+<li class="py-2 flex justify-between text-body-sm font-body-sm">
+<span class="text-on-surface-variant">Front Camera</span>
+<span class="text-on-surface font-medium text-right">12MP TrueDepth</span>
+</li>
+<li class="py-2 flex justify-between text-body-sm font-body-sm">
+<span class="text-on-surface-variant">Battery</span>
+<span class="text-on-surface font-medium text-right">4422 mAh</span>
+</li>
+<li class="py-2 flex justify-between text-body-sm font-body-sm">
+<span class="text-on-surface-variant">Material</span>
+<span class="text-on-surface font-medium text-right">Titanium with textured matte glass back</span>
+</li>
+</ul>
+</div>
+<!-- Text Description -->
+<div class="text-body-md font-body-md text-on-surface-variant flex flex-col gap-md">
+<p>The iPhone 15 Pro Max is the first iPhone to feature an aerospace‑grade titanium design, using the same alloy that spacecraft use for missions to Mars. Titanium has one of the best strength‑to‑weight ratios of any metal, making these our lightest Pro models ever. You'll notice the difference the moment you pick one up.</p>
+<p>The A17 Pro is an entirely new class of iPhone chip that delivers our best graphics performance by far. Mobile games will look and feel so immersive, with incredibly detailed environments and more realistic characters. And with industry-leading speed and efficiency, A17 Pro takes fast and runs with it.</p>
+</div>
+</div>
+</section>
+</main>
+<!-- Footer -->
+<footer class="bg-surface-container-lowest text-on-surface-variant font-sans text-sm full-width py-12 px-8 border-t mt-16 border-surface-container-highest shadow-sm">
+<div class="grid grid-cols-1 md:grid-cols-4 gap-8 max-w-container-max mx-auto">
+<div>
+<span class="text-lg font-bold text-primary mb-4 block">Bozor</span>
+<p class="text-xs">© 2024 Bozor. All rights reserved. Registered Marketplace of Uzbekistan.</p>
+</div>
+<div class="flex flex-col gap-2">
+<h4 class="font-bold text-on-surface mb-2">Customer Service</h4>
+<a class="hover:underline hover:text-primary transition-colors" href="#">Help Center</a>
+<a class="hover:underline hover:text-primary transition-colors" href="#">Delivery Policy</a>
+<a class="hover:underline hover:text-primary transition-colors" href="#">Payment Methods</a>
+</div>
+<div class="flex flex-col gap-2">
+<h4 class="font-bold text-on-surface mb-2">About Bozor</h4>
+<a class="hover:underline hover:text-primary transition-colors" href="#">About Us</a>
+<a class="hover:underline hover:text-primary transition-colors" href="#">Terms &amp; Conditions</a>
+<a class="hover:underline hover:text-primary transition-colors" href="#">Privacy Policy</a>
+</div>
+<div class="flex flex-col gap-2">
+<h4 class="font-bold text-on-surface mb-2">Download App</h4>
+<div class="flex gap-2">
+<div class="bg-surface-container-high w-24 h-8 rounded border border-surface-container-highest flex items-center justify-center text-xs">App Store</div>
+<div class="bg-surface-container-high w-24 h-8 rounded border border-surface-container-highest flex items-center justify-center text-xs">Google Play</div>
+</div>
+</div>
+</div>
+</footer>
+<!-- BottomNavBar (Mobile Only) -->
+<nav class="md:hidden bg-surface-container-lowest/95 backdrop-blur-md text-primary text-[11px] font-semibold font-sans docked full-width bottom-0 border-t border-surface-container-highest shadow-[0_-2px_10px_rgba(0,0,0,0.05)] fixed left-0 w-full z-50 flex justify-around items-center px-2 pb-safe pt-2">
+<a class="flex flex-col items-center justify-center text-on-surface-variant active:bg-surface-container-low p-2 rounded-xl transition-colors" href="#">
+<span class="material-symbols-outlined mb-1" data-icon="home">home</span>
+            Home
+        </a>
+<a class="flex flex-col items-center justify-center text-primary bg-surface-container-low rounded-xl px-3 py-1" href="#">
+<span class="material-symbols-outlined mb-1" data-icon="grid_view" style="font-variation-settings: 'FILL' 1;">grid_view</span>
+            Catalog
+        </a>
+<a class="flex flex-col items-center justify-center text-on-surface-variant active:bg-surface-container-low p-2 rounded-xl transition-colors" href="#">
+<span class="material-symbols-outlined mb-1" data-icon="shopping_cart">shopping_cart</span>
+            Cart
+        </a>
+<a class="flex flex-col items-center justify-center text-on-surface-variant active:bg-surface-container-low p-2 rounded-xl transition-colors" href="#">
+<span class="material-symbols-outlined mb-1" data-icon="person">person</span>
+            Profile
+        </a>
+</nav>
+</body></html>

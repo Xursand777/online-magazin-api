@@ -1,0 +1,376 @@
+<!DOCTYPE html>
+
+<html class="light" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Bozor - Professional Marketplace</title>
+<!-- Material Symbols -->
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<!-- Google Fonts -->
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<!-- Tailwind CSS -->
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<!-- Tailwind Configuration -->
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "primary-fixed": "#6ffbbe",
+                        "surface-container-lowest": "#ffffff",
+                        "primary-fixed-dim": "#4edea3",
+                        "on-tertiary-fixed": "#410005",
+                        "surface-container": "#e7eeff",
+                        "on-tertiary-fixed-variant": "#842225",
+                        "primary": "#006c49",
+                        "tertiary": "#a43a3a",
+                        "surface-dim": "#cfdaf2",
+                        "outline": "#6c7a71",
+                        "on-error": "#ffffff",
+                        "secondary-fixed": "#ffddb8",
+                        "on-primary-container": "#00422b",
+                        "on-secondary": "#ffffff",
+                        "on-background": "#111c2d",
+                        "secondary": "#855300",
+                        "on-secondary-container": "#684000",
+                        "error": "#ba1a1a",
+                        "surface-variant": "#d8e3fb",
+                        "surface-container-low": "#f0f3ff",
+                        "on-primary": "#ffffff",
+                        "tertiary-container": "#fc7c78",
+                        "on-secondary-fixed-variant": "#653e00",
+                        "surface-container-high": "#dee8ff",
+                        "surface-tint": "#006c49",
+                        "tertiary-fixed": "#ffdad7",
+                        "inverse-primary": "#4edea3",
+                        "on-tertiary": "#ffffff",
+                        "surface-bright": "#f9f9ff",
+                        "surface-container-highest": "#d8e3fb",
+                        "tertiary-fixed-dim": "#ffb3af",
+                        "on-primary-fixed": "#002113",
+                        "primary-container": "#10b981",
+                        "on-tertiary-container": "#711419",
+                        "error-container": "#ffdad6",
+                        "on-secondary-fixed": "#2a1700",
+                        "outline-variant": "#bbcabf",
+                        "on-surface": "#111c2d",
+                        "inverse-on-surface": "#ecf1ff",
+                        "on-primary-fixed-variant": "#005236",
+                        "inverse-surface": "#263143",
+                        "secondary-fixed-dim": "#ffb95f",
+                        "on-error-container": "#93000a",
+                        "background": "#f9f9ff",
+                        "on-surface-variant": "#3c4a42",
+                        "secondary-container": "#fea619",
+                        "surface": "#f9f9ff"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    "spacing": {
+                        "3xl": "64px",
+                        "2xl": "48px",
+                        "container-max": "1280px",
+                        "margin-mobile": "16px",
+                        "lg": "24px",
+                        "md": "16px",
+                        "base": "4px",
+                        "margin-desktop": "32px",
+                        "sm": "8px",
+                        "xl": "32px",
+                        "gutter": "16px",
+                        "xs": "4px"
+                    },
+                    "fontFamily": {
+                        "h2": ["Inter"],
+                        "label-md": ["Inter"],
+                        "body-lg": ["Inter"],
+                        "h3": ["Inter"],
+                        "h1": ["Inter"],
+                        "body-md": ["Inter"],
+                        "body-sm": ["Inter"],
+                        "price": ["Inter"]
+                    },
+                    "fontSize": {
+                        "h2": ["30px", { "lineHeight": "1.2", "letterSpacing": "-0.01em", "fontWeight": "700" }],
+                        "label-md": ["14px", { "lineHeight": "1.0", "letterSpacing": "0.05em", "fontWeight": "600" }],
+                        "body-lg": ["18px", { "lineHeight": "1.6", "fontWeight": "400" }],
+                        "h3": ["24px", { "lineHeight": "1.3", "fontWeight": "600" }],
+                        "h1": ["48px", { "lineHeight": "1.1", "letterSpacing": "-0.02em", "fontWeight": "700" }],
+                        "body-md": ["16px", { "lineHeight": "1.5", "fontWeight": "400" }],
+                        "body-sm": ["14px", { "lineHeight": "1.4", "fontWeight": "400" }],
+                        "price": ["20px", { "lineHeight": "1.0", "fontWeight": "700" }]
+                    }
+                }
+            }
+        }
+    </script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        .material-symbols-outlined.fill-icon {
+            font-variation-settings: 'FILL' 1;
+        }
+    </style>
+</head>
+<body class="bg-background text-on-background font-body-md antialiased pb-24 md:pb-0">
+<!-- TopNavBar (Web Only) -->
+<header class="hidden md:flex bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 shadow-sm flex justify-between items-center px-4 md:px-12 py-3 w-full sticky top-0 z-50">
+<div class="text-2xl font-black tracking-tight text-emerald-600 dark:text-emerald-400">
+            Bozor
+        </div>
+<nav class="flex gap-6 font-sans text-sm font-medium">
+<a class="text-slate-600 dark:text-slate-400 hover:text-emerald-500 transition-colors" href="#">Catalog</a>
+<a class="text-slate-600 dark:text-slate-400 hover:text-emerald-500 transition-colors" href="#">Deals</a>
+<a class="text-slate-600 dark:text-slate-400 hover:text-emerald-500 transition-colors" href="#">Official Stores</a>
+</nav>
+<div class="flex items-center gap-4 text-emerald-500 dark:text-emerald-400">
+<button class="hover:text-emerald-500 transition-colors p-2 rounded-full hover:bg-slate-50 dark:hover:bg-slate-800">
+<span class="material-symbols-outlined">shopping_cart</span>
+</button>
+<button class="hover:text-emerald-500 transition-colors p-2 rounded-full hover:bg-slate-50 dark:hover:bg-slate-800">
+<span class="material-symbols-outlined">person</span>
+</button>
+</div>
+</header>
+<main class="max-w-container-max mx-auto px-margin-mobile md:px-margin-desktop w-full">
+<!-- Search Bar Section -->
+<section class="mt-md mb-lg">
+<div class="flex items-center bg-surface-container-lowest border border-outline-variant rounded-full overflow-hidden shadow-sm h-12 focus-within:ring-2 focus-within:ring-primary focus-within:border-transparent transition-all">
+<div class="hidden md:flex items-center pl-4 pr-2 bg-surface-container-low border-r border-outline-variant text-on-surface-variant font-label-md text-label-md whitespace-nowrap cursor-pointer hover:bg-surface-variant transition-colors h-full">
+<span>Barcha kategoriyalar</span>
+<span class="material-symbols-outlined ml-1 text-[18px]">arrow_drop_down</span>
+</div>
+<input class="flex-grow border-none focus:ring-0 px-4 text-body-md font-body-md text-on-surface bg-transparent h-full placeholder:text-outline" placeholder="Mahsulotlarni izlash..." type="text"/>
+<button class="bg-primary text-on-primary h-full px-6 flex items-center justify-center hover:bg-on-primary-fixed-variant transition-colors">
+<span class="material-symbols-outlined">search</span>
+</button>
+</div>
+</section>
+<!-- Hero Banner -->
+<section class="mb-3xl">
+<div class="relative w-full h-[200px] md:h-[400px] rounded-xl overflow-hidden shadow-sm bg-surface-variant flex items-center">
+<img alt="Promotional Banner" class="absolute inset-0 w-full h-full object-cover opacity-80" data-alt="professional e-commerce promotional banner with modern electronics and subtle abstract geometric shapes on a light background studio lighting" src="https://lh3.googleusercontent.com/aida-public/AB6AXuAoLeyQB2ox90RtnRTMI0nymHZnf0TyKQXpMAxraQmadvv8xYiKWAjlaaTI3t0Xh4uf2jeUjkEaYIJvlfpFpVT2lq3ukoMn1gD7SQJK3jCPqADqLFhLhucqoQaBL8NKtSXNHVAF-9xNyMnTxImCoEjt-j3LxZSfo8LMVQ8-dEjVm1L9v5Y6_Mv-vl6cP7nsZscvMrM48j2GiAMcSuHjyoiogJqkX961bkPCmyCQH65C6xhApw899G7lbZi5eYSULadJuE1S3VaqBcs"/>
+<div class="absolute inset-0 bg-gradient-to-r from-surface-container-lowest/90 via-surface-container-lowest/50 to-transparent"></div>
+<div class="relative z-10 p-lg md:p-3xl max-w-lg">
+<span class="inline-block px-3 py-1 bg-secondary-container text-on-secondary-container text-label-md font-label-md rounded-full mb-sm">Yangi Mavsum</span>
+<h1 class="text-h2 md:text-h1 font-h2 md:font-h1 text-on-surface mb-md">Katta Chegirmalar Festivali</h1>
+<p class="text-body-md font-body-md text-on-surface-variant mb-lg hidden md:block">Eng sara mahsulotlarni arzon narxlarda xarid qiling. Faqat shu hafta!</p>
+<button class="bg-primary text-on-primary px-6 py-3 rounded-lg font-label-md text-label-md shadow-md hover:shadow-lg transition-all flex items-center gap-2">
+                        Batafsil
+                        <span class="material-symbols-outlined text-[18px]">arrow_forward</span>
+</button>
+</div>
+</div>
+</section>
+<!-- Discounted Products (Chegirmalar) -->
+<section class="mb-3xl">
+<div class="flex justify-between items-end mb-lg border-b border-outline-variant pb-2">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-secondary-container text-[28px] fill-icon">local_fire_department</span>
+<h2 class="text-h3 font-h3 text-on-surface">Chegirmalar</h2>
+</div>
+<a class="text-label-md font-label-md text-primary hover:underline flex items-center gap-1" href="#">
+                    Hammasini ko'rish <span class="material-symbols-outlined text-[16px]">chevron_right</span>
+</a>
+</div>
+<div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-gutter md:gap-lg">
+<!-- Card 1 -->
+<article class="bg-surface-container-lowest rounded-lg border border-outline-variant overflow-hidden flex flex-col shadow-sm hover:shadow-[0_4px_12px_rgba(30,41,59,0.08)] transition-all group">
+<div class="relative aspect-square bg-surface-bright p-4">
+<img alt="Smartwatch" class="w-full h-full object-contain mix-blend-multiply group-hover:scale-105 transition-transform duration-300" data-alt="sleek modern smartwatch isolated on clean white background studio lighting" src="https://lh3.googleusercontent.com/aida-public/AB6AXuCJRqxus46Sh9_RSIDKYr9Gco1h1tv2G7_9AJsasqDpdYyTKqo7V8zC92JWiT8IaDaE3nQZaQwqNxzolzKxOJ6DIVd1BtipBmqPYv4Rf3Qcge4uh9usKvX45Jw3uOQqOKICQxMmThUxNgizZEb3CODHfJMN4cry3VvZ0EDW_0Wpny8sf2WfhO8XvOitjZb7bkR-Sm9IwodT0X_Qq6gPjkO1pBB4hrFUEZgfMyq5VHgNeMuOkyTRI_IsGw7HJRRPgUOQUE1dz6MBcSg"/>
+<span class="absolute top-2 left-2 bg-secondary-container text-on-secondary-container px-2 py-1 rounded text-[11px] font-bold tracking-wide">-30%</span>
+<button class="absolute top-2 right-2 text-outline hover:text-error transition-colors bg-white/80 rounded-full p-1 backdrop-blur-sm shadow-sm">
+<span class="material-symbols-outlined text-[20px]">favorite</span>
+</button>
+</div>
+<div class="p-md flex flex-col flex-grow">
+<h3 class="text-body-sm font-body-sm text-on-surface line-clamp-2 mb-xs min-h-[40px]">Smartwatch Pro Series 8 Black</h3>
+<div class="flex items-center text-secondary-container mb-sm gap-1">
+<span class="material-symbols-outlined text-[14px] fill-icon">star</span>
+<span class="text-[12px] font-semibold text-on-surface-variant">4.8</span>
+<span class="text-[12px] text-outline ml-1">(124)</span>
+</div>
+<div class="mt-auto">
+<div class="text-body-sm font-body-sm text-outline line-through mb-[-2px]">1,200,000 UZS</div>
+<div class="text-price font-price text-secondary-container mb-md">840,000 UZS</div>
+<button class="w-full bg-primary text-on-primary py-2 rounded-md flex justify-center items-center gap-2 hover:opacity-90 transition-opacity">
+<span class="material-symbols-outlined text-[18px]">shopping_cart</span>
+<span class="text-label-md font-label-md">Savatga</span>
+</button>
+</div>
+</div>
+</article>
+<!-- Card 2 -->
+<article class="bg-surface-container-lowest rounded-lg border border-outline-variant overflow-hidden flex flex-col shadow-sm hover:shadow-[0_4px_12px_rgba(30,41,59,0.08)] transition-all group">
+<div class="relative aspect-square bg-surface-bright p-4">
+<img alt="Headphones" class="w-full h-full object-contain mix-blend-multiply group-hover:scale-105 transition-transform duration-300" data-alt="premium wireless over-ear headphones isolated on clean white background studio lighting" src="https://lh3.googleusercontent.com/aida-public/AB6AXuAppbdf2RsllI7bZHSl-uSRVDRWp4UZkMqIhbqt1x5-hequym--UDrsVtUHsehSKuaXRkndm6lGwos3rxJt_uhlYu0yiY4z1CNggKJGs4C94M9kPR6iQf_YFmUObinO-kD_DBgi7Ih5inTyrnYW4lmYcyketSzg-B7NXm25hhZjdAyO949RaE_2M_Zk0pkrEWSnTXZ2twFXSWzLYKaldYKXD8-aRxTVlN2aK3i9fwR4ZeF6SqaO_Qgrs5D0isiuy9IovyycTdjReds"/>
+<span class="absolute top-2 left-2 bg-secondary-container text-on-secondary-container px-2 py-1 rounded text-[11px] font-bold tracking-wide">-15%</span>
+</div>
+<div class="p-md flex flex-col flex-grow">
+<h3 class="text-body-sm font-body-sm text-on-surface line-clamp-2 mb-xs min-h-[40px]">Wireless Noise Cancelling Headphones</h3>
+<div class="flex items-center text-secondary-container mb-sm gap-1">
+<span class="material-symbols-outlined text-[14px] fill-icon">star</span>
+<span class="text-[12px] font-semibold text-on-surface-variant">4.9</span>
+</div>
+<div class="mt-auto">
+<div class="text-body-sm font-body-sm text-outline line-through mb-[-2px]">2,500,000 UZS</div>
+<div class="text-price font-price text-secondary-container mb-md">2,125,000 UZS</div>
+<button class="w-full bg-primary text-on-primary py-2 rounded-md flex justify-center items-center gap-2 hover:opacity-90 transition-opacity">
+<span class="material-symbols-outlined text-[18px]">shopping_cart</span>
+<span class="text-label-md font-label-md">Savatga</span>
+</button>
+</div>
+</div>
+</article>
+<!-- Card 3 -->
+<article class="bg-surface-container-lowest rounded-lg border border-outline-variant overflow-hidden flex flex-col shadow-sm hover:shadow-[0_4px_12px_rgba(30,41,59,0.08)] transition-all group hidden md:flex">
+<div class="relative aspect-square bg-surface-bright p-4">
+<img alt="Watch" class="w-full h-full object-contain mix-blend-multiply group-hover:scale-105 transition-transform duration-300" data-alt="minimalist white smartwatch with analog face isolated on white background" src="https://lh3.googleusercontent.com/aida-public/AB6AXuDgy_UJVg5i-h48IrloZWpEjYoGuSo8XZ8cYXtH-TsU1iTDtg7nZirUvEaGsp8ojk-fwmCKc7mmOqFsDMLf7-RpiNSXbjXu3bEIgd8JU7F-w27XH2lC6vmYxd-wIkpJzI_BxsexaxDnzH0mFcxAW984oyPFWjxIcESCOYoDL3Xw48hnFnzCfVWVhXzErZY0wzVGMycqul8w21GQHmGNXG1APkZ_QIyCUaoYPjQ2c0kFwFe2hETidFtzex96caHjhUvibuUbkAhJF2I"/>
+<span class="absolute top-2 left-2 bg-secondary-container text-on-secondary-container px-2 py-1 rounded text-[11px] font-bold tracking-wide">-40%</span>
+</div>
+<div class="p-md flex flex-col flex-grow">
+<h3 class="text-body-sm font-body-sm text-on-surface line-clamp-2 mb-xs min-h-[40px]">Minimalist Classic Watch White</h3>
+<div class="flex items-center text-secondary-container mb-sm gap-1">
+<span class="material-symbols-outlined text-[14px] fill-icon">star</span>
+<span class="text-[12px] font-semibold text-on-surface-variant">4.5</span>
+</div>
+<div class="mt-auto">
+<div class="text-body-sm font-body-sm text-outline line-through mb-[-2px]">800,000 UZS</div>
+<div class="text-price font-price text-secondary-container mb-md">480,000 UZS</div>
+<button class="w-full bg-primary text-on-primary py-2 rounded-md flex justify-center items-center gap-2 hover:opacity-90 transition-opacity">
+<span class="material-symbols-outlined text-[18px]">shopping_cart</span>
+<span class="text-label-md font-label-md">Savatga</span>
+</button>
+</div>
+</div>
+</article>
+<!-- Card 4 -->
+<article class="bg-surface-container-lowest rounded-lg border border-outline-variant overflow-hidden flex flex-col shadow-sm hover:shadow-[0_4px_12px_rgba(30,41,59,0.08)] transition-all group hidden md:flex">
+<div class="relative aspect-square bg-surface-bright p-4">
+<img alt="Lens" class="w-full h-full object-contain mix-blend-multiply group-hover:scale-105 transition-transform duration-300" data-alt="high end professional camera lens isolated on pristine white background" src="https://lh3.googleusercontent.com/aida-public/AB6AXuCmUZE8WVbpUPvy4KG0L7RXXW3pd2BbyCVOryda0NMp1JL1xOwk68qWOihaDdZVuAIBA1whg5SoyXehHveSJknNOWT-MkaNNVTkpS_v8IqWyVzIBblQUxCcsrUm2Aj1LHH69G0jqWo7xX676TQdHPWUevkFOxf004Dl5TNc3gH-aKs0V0FjI8bFQgsQTU6K4QJOBobTNF4OxgFcYbZV_3iiTH3HfCCoDRvAX6eSK15eGSRSQgkcxpnWT6kI4uOaRhIy4lGJOApqzDQ"/>
+<span class="absolute top-2 left-2 bg-secondary-container text-on-secondary-container px-2 py-1 rounded text-[11px] font-bold tracking-wide">-10%</span>
+</div>
+<div class="p-md flex flex-col flex-grow">
+<h3 class="text-body-sm font-body-sm text-on-surface line-clamp-2 mb-xs min-h-[40px]">Pro Camera Lens 50mm f/1.8</h3>
+<div class="flex items-center text-secondary-container mb-sm gap-1">
+<span class="material-symbols-outlined text-[14px] fill-icon">star</span>
+<span class="text-[12px] font-semibold text-on-surface-variant">4.9</span>
+</div>
+<div class="mt-auto">
+<div class="text-body-sm font-body-sm text-outline line-through mb-[-2px]">3,200,000 UZS</div>
+<div class="text-price font-price text-secondary-container mb-md">2,880,000 UZS</div>
+<button class="w-full border border-primary text-primary py-2 rounded-md flex justify-center items-center gap-2 hover:bg-surface-container transition-colors">
+<span class="material-symbols-outlined text-[18px]">shopping_cart</span>
+<span class="text-label-md font-label-md">Savatga</span>
+</button>
+</div>
+</div>
+</article>
+</div>
+</section>
+<!-- Popular Products (Ommabop) - Bento Style Layout for variety -->
+<section class="mb-3xl">
+<div class="flex justify-between items-end mb-lg border-b border-outline-variant pb-2">
+<h2 class="text-h3 font-h3 text-on-surface">Ommabop</h2>
+<a class="text-label-md font-label-md text-primary hover:underline flex items-center gap-1" href="#">
+                    Hammasini ko'rish <span class="material-symbols-outlined text-[16px]">chevron_right</span>
+</a>
+</div>
+<div class="grid grid-cols-1 md:grid-cols-3 gap-lg">
+<!-- Large Featured Card -->
+<article class="md:col-span-2 bg-surface-container-low rounded-xl overflow-hidden flex flex-col md:flex-row relative group">
+<div class="w-full md:w-1/2 p-xl flex flex-col justify-center z-10">
+<span class="text-label-md font-label-md text-primary mb-2">Eng ko'p sotilgan</span>
+<h3 class="text-h2 font-h2 text-on-surface mb-sm">Premium Qahva Mashinasi</h3>
+<p class="text-body-md text-on-surface-variant mb-lg line-clamp-3">Uy sharoitida professional darajadagi qahva tayyorlash uchun ideal yechim. Avtomatik sut ko'pirtirish va o'zini tozalash tizimi mavjud.</p>
+<div class="text-price font-price text-primary mb-md">4,500,000 UZS</div>
+<button class="bg-primary text-on-primary px-6 py-3 rounded-lg font-label-md w-fit flex items-center gap-2 shadow-sm hover:shadow-md transition-shadow">
+                            Savatga qo'shish
+                        </button>
+</div>
+<div class="w-full md:w-1/2 relative h-[300px] md:h-auto">
+<img alt="Coffee Machine" class="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-transform duration-700" data-alt="sleek modern espresso coffee machine in a minimalist kitchen setting with warm lighting" src="https://lh3.googleusercontent.com/aida-public/AB6AXuBgsJXTzkPcEbe3CS911je5YAfPWN4G7rmNlwVFAZfHPXWtI20gPcxG6oVejNiAE7yKGZvCRUeDCw7vn9bnq8vpq8zVt3f6gq7BLVwZhRMAS-nGDogUeRDwsdTb7htWpTZLonw1wSnWrGrqDQ8MkUuLM_wsxbXw7fnnseloCvqYbSW0zGShgfVSXyXKdJvutWgOzMbAEFUs7IEbtdGx0aBzGeVt8RX2_NdlKKXnoGiOUWCUkQIEf-gkDNK4TdAyiiiXz7oGCydx0GI"/>
+<div class="absolute inset-0 bg-gradient-to-t md:bg-gradient-to-r from-surface-container-low via-surface-container-low/80 to-transparent"></div>
+</div>
+</article>
+<!-- Stacked Cards -->
+<div class="flex flex-col gap-lg">
+<article class="bg-surface-container-lowest rounded-lg border border-outline-variant p-4 flex gap-4 items-center hover:shadow-sm transition-shadow cursor-pointer">
+<div class="w-24 h-24 bg-surface-bright rounded bg-surface p-2 flex-shrink-0">
+<img alt="Shoes" class="w-full h-full object-contain mix-blend-multiply" data-alt="vibrant red athletic running shoe isolated on white background studio lighting" src="https://lh3.googleusercontent.com/aida-public/AB6AXuCQV4W4nq6-A7UzTWyD1j2-UT6sUyedTbXXW8cV3oXphK1R8WKLtItAN5nzhkazPv7Mufh1ENIMQ00aOTPeCd5eb3ZxruiddzKDzzjIP-JibMqLywF0DSX2Lg010eWNVbz1-Geb9V9-cI03sbwr_Ed4jzZWqojkdVXnbaAn2gcKGXAQz46Z-KqpfCxtUWoI-1XazbawoyDrQjjUS-bHCYRe1ZV__ZoFRmQb2N_VRUvxc69CmXJsb2uiXTY--dRyibtZWg-XWYBIUYI"/>
+</div>
+<div class="flex-grow">
+<h4 class="text-body-sm font-body-sm text-on-surface line-clamp-2 mb-1">Sport Krosovkasi Air Max</h4>
+<div class="text-price font-price text-primary text-[16px] mb-2">850,000 UZS</div>
+<button class="text-label-md font-label-md text-primary flex items-center gap-1 hover:underline">
+                                Savatga <span class="material-symbols-outlined text-[16px]">add_shopping_cart</span>
+</button>
+</div>
+</article>
+<article class="bg-surface-container-lowest rounded-lg border border-outline-variant p-4 flex gap-4 items-center hover:shadow-sm transition-shadow cursor-pointer">
+<div class="w-24 h-24 bg-surface-bright rounded bg-surface p-2 flex-shrink-0">
+<img alt="Cosmetics" class="w-full h-full object-contain mix-blend-multiply" data-alt="luxury skincare cosmetic bottle with gold dropper isolated on clean white background" src="https://lh3.googleusercontent.com/aida-public/AB6AXuB9ZjgAsXY-43F6ditaRpkj_s0K7OOLg-i4I9n6j8Gi6iEI_4vkW29kZv-YWxUzo6kbgawS86BJ0EO-iizh_uunyzVUy53AB8sGmMp3FFUnE9MeSnYb_b8Pc7UOCGWl_3KwWeyIqDH1EGkabR0sN26fUuKBWflvARiT6r2aVkDw1W-qIKpuwR2r8UOd2deJtvjxdLCbUFTtgr_-kN3jmjEc6FlBYOEPYrjXPhsV_yvZnJ-1PGzCF-L_pq1s8h3zkTyOMHQfkZdzLaE"/>
+</div>
+<div class="flex-grow">
+<h4 class="text-body-sm font-body-sm text-on-surface line-clamp-2 mb-1">Yuz uchun namlantiruvchi zardob</h4>
+<div class="text-price font-price text-primary text-[16px] mb-2">120,000 UZS</div>
+<button class="text-label-md font-label-md text-primary flex items-center gap-1 hover:underline">
+                                Savatga <span class="material-symbols-outlined text-[16px]">add_shopping_cart</span>
+</button>
+</div>
+</article>
+</div>
+</div>
+</section>
+</main>
+<!-- Footer (Web Only / Desktop View) -->
+<footer class="hidden md:block bg-slate-50 dark:bg-slate-950 full-width py-12 px-8 border-t mt-16 border-slate-200 dark:border-slate-800">
+<div class="grid grid-cols-1 md:grid-cols-4 gap-8 max-w-7xl mx-auto">
+<div>
+<div class="text-lg font-bold text-emerald-600 mb-4">Bozor</div>
+<p class="font-sans text-sm text-slate-500 dark:text-slate-400">© 2024 Bozor. All rights reserved. Registered Marketplace of Uzbekistan.</p>
+</div>
+<div class="flex flex-col gap-2 font-sans text-sm text-slate-500 dark:text-slate-400">
+<a class="text-slate-500 hover:text-emerald-500 hover:underline" href="#">About Us</a>
+<a class="text-slate-500 hover:text-emerald-500 hover:underline" href="#">Delivery Policy</a>
+</div>
+<div class="flex flex-col gap-2 font-sans text-sm text-slate-500 dark:text-slate-400">
+<a class="text-slate-500 hover:text-emerald-500 hover:underline" href="#">Payment Methods</a>
+<a class="text-slate-500 hover:text-emerald-500 hover:underline" href="#">Help Center</a>
+</div>
+<div class="flex flex-col gap-2 font-sans text-sm text-slate-500 dark:text-slate-400">
+<a class="text-slate-500 hover:text-emerald-500 hover:underline" href="#">Terms &amp; Conditions</a>
+</div>
+</div>
+</footer>
+<!-- BottomNavBar (Mobile Only) -->
+<nav class="md:hidden bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-t border-slate-200 dark:border-slate-800 shadow-[0_-2px_10px_rgba(0,0,0,0.05)] fixed bottom-0 left-0 w-full z-50 flex justify-around items-center px-2 pb-safe pt-2 h-[72px]">
+<!-- Active Tab: Home -->
+<a class="flex flex-col items-center justify-center text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-900/20 rounded-xl px-3 py-1 flex-1" href="#">
+<span class="material-symbols-outlined fill-icon mb-1">home</span>
+<span class="text-[11px] font-semibold font-sans">Home</span>
+</a>
+<a class="flex flex-col items-center justify-center text-slate-500 dark:text-slate-400 active:bg-slate-100 dark:active:bg-slate-800 rounded-xl px-3 py-1 flex-1" href="#">
+<span class="material-symbols-outlined mb-1">grid_view</span>
+<span class="text-[11px] font-semibold font-sans">Catalog</span>
+</a>
+<a class="flex flex-col items-center justify-center text-slate-500 dark:text-slate-400 active:bg-slate-100 dark:active:bg-slate-800 rounded-xl px-3 py-1 flex-1 relative" href="#">
+<span class="material-symbols-outlined mb-1">shopping_cart</span>
+<span class="absolute top-1 right-3 bg-red-500 w-2 h-2 rounded-full border border-white"></span>
+<span class="text-[11px] font-semibold font-sans">Cart</span>
+</a>
+<a class="flex flex-col items-center justify-center text-slate-500 dark:text-slate-400 active:bg-slate-100 dark:active:bg-slate-800 rounded-xl px-3 py-1 flex-1" href="#">
+<span class="material-symbols-outlined mb-1">person</span>
+<span class="text-[11px] font-semibold font-sans">Profile</span>
+</a>
+</nav>
+</body></html>

@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+
+<html class="light" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Bozor - Authentication</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "primary-fixed": "#6ffbbe",
+                        "surface-container-lowest": "#ffffff",
+                        "primary-fixed-dim": "#4edea3",
+                        "on-tertiary-fixed": "#410005",
+                        "surface-container": "#e7eeff",
+                        "on-tertiary-fixed-variant": "#842225",
+                        "primary": "#006c49",
+                        "tertiary": "#a43a3a",
+                        "surface-dim": "#cfdaf2",
+                        "outline": "#6c7a71",
+                        "on-error": "#ffffff",
+                        "secondary-fixed": "#ffddb8",
+                        "on-primary-container": "#00422b",
+                        "on-secondary": "#ffffff",
+                        "on-background": "#111c2d",
+                        "secondary": "#855300",
+                        "on-secondary-container": "#684000",
+                        "error": "#ba1a1a",
+                        "surface-variant": "#d8e3fb",
+                        "surface-container-low": "#f0f3ff",
+                        "on-primary": "#ffffff",
+                        "tertiary-container": "#fc7c78",
+                        "on-secondary-fixed-variant": "#653e00",
+                        "surface-container-high": "#dee8ff",
+                        "surface-tint": "#006c49",
+                        "tertiary-fixed": "#ffdad7",
+                        "inverse-primary": "#4edea3",
+                        "on-tertiary": "#ffffff",
+                        "surface-bright": "#f9f9ff",
+                        "surface-container-highest": "#d8e3fb",
+                        "tertiary-fixed-dim": "#ffb3af",
+                        "on-primary-fixed": "#002113",
+                        "primary-container": "#10b981",
+                        "on-tertiary-container": "#711419",
+                        "error-container": "#ffdad6",
+                        "on-secondary-fixed": "#2a1700",
+                        "outline-variant": "#bbcabf",
+                        "on-surface": "#111c2d",
+                        "inverse-on-surface": "#ecf1ff",
+                        "on-primary-fixed-variant": "#005236",
+                        "inverse-surface": "#263143",
+                        "secondary-fixed-dim": "#ffb95f",
+                        "on-error-container": "#93000a",
+                        "background": "#f9f9ff",
+                        "on-surface-variant": "#3c4a42",
+                        "secondary-container": "#fea619",
+                        "surface": "#f9f9ff"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    "spacing": {
+                        "3xl": "64px",
+                        "2xl": "48px",
+                        "container-max": "1280px",
+                        "margin-mobile": "16px",
+                        "lg": "24px",
+                        "md": "16px",
+                        "base": "4px",
+                        "margin-desktop": "32px",
+                        "sm": "8px",
+                        "xl": "32px",
+                        "gutter": "16px",
+                        "xs": "4px"
+                    },
+                    "fontFamily": {
+                        "h2": ["Inter"],
+                        "label-md": ["Inter"],
+                        "body-lg": ["Inter"],
+                        "h3": ["Inter"],
+                        "h1": ["Inter"],
+                        "body-md": ["Inter"],
+                        "body-sm": ["Inter"],
+                        "price": ["Inter"]
+                    },
+                    "fontSize": {
+                        "h2": ["30px", {"lineHeight": "1.2", "letterSpacing": "-0.01em", "fontWeight": "700"}],
+                        "label-md": ["14px", {"lineHeight": "1.0", "letterSpacing": "0.05em", "fontWeight": "600"}],
+                        "body-lg": ["18px", {"lineHeight": "1.6", "fontWeight": "400"}],
+                        "h3": ["24px", {"lineHeight": "1.3", "fontWeight": "600"}],
+                        "h1": ["48px", {"lineHeight": "1.1", "letterSpacing": "-0.02em", "fontWeight": "700"}],
+                        "body-md": ["16px", {"lineHeight": "1.5", "fontWeight": "400"}],
+                        "body-sm": ["14px", {"lineHeight": "1.4", "fontWeight": "400"}],
+                        "price": ["20px", {"lineHeight": "1.0", "fontWeight": "700"}]
+                    }
+                }
+            }
+        }
+    </script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+    </style>
+</head>
+<body class="bg-background text-on-background min-h-screen flex flex-col font-body-md">
+<!-- Suppressed TopNavBar for Linear/Transactional Flow -->
+<main class="flex-grow flex items-center justify-center p-margin-mobile md:p-margin-desktop bg-surface-container-low min-h-screen">
+<div class="w-full max-w-[440px]">
+<!-- Brand Anchor -->
+<div class="text-center mb-xl">
+<h1 class="font-h1 text-h1 text-primary">Bozor</h1>
+<p class="font-body-md text-body-md text-on-surface-variant mt-sm">Your reliable marketplace</p>
+</div>
+<!-- Login Card -->
+<div class="bg-surface-container-lowest rounded-xl shadow-[0_4px_12px_rgba(30,41,59,0.05)] border border-[#e2e8f0] p-lg md:p-xl mb-2xl">
+<h2 class="font-h3 text-h3 text-on-surface mb-md">Welcome Back</h2>
+<p class="font-body-sm text-body-sm text-on-surface-variant mb-xl">Log in to continue shopping.</p>
+<!-- Error Message Example (Hidden by default, shown for professional layout demo) -->
+<!-- <div class="bg-error-container text-on-error-container p-sm rounded-md mb-md flex items-center gap-sm">
+                    <span class="material-symbols-outlined text-[18px]">error</span>
+                    <span class="font-body-sm text-body-sm">Invalid verification code. Please try again.</span>
+                </div> -->
+<form class="space-y-lg">
+<!-- Phone Number Input -->
+<div>
+<label class="block font-label-md text-label-md text-on-surface mb-xs" for="phone-login">Phone Number</label>
+<div class="relative">
+<span class="absolute left-sm top-1/2 -translate-y-1/2 text-on-surface-variant font-body-md text-body-md">+998</span>
+<input class="w-full pl-xl pr-sm py-sm rounded-md border border-[#e2e8f0] bg-surface-container-lowest text-on-surface font-body-md text-body-md focus:border-primary focus:ring-1 focus:ring-primary outline-none transition-shadow" id="phone-login" placeholder=" 00 000 00 00" required="" type="tel"/>
+</div>
+</div>
+<!-- Step 1: Send SMS Button -->
+<button class="w-full bg-primary text-on-primary py-sm rounded-md font-label-md text-label-md hover:bg-on-primary-fixed-variant transition-colors flex items-center justify-center gap-sm" type="button">
+                        Send SMS Code
+                    </button>
+<!-- Step 2: OTP Input (Simulated as hidden until SMS sent) -->
+<div class="opacity-50 pointer-events-none">
+<label class="block font-label-md text-label-md text-on-surface mb-xs" for="otp">Verification Code</label>
+<input class="w-full px-sm py-sm rounded-md border border-[#e2e8f0] bg-surface-container-lowest text-on-surface font-body-md text-body-md focus:border-primary focus:ring-1 focus:ring-primary outline-none transition-shadow tracking-widest text-center" id="otp" maxlength="6" placeholder="6-digit code" type="text"/>
+</div>
+<!-- Final Login Button -->
+<button class="w-full bg-secondary-container text-on-secondary-container py-sm rounded-md font-label-md text-label-md hover:bg-secondary-fixed transition-colors flex items-center justify-center gap-sm opacity-50 pointer-events-none" type="submit">
+                        Log In
+                    </button>
+</form>
+<div class="mt-xl text-center">
+<p class="font-body-sm text-body-sm text-on-surface-variant">
+                        Don't have an account? 
+                        <a class="text-primary font-label-md text-label-md hover:underline" href="#">Register</a>
+</p>
+</div>
+</div>
+<!-- Divider -->
+<div class="flex items-center my-xl px-lg">
+<div class="flex-grow border-t border-[#e2e8f0]"></div>
+<span class="mx-md text-on-surface-variant font-body-sm text-body-sm">OR</span>
+<div class="flex-grow border-t border-[#e2e8f0]"></div>
+</div>
+<!-- Register Card (Simulated Below for demonstration in single file) -->
+<div class="bg-surface-container-lowest rounded-xl shadow-[0_4px_12px_rgba(30,41,59,0.05)] border border-[#e2e8f0] p-lg md:p-xl mt-2xl">
+<h2 class="font-h3 text-h3 text-on-surface mb-md">Create Account</h2>
+<p class="font-body-sm text-body-sm text-on-surface-variant mb-xl">Join Bozor to start shopping securely.</p>
+<form class="space-y-lg">
+<!-- Phone Number Input -->
+<div>
+<label class="block font-label-md text-label-md text-on-surface mb-xs" for="phone-register">Phone Number</label>
+<div class="relative">
+<span class="absolute left-sm top-1/2 -translate-y-1/2 text-on-surface-variant font-body-md text-body-md">+998</span>
+<input class="w-full pl-xl pr-sm py-sm rounded-md border border-[#e2e8f0] bg-surface-container-lowest text-on-surface font-body-md text-body-md focus:border-primary focus:ring-1 focus:ring-primary outline-none transition-shadow" id="phone-register" placeholder=" 00 000 00 00" required="" type="tel"/>
+</div>
+</div>
+<!-- Password Input -->
+<div>
+<label class="block font-label-md text-label-md text-on-surface mb-xs" for="password">Password</label>
+<input class="w-full px-sm py-sm rounded-md border border-[#e2e8f0] bg-surface-container-lowest text-on-surface font-body-md text-body-md focus:border-primary focus:ring-1 focus:ring-primary outline-none transition-shadow" id="password" placeholder="••••••••" required="" type="password"/>
+</div>
+<!-- Confirm Password Input -->
+<div>
+<label class="block font-label-md text-label-md text-on-surface mb-xs" for="confirm-password">Confirm Password</label>
+<input class="w-full px-sm py-sm rounded-md border border-[#e2e8f0] bg-surface-container-lowest text-on-surface font-body-md text-body-md focus:border-primary focus:ring-1 focus:ring-primary outline-none transition-shadow" id="confirm-password" placeholder="••••••••" required="" type="password"/>
+</div>
+<!-- Terms Checkbox -->
+<div class="flex items-start gap-sm mt-md">
+<input class="mt-1 rounded text-primary border-[#e2e8f0] focus:ring-primary" id="terms" type="checkbox"/>
+<label class="font-body-sm text-body-sm text-on-surface-variant" for="terms">
+                            I agree to the <a class="text-primary hover:underline" href="#">Terms &amp; Conditions</a> and <a class="text-primary hover:underline" href="#">Privacy Policy</a>.
+                        </label>
+</div>
+<!-- Register Button -->
+<button class="w-full bg-primary text-on-primary py-sm rounded-md font-label-md text-label-md hover:bg-on-primary-fixed-variant transition-colors flex items-center justify-center gap-sm mt-lg" type="submit">
+                        Register Account
+                    </button>
+</form>
+<div class="mt-xl text-center">
+<p class="font-body-sm text-body-sm text-on-surface-variant">
+                        Already have an account? 
+                        <a class="text-primary font-label-md text-label-md hover:underline" href="#">Log in</a>
+</p>
+</div>
+</div>
+</div>
+</main>
+<!-- Suppressed BottomNavBar for Linear/Transactional Flow -->
+<!-- Suppressed Footer to focus on Canvas -->
+</body></html>
