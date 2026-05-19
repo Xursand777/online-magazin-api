@@ -5,9 +5,19 @@ from django.utils.translation import gettext_lazy as _
 class User(AbstractUser):
     username = models.CharField(max_length=150, blank=True, null=True)
     phone = models.CharField(_("Phone number"), max_length=15, unique=True)
-    
+
     is_verified = models.BooleanField(default=False, help_text="Designates whether this user has verified their phone number.")
-    
+
+    # Kredit (qarzga xarid) tizimi
+    credit_ban = models.BooleanField(
+        default=False,
+        help_text="3 marta muddati o'tgan to'lovdan so'ng buyurtma berish taqiqlanadi."
+    )
+    overdue_credit_count = models.PositiveSmallIntegerField(
+        default=0,
+        help_text="Muddati o'tgan kredit buyurtmalar soni. 3 taga yetsa credit_ban=True bo'ladi."
+    )
+
     USERNAME_FIELD = 'phone'
     REQUIRED_FIELDS = []
 

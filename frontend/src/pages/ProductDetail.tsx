@@ -12,6 +12,7 @@ interface ProductVariant {
   color: string;
   color_hex?: string | null;
   image_url?: string | null;
+  images: { id: number | null; url: string }[];
   quality?: string | null;
   model: string;
   size: string;
@@ -85,6 +86,7 @@ const ProductDetail = () => {
   const { id } = useParams();
   const navigate = useNavigate();
   const [activeImg, setActiveImg] = useState(0);
+  const [galleryIdx, setGalleryIdx] = useState(0);
   const [selectedColor, setSelectedColor] = useState('');
   const [selectedQuality, setSelectedQuality] = useState('');
   const [selectedSize, setSelectedSize] = useState('');
@@ -130,8 +132,11 @@ const ProductDetail = () => {
       item.product === Number(id) &&
       (item.variant || null) === (currentVariant?.id || null)
   ) || null;
-  const mainImg = currentVariant?.image_url || selectedColorVariant?.image_url || images[activeImg]?.image || null;
-  const colorDisplayMode = colorOptions.some((variant) => Boolean(variant.image_url)) ? 'image' : 'swatch';
+  const variantGallery: { id: number | null; url: string }[] =
+    currentVariant?.images?.length ? currentVariant.images
+    : selectedColorVariant?.images?.length ? selectedColorVariant.images
+    : [];
+  const mainImg = variantGallery[galleryIdx]?.url || variantGallery[0]?.url || images[activeImg]?.image || null;
   const cartQuantity = cartItem?.quantity || 0;
   const currentStock = currentVariant ? currentVariant.stock : product?.stock ?? 0;
   const stockLimit = currentStock === undefined || currentStock === null ? null : Number(currentStock);
@@ -210,6 +215,8 @@ const ProductDetail = () => {
       setSelectedSize((sizeOptions[0]?.size || sizeOptions[0]?.model) || '');
     }
   }, [sizeOptions, selectedSize]);
+
+  useEffect(() => { setGalleryIdx(0); }, [currentVariant?.id]);
 
   if (isLoading) return (
     <div className="flex-grow w-full py-lg flex items-center justify-center min-h-[60vh]">
@@ -290,7 +297,21 @@ const ProductDetail = () => {
         </div>
 
         {/* Thumbnails */}
-        {images.length > 1 && (
+        {variantGallery.length > 1 ? (
+          <div className="flex gap-sm overflow-x-auto pb-1">
+            {variantGallery.map((img, idx) => (
+              <button
+                key={idx}
+                onClick={() => setGalleryIdx(idx)}
+                className={`w-20 h-20 flex-shrink-0 rounded-lg overflow-hidden border-2 transition-all ${
+                  idx === galleryIdx ? 'border-primary shadow-md' : 'border-outline-variant hover:border-outline'
+                }`}
+              >
+                <img alt="" className="w-full h-full object-contain p-1 bg-surface-bright" src={img.url} />
+              </button>
+            ))}
+          </div>
+        ) : images.length > 1 ? (
           <div className="flex gap-sm overflow-x-auto pb-1">
             {images.map((img, idx) => (
               <button
@@ -304,7 +325,7 @@ const ProductDetail = () => {
               </button>
             ))}
           </div>
-        )}
+        ) : null}
       </section>
 
       {/* Product Info */}
@@ -388,73 +409,33 @@ const ProductDetail = () => {
                   Rangi: <span className="font-bold">{selectedColorVariant?.color || selectedColor}</span>
                 </span>
 
-                {colorDisplayMode === 'image' ? (
-                  <div className="flex flex-wrap gap-sm">
-                    {colorOptions.map((variant) => {
-                      const active = variant.color === selectedColor;
-                      const disabled = variant.stock <= 0;
+                <div className="flex flex-wrap gap-sm">
+                  {colorOptions.map((variant) => {
+                    const active = variant.color === selectedColor;
+                    const disabled = variant.stock <= 0;
 
-                      return (
-                        <button
-                          key={variant.color}
-                          type="button"
-                          disabled={disabled}
-                          onClick={() => setSelectedColor(variant.color)}
-                          title={variant.color}
-                          className={`relative h-24 w-24 overflow-hidden rounded-xl border-2 bg-surface-bright p-2 transition-all ${
-                            active
-                              ? 'border-primary shadow-[0_0_0_2px_rgb(var(--color-primary)/0.18)]'
-                              : 'border-outline-variant hover:border-primary/70'
-                          } ${disabled ? 'cursor-not-allowed opacity-45' : ''}`}
-                        >
-                          {variant.image_url ? (
-                            <img
-                              src={variant.image_url}
-                              alt={variant.color}
-                              className="h-full w-full object-contain"
-                            />
-                          ) : (
-                            <span
-                              className="mx-auto block h-full w-full rounded-lg border border-outline-variant"
-                              style={{ backgroundColor: resolveColorHex(variant) }}
-                            />
-                          )}
-                          {disabled && (
-                            <span className="absolute inset-0 bg-[linear-gradient(55deg,transparent_48%,rgb(var(--color-outline))_49%,rgb(var(--color-outline))_51%,transparent_52%)]" />
-                          )}
-                        </button>
-                      );
-                    })}
-                  </div>
-                ) : (
-                  <div className="flex flex-wrap gap-sm">
-                    {colorOptions.map((variant) => {
-                      const active = variant.color === selectedColor;
-                      const disabled = variant.stock <= 0;
-
-                      return (
-                        <button
-                          key={variant.color}
-                          type="button"
-                          disabled={disabled}
-                          onClick={() => setSelectedColor(variant.color)}
-                          title={variant.color}
-                          className={`relative flex h-12 w-12 items-center justify-center rounded-full border-2 bg-surface-container-lowest transition-all ${
-                            active ? 'border-primary shadow-[0_0_0_3px_rgb(var(--color-primary)/0.18)]' : 'border-outline hover:border-primary/70'
-                          } ${disabled ? 'cursor-not-allowed opacity-45' : ''}`}
-                        >
-                          <span
-                            className="h-9 w-9 rounded-full border border-black/10 shadow-inner"
-                            style={{ backgroundColor: resolveColorHex(variant) }}
-                          />
-                          {disabled && (
-                            <span className="absolute inset-1 rounded-full bg-[linear-gradient(55deg,transparent_46%,rgb(var(--color-outline))_48%,rgb(var(--color-outline))_52%,transparent_54%)]" />
-                          )}
-                        </button>
-                      );
-                    })}
-                  </div>
-                )}
+                    return (
+                      <button
+                        key={variant.color}
+                        type="button"
+                        disabled={disabled}
+                        onClick={() => setSelectedColor(variant.color)}
+                        title={variant.color}
+                        className={`relative flex h-12 w-12 items-center justify-center rounded-full border-2 bg-surface-container-lowest transition-all ${
+                          active ? 'border-primary shadow-[0_0_0_3px_rgb(var(--color-primary)/0.18)]' : 'border-outline hover:border-primary/70'
+                        } ${disabled ? 'cursor-not-allowed opacity-45' : ''}`}
+                      >
+                        <span
+                          className="h-9 w-9 rounded-full border border-black/10 shadow-inner"
+                          style={{ backgroundColor: resolveColorHex(variant) }}
+                        />
+                        {disabled && (
+                          <span className="absolute inset-1 rounded-full bg-[linear-gradient(55deg,transparent_46%,rgb(var(--color-outline))_48%,rgb(var(--color-outline))_52%,transparent_54%)]" />
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
             )}
             {qualityOptions.length > 0 && (

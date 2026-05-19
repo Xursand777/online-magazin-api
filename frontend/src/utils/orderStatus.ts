@@ -27,9 +27,17 @@ export const PAYMENT_STATUS_LABELS: Record<string, string> = {
   REFUNDED: 'Qaytarilgan',
 };
 
-export const CANCELLABLE_ORDER_STATUSES = ['PENDING', 'CONFIRMED', 'PACKING'];
+export const PAYMENT_METHOD_LABELS: Record<string, string> = {
+  cash: 'Naqd pul',
+  card: 'Karta (Click/Payme)',
+  credit: "Muddatli to'lov",
+};
+
+// Faqat PENDING va CONFIRMED bekor qilinadi — PACKING boshlangandan keyin bekor qilib bo'lmaydi
+export const CANCELLABLE_ORDER_STATUSES = ['PENDING', 'CONFIRMED'];
 
 export const getOrderStatusLabel = (status: string) => ORDER_STATUS_LABELS[status] || status;
 export const getOrderStatusBadge = (status: string) =>
   ORDER_STATUS_BADGES[status] || 'bg-surface-container text-on-surface-variant';
 export const getPaymentStatusLabel = (status: string) => PAYMENT_STATUS_LABELS[status] || status;
+export const getPaymentMethodLabel = (method: string) => PAYMENT_METHOD_LABELS[method] || method;

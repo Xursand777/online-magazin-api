@@ -1,4 +1,5 @@
 import {
+  Fragment,
   useEffect,
   useState,
   useMemo,
@@ -30,6 +31,16 @@ import {
   adminGetExchangeRate,
   adminUpdateExchangeRate,
   adminGetStockReport,
+  adminPayCreditOrder,
+  adminGetKassa,
+  adminWithdrawKassa,
+  adminGetDashboard,
+  adminGetUsers,
+  adminGetUser,
+  adminToggleUserBan,
+  adminToggleUserActive,
+  adminGetFeedbacks,
+  adminUpdateFeedback,
 } from '../api/endpoints';
 import {
   getOrderStatusBadge,
@@ -37,9 +48,11 @@ import {
   getPaymentStatusLabel,
 } from '../utils/orderStatus';
 import { toast } from '../utils/toast';
+import { printReceipt } from '../utils/receiptPrinter';
 import ThemeToggle from '../components/ThemeToggle';
+import AdminPOS from '../components/AdminPOS';
 
-type AdminTab = 'products' | 'banners' | 'categories' | 'orders' | 'reports' | 'stock';
+type AdminTab = 'dashboard' | 'products' | 'banners' | 'categories' | 'orders' | 'users' | 'feedback' | 'reports' | 'stock' | 'pos' | 'kassa' | 'nasiya' | 'sozlamalar';
 
 interface AdminCategory {
   id: number;
@@ -57,6 +70,7 @@ interface AdminProductVariant {
   color?: string | null;
   color_hex?: string | null;
   image_url?: string | null;
+  images?: { id: number; url: string }[];
   quality?: string | null;
   model?: string | null;
   size?: string | null;
@@ -128,6 +142,8 @@ interface VariantFormState {
   color_hex: string;
   image_url?: string | null;
   remove_image: boolean;
+  existingImages: { id: number; url: string }[];
+  deleteImageIds: number[];
   quality: string;
   model: string;
   size: string;
@@ -205,18 +221,27 @@ interface AdminOrder {
   id: number;
   status: string;
   total_price: string | number;
+  delivery_price: string | number;
+  discount_price: string | number;
   created_at: string;
   receiver_name: string;
   receiver_phone: string;
   delivery_address: string;
   cancellation_reason: string;
   payment_method: string;
+  is_credit: boolean;
+  credit_days: number | null;
+  credit_due_date: string | null;
+  credit_paid: boolean;
+  credit_paid_at: string | null;
+  credit_is_overdue: boolean;
   payment?: { status: string; method: string; amount: string | number } | null;
   items: Array<{
     id: number;
     quantity: number;
+    price_snapshot: string | number;
     product_details?: { name: string; main_image?: string | null };
-    variant_details?: { color?: string; quality?: string; model?: string; size?: string } | null;
+    variant_details?: { color?: string | null; quality?: string | null; model?: string | null; size?: string | null } | null;
   }>;
   history: AdminOrderHistory[];
   user?: { id: number; phone: string } | null;
@@ -261,6 +286,8 @@ const emptyVariant = (groupId?: string): VariantFormState => ({
   color_hex: '',
   image_url: null,
   remove_image: false,
+  existingImages: [],
+  deleteImageIds: [],
   quality: '',
   model: '',
   size: '',
@@ -391,6 +418,8 @@ const mapProductVariants = (product?: AdminProduct): VariantFormState[] => {
     color_hex: v.color_hex || '',
     image_url: v.image_url || null,
     remove_image: false,
+    existingImages: v.images || [],
+    deleteImageIds: [],
     quality: v.quality || '',
     model: v.model || '',
     size: v.size || '',
@@ -542,7 +571,8 @@ const AdminPanel = () => {
 };
 
 const AdminDashboard = () => {
-  const [activeTab, setActiveTab] = useState<AdminTab>('products');
+  const [activeTab, setActiveTab] = useState<AdminTab>('dashboard');
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   const [productFilters, setProductFilters] = useState({
     q: '',
     category: '',
@@ -593,12 +623,6 @@ const AdminDashboard = () => {
     queryFn: () => adminGetCategories().then((r) => r.data),
   });
   const categories: AdminCategory[] = categoriesData?.results || categoriesData || [];
-  const { data: ordersData, isLoading: ordersLoading } = useQuery({
-    queryKey: ['admin-orders'],
-    queryFn: () => adminGetOrders().then((r) => r.data),
-  });
-  const orders: AdminOrder[] = ordersData?.results || ordersData || [];
-
   const deleteProductMutation = useMutation({
     mutationFn: (id: number) => adminDeleteProduct(id),
     onSuccess: async () => {
@@ -630,92 +654,577 @@ const AdminDashboard = () => {
     navigate('/auth');
   };
 
+  const NAV_GROUPS = [
+    {
+      group: 'Asosiy',
+      items: [{ key: 'dashboard', label: 'Dashboard', icon: 'dashboard' }],
+    },
+    {
+      group: 'Savdo',
+      items: [
+        { key: 'pos', label: "Do'kon (POS)", icon: 'point_of_sale' },
+        { key: 'orders', label: 'Buyurtmalar', icon: 'local_shipping' },
+        { key: 'users', label: 'Foydalanuvchilar', icon: 'people' },
+        { key: 'feedback', label: 'Fikrlar', icon: 'forum' },
+      ],
+    },
+    {
+      group: 'Katalog',
+      items: [
+        { key: 'products', label: 'Mahsulotlar', icon: 'inventory_2' },
+        { key: 'categories', label: 'Kategoriyalar', icon: 'category' },
+        { key: 'banners', label: 'Bannerlar', icon: 'view_carousel' },
+      ],
+    },
+    {
+      group: 'Moliya',
+      items: [
+        { key: 'kassa', label: 'Kassa', icon: 'account_balance_wallet' },
+        { key: 'nasiya', label: 'Nasiya', icon: 'calendar_month' },
+        { key: 'reports', label: 'Hisobotlar', icon: 'bar_chart' },
+      ],
+    },
+    {
+      group: 'Ombor',
+      items: [{ key: 'stock', label: 'Ombor', icon: 'warehouse' }],
+    },
+    {
+      group: 'Tizim',
+      items: [{ key: 'sozlamalar', label: 'Sozlamalar', icon: 'settings' }],
+    },
+  ] as const;
+
+  const activeLabel =
+    NAV_GROUPS.flatMap((g) => g.items).find((i) => i.key === activeTab)?.label || '';
+
   return (
     <div className='min-h-screen bg-surface-container-low'>
-      <header className='sticky top-0 z-50 flex items-center justify-between border-b border-outline-variant bg-surface-container-lowest px-6 py-3 shadow-sm'>
-        <div className='flex items-center gap-3'>
+      {/* Mobile overlay */}
+      {sidebarOpen && (
+        <div
+          className='fixed inset-0 z-30 bg-black/50 lg:hidden'
+          onClick={() => setSidebarOpen(false)}
+        />
+      )}
+
+      {/* Sidebar */}
+      <aside
+        className={`fixed left-0 top-0 z-40 flex h-screen w-64 flex-col border-r border-outline-variant bg-surface-container-lowest transition-transform duration-300 ease-in-out lg:translate-x-0 ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}
+      >
+        {/* Logo */}
+        <div className='flex items-center gap-3 border-b border-outline-variant px-5 py-4'>
           <span className='material-symbols-outlined fill-icon text-2xl text-primary'>
             admin_panel_settings
           </span>
-          <span className='font-h3 text-h3 text-primary'>Bozor Admin</span>
+          <span className='text-base font-bold text-primary'>Bozor Admin</span>
         </div>
-        <div className='flex items-center gap-4'>
-          <span className='hidden text-body-sm text-on-surface-variant md:block'>
-            {user?.phone}
-          </span>
-          <ThemeToggle />
-          <button
-            onClick={() => navigate('/')}
-            className='flex items-center gap-1 text-sm text-on-surface-variant hover:text-primary'
-          >
-            <span className='material-symbols-outlined text-[18px]'>open_in_new</span>Sayt
-          </button>
-          <button
-            onClick={handleLogout}
-            className='flex items-center gap-1 text-sm text-error hover:opacity-80'
-          >
-            <span className='material-symbols-outlined text-[18px]'>logout</span>Chiqish
-          </button>
-        </div>
-      </header>
-      <div className='mx-auto max-w-7xl px-4 py-6 md:px-8'>
-        <div className='mb-6 flex gap-2 rounded-xl border border-outline-variant bg-surface-container-lowest p-1'>
-          {[
-            { key: 'products', label: 'Mahsulotlar', icon: 'inventory_2' },
-            { key: 'banners', label: 'Bannerlar', icon: 'view_carousel' },
-            { key: 'categories', label: 'Kategoriyalar', icon: 'category' },
-            { key: 'orders', label: 'Buyurtmalar', icon: 'local_shipping' },
-            { key: 'stock', label: 'Ombor', icon: 'warehouse' },
-            { key: 'reports', label: 'Hisobotlar', icon: 'bar_chart' },
-          ].map((tab) => (
-            <button
-              key={tab.key}
-              onClick={() => setActiveTab(tab.key as AdminTab)}
-              className={`flex items-center gap-2 rounded-lg px-4 py-2 font-label-md text-label-md transition-all ${activeTab === tab.key ? 'bg-primary text-on-primary shadow-sm' : 'text-on-surface-variant hover:bg-surface-container'}`}
-            >
-              <span className='material-symbols-outlined text-[18px]'>{tab.icon}</span>
-              {tab.label}
-            </button>
+
+        {/* Navigation */}
+        <nav className='flex-1 overflow-y-auto px-3 py-4'>
+          {NAV_GROUPS.map(({ group, items }) => (
+            <div key={group} className='mb-5'>
+              <p className='mb-1.5 px-3 text-[10px] font-semibold uppercase tracking-widest text-on-surface-variant/50'>
+                {group}
+              </p>
+              {items.map((item) => (
+                <button
+                  key={item.key}
+                  onClick={() => {
+                    setActiveTab(item.key as AdminTab);
+                    setSidebarOpen(false);
+                  }}
+                  className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-all ${
+                    activeTab === item.key
+                      ? 'bg-primary/10 text-primary'
+                      : 'text-on-surface-variant hover:bg-surface-container hover:text-on-surface'
+                  }`}
+                >
+                  <span
+                    className={`material-symbols-outlined text-[20px] ${activeTab === item.key ? 'fill-icon' : ''}`}
+                  >
+                    {item.icon}
+                  </span>
+                  {item.label}
+                </button>
+              ))}
+            </div>
           ))}
+        </nav>
+
+        {/* User footer */}
+        <div className='border-t border-outline-variant p-4'>
+          <p className='truncate text-sm font-semibold text-on-surface'>{user?.phone}</p>
+          <p className='mb-3 text-xs text-on-surface-variant'>
+            {user?.is_admin ? 'Superadmin' : 'Staff'}
+          </p>
+          <div className='flex gap-2'>
+            <button
+              onClick={() => navigate('/')}
+              className='flex flex-1 items-center justify-center gap-1 rounded-lg border border-outline-variant py-1.5 text-xs text-on-surface-variant hover:bg-surface-container hover:text-primary'
+            >
+              <span className='material-symbols-outlined text-[15px]'>open_in_new</span>Sayt
+            </button>
+            <button
+              onClick={handleLogout}
+              className='flex flex-1 items-center justify-center gap-1 rounded-lg border border-error/30 py-1.5 text-xs text-error hover:bg-error/10'
+            >
+              <span className='material-symbols-outlined text-[15px]'>logout</span>Chiqish
+            </button>
+          </div>
         </div>
-        {activeTab === 'products' && (
-          <ProductsTab
-            categories={categories}
-            loading={productsLoading}
-            filters={productFilters}
-            onFiltersChange={setProductFilters}
-            onDelete={(id) => {
-              if (confirm("Mahsulotni o'chirishni tasdiqlaysizmi?"))
-                deleteProductMutation.mutate(id);
-            }}
-            totalCount={productCount}
-            hasPrevPage={productHasPrev}
-            hasNextPage={productHasNext}
-            products={products}
-          />
-        )}
-        {activeTab === 'banners' && (
-          <BannersTab
-            banners={banners}
-            loading={bannersLoading}
-            onDelete={(id) => {
-              if (confirm("Bannerni o'chirishni tasdiqlaysizmi?")) deleteBannerMutation.mutate(id);
-            }}
-            products={products}
-          />
-        )}
-        {activeTab === 'categories' && (
-          <CategoriesTab
-            categories={categories}
-            onDelete={(id) => {
-              if (confirm("Kategoriyani o'chirishni tasdiqlaysizmi?"))
-                deleteCategoryMutation.mutate(id);
-            }}
-          />
-        )}
-        {activeTab === 'orders' && <OrdersTab loading={ordersLoading} orders={orders} />}
-        {activeTab === 'stock' && <StockTab />}
-        {activeTab === 'reports' && <ReportsTab />}
+      </aside>
+
+      {/* Main content */}
+      <div className='flex min-h-screen flex-col lg:ml-64'>
+        {/* Top bar */}
+        <header className='sticky top-0 z-20 flex items-center gap-3 border-b border-outline-variant bg-surface-container-lowest px-4 py-3 shadow-sm'>
+          <button
+            onClick={() => setSidebarOpen(!sidebarOpen)}
+            className='rounded-lg p-1.5 text-on-surface-variant hover:bg-surface-container lg:hidden'
+          >
+            <span className='material-symbols-outlined text-[22px]'>menu</span>
+          </button>
+          <span className='flex-1 text-sm font-semibold text-on-surface'>{activeLabel}</span>
+          <ThemeToggle />
+        </header>
+
+        {/* Page content */}
+        <main className='flex-1 px-4 py-6 md:px-6'>
+          {activeTab === 'products' && (
+            <ProductsTab
+              categories={categories}
+              loading={productsLoading}
+              filters={productFilters}
+              onFiltersChange={setProductFilters}
+              onDelete={(id) => {
+                if (confirm("Mahsulotni o'chirishni tasdiqlaysizmi?"))
+                  deleteProductMutation.mutate(id);
+              }}
+              totalCount={productCount}
+              hasPrevPage={productHasPrev}
+              hasNextPage={productHasNext}
+              products={products}
+            />
+          )}
+          {activeTab === 'banners' && (
+            <BannersTab
+              banners={banners}
+              loading={bannersLoading}
+              onDelete={(id) => {
+                if (confirm("Bannerni o'chirishni tasdiqlaysizmi?")) deleteBannerMutation.mutate(id);
+              }}
+              products={products}
+            />
+          )}
+          {activeTab === 'categories' && (
+            <CategoriesTab
+              categories={categories}
+              onDelete={(id) => {
+                if (confirm("Kategoriyani o'chirishni tasdiqlaysizmi?"))
+                  deleteCategoryMutation.mutate(id);
+              }}
+            />
+          )}
+          {activeTab === 'dashboard' && <DashboardTab />}
+          {activeTab === 'orders' && <OrdersTab />}
+          {activeTab === 'users' && <UsersTab />}
+          {activeTab === 'feedback' && <FeedbackTab />}
+          {activeTab === 'stock' && <StockTab />}
+          {activeTab === 'pos' && <AdminPOS />}
+          {activeTab === 'reports' && <ReportsTab />}
+          {activeTab === 'kassa' && <KassaTab />}
+          {activeTab === 'nasiya' && <NasiyaTab />}
+          {activeTab === 'sozlamalar' && <SozlamalarTab />}
+        </main>
+      </div>
+    </div>
+  );
+};
+
+interface DashboardData {
+  today: { orders: number; revenue: number };
+  month: { orders: number; revenue: number };
+  pending_orders: number;
+  processing_orders: number;
+  overdue_credits: number;
+  kassa_balance: number;
+  stock: { low_stock: number; out_of_stock: number };
+  status_breakdown: Record<string, number>;
+  recent_orders: Array<{
+    id: number;
+    status: string;
+    total_price: number;
+    receiver_name: string;
+    receiver_phone: string;
+    created_at: string;
+    payment_method: string;
+    is_credit: boolean;
+    item_count: number;
+  }>;
+  weekly_chart: Array<{ date: string; revenue: number; orders: number }>;
+  feedback_new: number;
+}
+
+const DashboardTab = () => {
+  const { data, isLoading, isError, refetch, dataUpdatedAt } = useQuery<DashboardData>({
+    queryKey: ['admin-dashboard'],
+    queryFn: () => adminGetDashboard().then((r) => r.data),
+    staleTime: 60_000,
+  });
+
+  const lastUpdated = dataUpdatedAt
+    ? new Date(dataUpdatedAt).toLocaleTimeString('uz-UZ', { hour: '2-digit', minute: '2-digit' })
+    : null;
+
+  if (isLoading)
+    return (
+      <div className='py-12 text-center text-on-surface-variant'>
+        <span className='material-symbols-outlined mb-2 block animate-spin text-4xl'>
+          progress_activity
+        </span>
+        Dashboard yuklanmoqda...
+      </div>
+    );
+
+  if (isError || !data)
+    return (
+      <div className='rounded-xl border border-error-container bg-error-container/20 py-12 text-center'>
+        <span className='material-symbols-outlined mb-2 block text-4xl text-error'>error</span>
+        <p className='text-on-surface-variant'>Dashboard yuklanmadi. Qayta urinib ko'ring.</p>
+        <button
+          onClick={() => refetch()}
+          className='mt-4 rounded-lg bg-primary px-4 py-2 text-sm text-on-primary'
+        >
+          Qayta yuklash
+        </button>
+      </div>
+    );
+
+  const statusLabels: Record<string, string> = {
+    PENDING: "Kutilmoqda",
+    CONFIRMED: "Tasdiqlandi",
+    PACKING: "Yig'ilmoqda",
+    SHIPPING: "Yo'lda",
+    DELIVERED: "Yetkazildi",
+    CANCELLED_BY_USER: "Foydalanuvchi bekor qildi",
+    CANCELLED_BY_ADMIN: "Admin bekor qildi",
+    SYSTEM_AUTO_CANCEL: "Avtomatik bekor qilindi",
+  };
+
+  const statusColors: Record<string, string> = {
+    PENDING: 'bg-amber-100 text-amber-700',
+    CONFIRMED: 'bg-blue-100 text-blue-700',
+    PACKING: 'bg-purple-100 text-purple-700',
+    SHIPPING: 'bg-indigo-100 text-indigo-700',
+    DELIVERED: 'bg-green-100 text-green-700',
+    CANCELLED_BY_USER: 'bg-red-100 text-red-600',
+    CANCELLED_BY_ADMIN: 'bg-red-200 text-red-700',
+    SYSTEM_AUTO_CANCEL: 'bg-gray-100 text-gray-600',
+  };
+
+  return (
+    <div className='space-y-6'>
+      {/* Header */}
+      <div className='flex items-center justify-between'>
+        <div>
+          <h2 className='font-h3 text-h3 text-on-surface'>Dashboard</h2>
+          <p className='mt-1 text-body-sm text-on-surface-variant'>
+            Barcha asosiy ko'rsatkichlar bir ko'rinishda.
+          </p>
+        </div>
+        <div className='flex items-center gap-3'>
+          {lastUpdated && (
+            <span className='text-xs text-on-surface-variant'>
+              So'nggi yangilangan: {lastUpdated}
+            </span>
+          )}
+          <button
+            onClick={() => refetch()}
+            className='flex items-center gap-1 rounded-lg border border-outline-variant px-3 py-2 text-sm text-on-surface-variant hover:bg-surface-container'
+          >
+            <span className='material-symbols-outlined text-[16px]'>refresh</span>
+            Yangilash
+          </button>
+        </div>
+      </div>
+
+      {/* Row 1: 4 KPI cards */}
+      <div className='grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4'>
+        <div className='rounded-2xl border border-outline-variant bg-surface-container-lowest p-5 shadow-sm'>
+          <div className='flex items-start justify-between'>
+            <div>
+              <div className='text-sm text-on-surface-variant'>Bugungi buyurtmalar</div>
+              <div className='mt-1 text-3xl font-bold text-primary'>{data.today.orders} ta</div>
+              <div className='mt-1 text-xs text-on-surface-variant'>
+                {formatMoney(data.today.revenue)} so'm tushum
+              </div>
+            </div>
+            <span className='material-symbols-outlined fill-icon text-3xl text-primary'>
+              shopping_bag
+            </span>
+          </div>
+        </div>
+        <div className='rounded-2xl border border-outline-variant bg-surface-container-lowest p-5 shadow-sm'>
+          <div className='flex items-start justify-between'>
+            <div>
+              <div className='text-sm text-on-surface-variant'>Bu oy tushum</div>
+              <div className='mt-1 text-3xl font-bold' style={{ color: '#22c55e' }}>
+                {formatMoney(data.month.revenue)} so'm
+              </div>
+              <div className='mt-1 text-xs text-on-surface-variant'>
+                {data.month.orders} ta buyurtma
+              </div>
+            </div>
+            <span
+              className='material-symbols-outlined fill-icon text-3xl'
+              style={{ color: '#22c55e' }}
+            >
+              payments
+            </span>
+          </div>
+        </div>
+        <div className='rounded-2xl border border-outline-variant bg-surface-container-lowest p-5 shadow-sm'>
+          <div className='flex items-start justify-between'>
+            <div>
+              <div className='text-sm text-on-surface-variant'>Kutilayotgan</div>
+              <div
+                className={`mt-1 text-3xl font-bold ${data.pending_orders > 0 ? 'text-amber-500' : 'text-on-surface-variant'}`}
+              >
+                {data.pending_orders} ta
+              </div>
+              <div className='mt-1 text-xs text-on-surface-variant'>
+                {data.processing_orders} ta qayta ishlanmoqda
+              </div>
+            </div>
+            <span
+              className={`material-symbols-outlined text-3xl ${data.pending_orders > 0 ? 'text-amber-500' : 'text-on-surface-variant'}`}
+            >
+              schedule
+            </span>
+          </div>
+        </div>
+        <div className='rounded-2xl border border-outline-variant bg-surface-container-lowest p-5 shadow-sm'>
+          <div className='flex items-start justify-between'>
+            <div>
+              <div className='text-sm text-on-surface-variant'>Kassadagi qoldiq</div>
+              <div className='mt-1 text-3xl font-bold text-primary'>
+                {formatMoney(data.kassa_balance)} so'm
+              </div>
+              <div className='mt-1 text-xs text-on-surface-variant'>
+                Barcha tushumlar - chiqimlar
+              </div>
+            </div>
+            <span className='material-symbols-outlined fill-icon text-3xl text-primary'>
+              account_balance_wallet
+            </span>
+          </div>
+        </div>
+      </div>
+
+      {/* Row 2: 4 alert cards */}
+      <div className='grid grid-cols-2 gap-4 xl:grid-cols-4'>
+        <div
+          className={`rounded-2xl border p-5 shadow-sm ${data.overdue_credits > 0 ? 'border-red-300 bg-red-50' : 'border-outline-variant bg-surface-container-lowest'}`}
+        >
+          <div className='flex items-start justify-between'>
+            <div>
+              <div className={`text-sm ${data.overdue_credits > 0 ? 'text-red-700' : 'text-on-surface-variant'}`}>
+                Muddati o'tgan nasiyalar
+              </div>
+              <div className={`mt-1 text-3xl font-bold ${data.overdue_credits > 0 ? 'text-red-700' : 'text-on-surface-variant'}`}>
+                {data.overdue_credits} ta
+              </div>
+            </div>
+            <span className={`material-symbols-outlined text-3xl ${data.overdue_credits > 0 ? 'text-red-600' : 'text-on-surface-variant'}`}>
+              warning
+            </span>
+          </div>
+        </div>
+        <div className='rounded-2xl border border-outline-variant bg-surface-container-lowest p-5 shadow-sm'>
+          <div className='flex items-start justify-between'>
+            <div>
+              <div className='text-sm text-on-surface-variant'>Zaxirasi kam</div>
+              <div className='mt-1 text-3xl font-bold text-amber-500'>{data.stock.low_stock} ta</div>
+              <div className='mt-1 text-xs text-on-surface-variant'>1–5 dona qolgan</div>
+            </div>
+            <span className='material-symbols-outlined text-3xl text-amber-500'>inventory_2</span>
+          </div>
+        </div>
+        <div className='rounded-2xl border border-outline-variant bg-surface-container-lowest p-5 shadow-sm'>
+          <div className='flex items-start justify-between'>
+            <div>
+              <div className='text-sm text-on-surface-variant'>Tugagan mahsulot</div>
+              <div className={`mt-1 text-3xl font-bold ${data.stock.out_of_stock > 0 ? 'text-error' : 'text-on-surface-variant'}`}>
+                {data.stock.out_of_stock} ta
+              </div>
+              <div className='mt-1 text-xs text-on-surface-variant'>Stokda 0 dona</div>
+            </div>
+            <span className={`material-symbols-outlined text-3xl ${data.stock.out_of_stock > 0 ? 'text-error' : 'text-on-surface-variant'}`}>
+              production_quantity_limits
+            </span>
+          </div>
+        </div>
+        <div
+          className={`rounded-2xl border p-5 shadow-sm ${data.feedback_new > 0 ? 'border-blue-300 bg-blue-50' : 'border-outline-variant bg-surface-container-lowest'}`}
+        >
+          <div className='flex items-start justify-between'>
+            <div>
+              <div className={`text-sm ${data.feedback_new > 0 ? 'text-blue-700' : 'text-on-surface-variant'}`}>
+                Yangi fikrlar
+              </div>
+              <div className={`mt-1 text-3xl font-bold ${data.feedback_new > 0 ? 'text-blue-700' : 'text-on-surface-variant'}`}>
+                {data.feedback_new} ta
+              </div>
+              <div className={`mt-1 text-xs ${data.feedback_new > 0 ? 'text-blue-600' : 'text-on-surface-variant'}`}>
+                {data.feedback_new > 0 ? 'Javob kutmoqda' : "Hammasi ko'rib chiqilgan"}
+              </div>
+            </div>
+            <span className={`material-symbols-outlined text-3xl ${data.feedback_new > 0 ? 'text-blue-600' : 'text-on-surface-variant'}`}>
+              forum
+            </span>
+          </div>
+        </div>
+      </div>
+
+      {/* Row 3: Weekly chart + Status breakdown */}
+      <div className='grid grid-cols-1 gap-4 xl:grid-cols-2'>
+        {/* Weekly revenue chart */}
+        <div className='rounded-2xl border border-outline-variant bg-surface-container-lowest p-5 shadow-sm'>
+          <div className='mb-4 flex items-center justify-between'>
+            <h3 className='text-sm font-semibold text-on-surface'>Haftalik daromad (so'm)</h3>
+            <span className='text-xs text-on-surface-variant'>Yetkazilgan buyurtmalar</span>
+          </div>
+          {(() => {
+            const chart = data.weekly_chart || [];
+            const maxRev = Math.max(...chart.map((d) => d.revenue), 1);
+            const H = 96;
+            const barW = 34;
+            const gap = 10;
+            return (
+              <div className='overflow-x-auto'>
+                <svg
+                  viewBox={`0 0 ${chart.length * (barW + gap) - gap} ${H + 36}`}
+                  className='w-full'
+                  style={{ minHeight: 110 }}
+                >
+                  {chart.map((day, i) => {
+                    const bh = Math.max((day.revenue / maxRev) * H, day.revenue > 0 ? 3 : 0);
+                    const x = i * (barW + gap);
+                    const lbl = day.date.slice(5).replace('-', '/');
+                    return (
+                      <g key={day.date}>
+                        <title>{day.date}: {formatMoney(day.revenue)} so'm · {day.orders} buyurtma</title>
+                        <rect
+                          x={x} y={H - bh} width={barW} height={bh}
+                          rx={5}
+                          fill='currentColor'
+                          className='text-primary opacity-70 hover:opacity-100 transition-opacity'
+                        />
+                        <text x={x + barW / 2} y={H + 14} textAnchor='middle' fontSize='10' fill='currentColor' className='text-on-surface-variant'>
+                          {lbl}
+                        </text>
+                        {day.orders > 0 && (
+                          <text x={x + barW / 2} y={H - bh - 5} textAnchor='middle' fontSize='9' fill='currentColor' className='text-on-surface-variant'>
+                            {day.orders}
+                          </text>
+                        )}
+                      </g>
+                    );
+                  })}
+                </svg>
+              </div>
+            );
+          })()}
+        </div>
+
+        {/* Status breakdown */}
+        <div className='rounded-2xl border border-outline-variant bg-surface-container-lowest p-5 shadow-sm'>
+          <h3 className='mb-4 text-sm font-semibold text-on-surface'>Status bo'yicha taqsimot</h3>
+          <div className='flex flex-col gap-2'>
+            {Object.entries(data.status_breakdown)
+              .filter(([, count]) => count > 0)
+              .sort(([, a], [, b]) => b - a)
+              .map(([key, count]) => {
+                const total = Object.values(data.status_breakdown).reduce((s, n) => s + n, 0) || 1;
+                const pct = Math.round((count / total) * 100);
+                return (
+                  <div key={key} className='flex items-center gap-3'>
+                    <span className={`inline-flex min-w-[110px] items-center rounded-full px-2 py-0.5 text-[11px] font-semibold ${statusColors[key] || 'bg-surface-container text-on-surface-variant'}`}>
+                      {statusLabels[key] || key}
+                    </span>
+                    <div className='flex-1 overflow-hidden rounded-full bg-surface-container' style={{ height: 8 }}>
+                      <div
+                        className='h-full rounded-full bg-primary/60 transition-all'
+                        style={{ width: `${pct}%` }}
+                      />
+                    </div>
+                    <span className='min-w-[28px] text-right text-xs font-semibold text-on-surface'>{count}</span>
+                  </div>
+                );
+              })}
+          </div>
+        </div>
+      </div>
+
+      {/* Row 4: Recent orders table */}
+      <div className='rounded-2xl border border-outline-variant bg-surface-container-lowest shadow-sm'>
+        <div className='border-b border-outline-variant px-5 py-4'>
+          <h3 className='text-sm font-semibold text-on-surface'>So'nggi buyurtmalar</h3>
+        </div>
+        <div className='overflow-x-auto'>
+          <table className='w-full text-sm'>
+            <thead>
+              <tr className='border-b border-outline-variant bg-surface-container-low text-xs text-on-surface-variant'>
+                <th className='px-4 py-3 text-left'>#ID</th>
+                <th className='px-4 py-3 text-left'>Xaridor</th>
+                <th className='px-4 py-3 text-left'>Telefon</th>
+                <th className='px-4 py-3 text-right'>Summa</th>
+                <th className='px-4 py-3 text-left'>To'lov</th>
+                <th className='px-4 py-3 text-left'>Status</th>
+                <th className='px-4 py-3 text-left'>Sana</th>
+              </tr>
+            </thead>
+            <tbody>
+              {data.recent_orders.map((order) => (
+                <tr
+                  key={order.id}
+                  className='border-b border-outline-variant last:border-0 hover:bg-surface-container-low'
+                >
+                  <td className='px-4 py-3 font-semibold text-primary'>#{order.id}</td>
+                  <td className='px-4 py-3 text-on-surface'>{order.receiver_name}</td>
+                  <td className='px-4 py-3 text-on-surface-variant'>{order.receiver_phone}</td>
+                  <td className='px-4 py-3 text-right font-semibold text-on-surface'>
+                    {formatMoney(order.total_price)} so'm
+                  </td>
+                  <td className='px-4 py-3 text-on-surface-variant'>
+                    {order.payment_method === 'CASH'
+                      ? 'Naqd'
+                      : order.payment_method === 'CARD'
+                        ? 'Karta'
+                        : order.payment_method === 'CREDIT'
+                          ? 'Nasiya'
+                          : order.payment_method}
+                  </td>
+                  <td className='px-4 py-3'>
+                    <span
+                      className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${getOrderStatusBadge(order.status)}`}
+                    >
+                      {getOrderStatusLabel(order.status)}
+                    </span>
+                  </td>
+                  <td className='px-4 py-3 text-on-surface-variant'>
+                    {new Date(order.created_at).toLocaleString('uz-UZ', {
+                      month: '2-digit',
+                      day: '2-digit',
+                      hour: '2-digit',
+                      minute: '2-digit',
+                    })}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
   );
@@ -1443,9 +1952,63 @@ const ADMIN_ORDER_STATUS_OPTIONS = [
   { value: 'CANCELLED_BY_ADMIN', label: 'Admin bekor qildi' },
 ];
 
-const OrdersTab = ({ orders, loading }: { orders: AdminOrder[]; loading: boolean }) => {
+const OrdersTab = () => {
   const qc = useQueryClient();
+  const [filters, setFilters] = useState({
+    q: '',
+    status: '',
+    date_from: '',
+    date_to: '',
+    payment_method: '',
+    is_credit: '',
+    page: 1,
+  });
+
+  const { data, isLoading, isFetching } = useQuery({
+    queryKey: ['admin-orders', filters],
+    queryFn: () =>
+      adminGetOrders({
+        q: filters.q || undefined,
+        status: filters.status || undefined,
+        date_from: filters.date_from || undefined,
+        date_to: filters.date_to || undefined,
+        payment_method: filters.payment_method || undefined,
+        is_credit: filters.is_credit || undefined,
+        page: filters.page,
+      }).then((r) => r.data),
+    placeholderData: (prev) => prev,
+  });
+
+  const orders: AdminOrder[] = (data as any)?.results || (Array.isArray(data) ? data : []);
+  const totalCount: number = (data as any)?.count || orders.length;
+  const hasNext = Boolean((data as any)?.next);
+  const hasPrev = Boolean((data as any)?.previous);
+  const totalPages = Math.ceil(totalCount / 20) || 1;
+
   const [drafts, setDrafts] = useState<Record<number, { status: string; note: string }>>({});
+
+  const setFilter = (key: string, value: string) =>
+    setFilters((c) => ({ ...c, [key]: value, page: 1 }));
+
+  const resetFilters = () =>
+    setFilters({
+      q: '',
+      status: '',
+      date_from: '',
+      date_to: '',
+      payment_method: '',
+      is_credit: '',
+      page: 1,
+    });
+
+  const hasActiveFilters =
+    filters.q ||
+    filters.status ||
+    filters.date_from ||
+    filters.date_to ||
+    filters.payment_method ||
+    filters.is_credit;
+
   const statusMutation = useMutation({
     mutationFn: ({ id, status, note }: { id: number; status: string; note: string }) =>
       adminUpdateOrderStatus(id, { status, note }),
@@ -1463,6 +2026,20 @@ const OrdersTab = ({ orders, loading }: { orders: AdminOrder[]; loading: boolean
     },
     onError: (e: any) => toast.error(e?.response?.data?.error || "Statusni yangilab bo'lmadi."),
   });
+
+  const creditPayMutation = useMutation({
+    mutationFn: (id: number) => adminPayCreditOrder(id),
+    onSuccess: async () => {
+      await Promise.all([
+        qc.invalidateQueries({ queryKey: ['admin-orders'] }),
+        qc.invalidateQueries({ queryKey: ['orders'] }),
+      ]);
+      toast.success("Muddatli to'lov qabul qilindi.");
+    },
+    onError: (e: any) =>
+      toast.error(e?.response?.data?.error || "Muddatli to'lovni qayd etib bo'lmadi."),
+  });
+
   const updateDraft = (
     orderId: number,
     field: 'status' | 'note',
@@ -1478,238 +2055,458 @@ const OrdersTab = ({ orders, loading }: { orders: AdminOrder[]; loading: boolean
       },
     }));
   };
-  if (loading)
-    return (
-      <div className='py-12 text-center text-on-surface-variant'>
-        <span className='material-symbols-outlined mb-2 block animate-spin text-4xl'>
-          progress_activity
-        </span>
-        Buyurtmalar yuklanmoqda...
-      </div>
-    );
-  if (orders.length === 0)
-    return (
-      <div className='rounded-xl border border-outline-variant bg-surface-container-lowest py-16 text-center'>
-        <span className='material-symbols-outlined mb-3 block text-5xl text-outline'>
-          local_shipping
-        </span>
-        <p className='font-h3 text-on-surface-variant'>Buyurtmalar yo'q</p>
-      </div>
-    );
+
   return (
     <div className='space-y-6'>
       <div>
-        <h2 className='font-h3 text-h3 text-on-surface'>Buyurtmalar ({orders.length})</h2>
+        <h2 className='font-h3 text-h3 text-on-surface'>Buyurtmalar ({totalCount})</h2>
         <p className='mt-1 text-body-sm text-on-surface-variant'>
           Buyurtma statuslari, cancellation sababi va tarix shu bo'limda boshqariladi.
         </p>
       </div>
-      <div className='space-y-4'>
-        {orders.map((order) => {
-          const draft = drafts[order.id] || {
-            status: order.status,
-            note: order.status.startsWith('CANCELLED') ? order.cancellation_reason || '' : '',
-          };
-          const lastHistory = order.history?.[order.history.length - 1];
-          const hasDraftChanges =
-            draft.status !== order.status ||
-            draft.note !==
-              (order.status.startsWith('CANCELLED') ? order.cancellation_reason || '' : '');
-          return (
-            <div
-              key={order.id}
-              className='rounded-2xl border border-outline-variant bg-surface-container-lowest shadow-sm overflow-hidden'
+
+      {/* Filters */}
+      <div className='rounded-xl border border-outline-variant bg-surface-container-lowest p-4 shadow-sm'>
+        <div className='grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4'>
+          <input
+            value={filters.q}
+            onChange={(e) => setFilter('q', e.target.value)}
+            placeholder='Buyurtma #, ism yoki telefon...'
+            className='rounded-lg border border-outline-variant bg-surface-bright px-3 py-2 outline-none focus:border-primary'
+          />
+          <select
+            value={filters.status}
+            onChange={(e) => setFilter('status', e.target.value)}
+            className='rounded-lg border border-outline-variant bg-surface-bright px-3 py-2 outline-none focus:border-primary'
+          >
+            <option value=''>Barcha statuslar</option>
+            {ADMIN_ORDER_STATUS_OPTIONS.map((o) => (
+              <option key={o.value} value={o.value}>
+                {o.label}
+              </option>
+            ))}
+          </select>
+          <select
+            value={filters.payment_method}
+            onChange={(e) => setFilter('payment_method', e.target.value)}
+            className='rounded-lg border border-outline-variant bg-surface-bright px-3 py-2 outline-none focus:border-primary'
+          >
+            <option value="">Barcha to'lovlar</option>
+            <option value='CASH'>Naqd</option>
+            <option value='CARD'>Karta</option>
+            <option value='CREDIT'>Nasiya</option>
+          </select>
+          <select
+            value={filters.is_credit}
+            onChange={(e) => setFilter('is_credit', e.target.value)}
+            className='rounded-lg border border-outline-variant bg-surface-bright px-3 py-2 outline-none focus:border-primary'
+          >
+            <option value=''>Barchasi</option>
+            <option value='true'>Nasiyali</option>
+            <option value='false'>Oddiy</option>
+          </select>
+          <input
+            type='date'
+            value={filters.date_from}
+            onChange={(e) => setFilter('date_from', e.target.value)}
+            className='rounded-lg border border-outline-variant bg-surface-bright px-3 py-2 outline-none focus:border-primary'
+            title="Dan sana"
+          />
+          <input
+            type='date'
+            value={filters.date_to}
+            onChange={(e) => setFilter('date_to', e.target.value)}
+            className='rounded-lg border border-outline-variant bg-surface-bright px-3 py-2 outline-none focus:border-primary'
+            title="Gacha sana"
+          />
+          {hasActiveFilters && (
+            <button
+              onClick={resetFilters}
+              className='flex items-center gap-1 rounded-lg border border-outline-variant px-3 py-2 text-sm text-on-surface-variant hover:bg-surface-container'
             >
-              <div className='border-b border-outline-variant bg-surface-container-low px-5 py-4'>
-                <div className='flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between'>
-                  <div className='space-y-2'>
-                    <div className='flex flex-wrap items-center gap-2'>
-                      <span className='font-h3 text-lg text-on-surface'>Buyurtma #{order.id}</span>
-                      <span
-                        className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${getOrderStatusBadge(order.status)}`}
+              <span className='material-symbols-outlined text-[16px]'>close</span>
+              Filtrlarni tozalash
+            </button>
+          )}
+        </div>
+      </div>
+
+      {isLoading ? (
+        <div className='py-12 text-center text-on-surface-variant'>
+          <span className='material-symbols-outlined mb-2 block animate-spin text-4xl'>
+            progress_activity
+          </span>
+          Buyurtmalar yuklanmoqda...
+        </div>
+      ) : orders.length === 0 ? (
+        <div className='rounded-xl border border-outline-variant bg-surface-container-lowest py-16 text-center'>
+          <span className='material-symbols-outlined mb-3 block text-5xl text-outline'>
+            local_shipping
+          </span>
+          <p className='font-h3 text-on-surface-variant'>Buyurtmalar yo'q</p>
+        </div>
+      ) : (
+        <div className={`space-y-4 transition-opacity ${isFetching ? 'opacity-60' : 'opacity-100'}`}>
+          {orders.map((order) => {
+            const draft = drafts[order.id] || {
+              status: order.status,
+              note: order.status.startsWith('CANCELLED') ? order.cancellation_reason || '' : '',
+            };
+            const lastHistory = order.history?.[order.history.length - 1];
+            const hasDraftChanges =
+              draft.status !== order.status ||
+              draft.note !==
+                (order.status.startsWith('CANCELLED') ? order.cancellation_reason || '' : '');
+            return (
+              <div
+                key={order.id}
+                className='rounded-2xl border border-outline-variant bg-surface-container-lowest shadow-sm overflow-hidden'
+              >
+                <div className='border-b border-outline-variant bg-surface-container-low px-5 py-4'>
+                  <div className='flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between'>
+                    <div className='space-y-2'>
+                      <div className='flex flex-wrap items-center gap-2'>
+                        <span className='font-h3 text-lg text-on-surface'>
+                          Buyurtma #{order.id}
+                        </span>
+                        <span
+                          className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${getOrderStatusBadge(order.status)}`}
+                        >
+                          {getOrderStatusLabel(order.status)}
+                        </span>
+                        {order.is_credit && (
+                          <span
+                            className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${
+                              order.credit_paid
+                                ? 'bg-green-100 text-green-700'
+                                : order.credit_is_overdue
+                                  ? 'bg-red-100 text-red-700'
+                                  : 'bg-amber-100 text-amber-700'
+                            }`}
+                          >
+                            {order.credit_paid
+                              ? "Muddatli to'lov to'langan"
+                              : order.credit_is_overdue
+                                ? "To'lov muddati o'tdi!"
+                                : "Muddatli to'lov"}
+                          </span>
+                        )}
+                      </div>
+                      <div className='flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-on-surface-variant'>
+                        <span>{new Date(order.created_at).toLocaleString('uz-UZ')}</span>
+                        <span>{order.receiver_name}</span>
+                        <span>{order.receiver_phone}</span>
+                      </div>
+                    </div>
+                    <div className='flex items-start gap-2'>
+                      <div className='grid grid-cols-2 gap-3 text-sm xl:min-w-[320px]'>
+                        <div className='rounded-xl bg-surface-container-lowest p-3'>
+                          <div className='text-xs text-on-surface-variant'>Jami</div>
+                          <div className='mt-1 font-semibold text-primary'>
+                            {formatMoney(order.total_price)} so'm
+                          </div>
+                        </div>
+                        <div className='rounded-xl bg-surface-container-lowest p-3'>
+                          <div className='text-xs text-on-surface-variant'>To'lov</div>
+                          <div className='mt-1 font-medium text-on-surface'>
+                            {order.payment
+                              ? `${getPaymentStatusLabel(order.payment.status)} / ${order.payment.method}`
+                              : "Yo'q"}
+                          </div>
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => printReceipt(order, loadStoreInfo().name ? loadStoreInfo() : undefined)}
+                        title='Chek chiqarish'
+                        className='flex flex-shrink-0 flex-col items-center gap-1 rounded-xl border border-outline-variant bg-surface-container-lowest px-3 py-2 text-xs text-on-surface-variant transition-all hover:border-primary hover:bg-primary/5 hover:text-primary'
                       >
-                        {getOrderStatusLabel(order.status)}
-                      </span>
-                    </div>
-                    <div className='flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-on-surface-variant'>
-                      <span>{new Date(order.created_at).toLocaleString('uz-UZ')}</span>
-                      <span>{order.receiver_name}</span>
-                      <span>{order.receiver_phone}</span>
-                    </div>
-                  </div>
-                  <div className='grid grid-cols-2 gap-3 text-sm xl:min-w-[360px]'>
-                    <div className='rounded-xl bg-surface-container-lowest p-3'>
-                      <div className='text-xs text-on-surface-variant'>Jami</div>
-                      <div className='mt-1 font-semibold text-primary'>
-                        {formatMoney(order.total_price)} so'm
-                      </div>
-                    </div>
-                    <div className='rounded-xl bg-surface-container-lowest p-3'>
-                      <div className='text-xs text-on-surface-variant'>To'lov</div>
-                      <div className='mt-1 font-medium text-on-surface'>
-                        {order.payment
-                          ? `${getPaymentStatusLabel(order.payment.status)} / ${order.payment.method}`
-                          : "Yo'q"}
-                      </div>
+                        <span className='material-symbols-outlined text-[22px]'>receipt_long</span>
+                        <span>Chek</span>
+                      </button>
                     </div>
                   </div>
                 </div>
-              </div>
-              <div className='grid gap-5 px-5 py-5 xl:grid-cols-[1.1fr_0.9fr]'>
-                <div className='space-y-4'>
-                  <div className='grid gap-3 lg:grid-cols-2'>
-                    <div className='rounded-xl border border-outline-variant bg-surface-container p-4'>
-                      <div className='mb-2 text-xs uppercase text-on-surface-variant'>Manzil</div>
-                      <div className='text-sm text-on-surface whitespace-pre-line'>
-                        {order.delivery_address}
+                <div className='grid gap-5 px-5 py-5 xl:grid-cols-[1.1fr_0.9fr]'>
+                  <div className='space-y-4'>
+                    <div className='grid gap-3 lg:grid-cols-2'>
+                      <div className='rounded-xl border border-outline-variant bg-surface-container p-4'>
+                        <div className='mb-2 text-xs uppercase text-on-surface-variant'>Manzil</div>
+                        <div className='text-sm text-on-surface whitespace-pre-line'>
+                          {order.delivery_address}
+                        </div>
+                      </div>
+                      <div className='rounded-xl border border-outline-variant bg-surface-container p-4'>
+                        <div className='mb-2 text-xs uppercase text-on-surface-variant'>
+                          Mahsulotlar
+                        </div>
+                        <div className='space-y-2'>
+                          {order.items.slice(0, 4).map((item) => (
+                            <div key={item.id} className='flex items-center gap-3'>
+                              <div className='h-12 w-12 overflow-hidden rounded-lg border border-outline-variant bg-surface-container-lowest'>
+                                {item.product_details?.main_image ? (
+                                  <img
+                                    src={item.product_details.main_image}
+                                    alt={item.product_details.name}
+                                    className='h-full w-full object-contain p-1'
+                                  />
+                                ) : (
+                                  <div className='flex h-full w-full items-center justify-center text-outline'>
+                                    <span className='material-symbols-outlined text-[18px]'>
+                                      image
+                                    </span>
+                                  </div>
+                                )}
+                              </div>
+                              <div className='min-w-0 flex-1'>
+                                <div className='line-clamp-1 text-sm text-on-surface'>
+                                  {item.product_details?.name || 'Mahsulot'}
+                                </div>
+                                <div className='text-xs text-on-surface-variant'>
+                                  {item.quantity} dona
+                                  {item.variant_details
+                                    ? ` • ${[item.variant_details.color, item.variant_details.quality, item.variant_details.model, item.variant_details.size].filter(Boolean).join(' / ')}`
+                                    : ''}
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                          {order.items.length > 4 && (
+                            <div className='text-xs text-on-surface-variant'>
+                              Yana {order.items.length - 4} ta mahsulot bor
+                            </div>
+                          )}
+                        </div>
                       </div>
                     </div>
-                    <div className='rounded-xl border border-outline-variant bg-surface-container p-4'>
-                      <div className='mb-2 text-xs uppercase text-on-surface-variant'>
-                        Mahsulotlar
+                    {order.cancellation_reason && (
+                      <div className='rounded-xl border border-error-container bg-error-container/30 p-4'>
+                        <div className='text-xs uppercase text-error'>Cancellation reason</div>
+                        <div className='mt-2 text-sm text-on-surface'>
+                          {order.cancellation_reason}
+                        </div>
                       </div>
-                      <div className='space-y-2'>
-                        {order.items.slice(0, 4).map((item) => (
-                          <div key={item.id} className='flex items-center gap-3'>
-                            <div className='h-12 w-12 overflow-hidden rounded-lg border border-outline-variant bg-surface-container-lowest'>
-                              {item.product_details?.main_image ? (
-                                <img
-                                  src={item.product_details.main_image}
-                                  alt={item.product_details.name}
-                                  className='h-full w-full object-contain p-1'
-                                />
-                              ) : (
-                                <div className='flex h-full w-full items-center justify-center text-outline'>
-                                  <span className='material-symbols-outlined text-[18px]'>
-                                    image
-                                  </span>
-                                </div>
-                              )}
-                            </div>
-                            <div className='min-w-0 flex-1'>
-                              <div className='line-clamp-1 text-sm text-on-surface'>
-                                {item.product_details?.name || 'Mahsulot'}
-                              </div>
-                              <div className='text-xs text-on-surface-variant'>
-                                {item.quantity} dona
-                                {item.variant_details
-                                  ? ` • ${[item.variant_details.color, item.variant_details.quality, item.variant_details.model, item.variant_details.size].filter(Boolean).join(' / ')}`
-                                  : ''}
-                              </div>
-                            </div>
-                          </div>
-                        ))}
-                        {order.items.length > 4 && (
+                    )}
+                    <div className='rounded-xl border border-outline-variant bg-surface-container p-4'>
+                      <div className='mb-3 flex items-center justify-between'>
+                        <div className='text-sm font-semibold text-on-surface'>Status tarixi</div>
+                        {lastHistory && (
                           <div className='text-xs text-on-surface-variant'>
-                            Yana {order.items.length - 4} ta mahsulot bor
+                            Oxirgisi: {new Date(lastHistory.created_at).toLocaleString('uz-UZ')}
                           </div>
                         )}
                       </div>
-                    </div>
-                  </div>
-                  {order.cancellation_reason && (
-                    <div className='rounded-xl border border-error-container bg-error-container/30 p-4'>
-                      <div className='text-xs uppercase text-error'>Cancellation reason</div>
-                      <div className='mt-2 text-sm text-on-surface'>
-                        {order.cancellation_reason}
+                      <div className='space-y-3'>
+                        {order.history?.map((entry) => (
+                          <div key={entry.id} className='flex gap-3'>
+                            <span className='mt-1 h-2.5 w-2.5 rounded-full bg-primary flex-shrink-0' />
+                            <div>
+                              <div className='flex flex-wrap items-center gap-2'>
+                                <span className='text-sm font-medium text-on-surface'>
+                                  {getOrderStatusLabel(entry.to_status)}
+                                </span>
+                                <span className='text-xs text-on-surface-variant'>
+                                  {new Date(entry.created_at).toLocaleString('uz-UZ')}
+                                </span>
+                              </div>
+                              <div className='text-xs text-on-surface-variant'>
+                                {entry.actor_name || entry.actor_type}
+                              </div>
+                              {entry.note && (
+                                <div className='mt-1 text-sm text-on-surface'>{entry.note}</div>
+                              )}
+                            </div>
+                          </div>
+                        ))}
                       </div>
                     </div>
-                  )}
-                  <div className='rounded-xl border border-outline-variant bg-surface-container p-4'>
-                    <div className='mb-3 flex items-center justify-between'>
-                      <div className='text-sm font-semibold text-on-surface'>Status tarixi</div>
-                      {lastHistory && (
-                        <div className='text-xs text-on-surface-variant'>
-                          Oxirgisi: {new Date(lastHistory.created_at).toLocaleString('uz-UZ')}
-                        </div>
-                      )}
-                    </div>
-                    <div className='space-y-3'>
-                      {order.history?.map((entry) => (
-                        <div key={entry.id} className='flex gap-3'>
-                          <span className='mt-1 h-2.5 w-2.5 rounded-full bg-primary flex-shrink-0' />
-                          <div>
-                            <div className='flex flex-wrap items-center gap-2'>
-                              <span className='text-sm font-medium text-on-surface'>
-                                {getOrderStatusLabel(entry.to_status)}
-                              </span>
-                              <span className='text-xs text-on-surface-variant'>
-                                {new Date(entry.created_at).toLocaleString('uz-UZ')}
-                              </span>
-                            </div>
-                            <div className='text-xs text-on-surface-variant'>
-                              {entry.actor_name || entry.actor_type}
-                            </div>
-                            {entry.note && (
-                              <div className='mt-1 text-sm text-on-surface'>{entry.note}</div>
-                            )}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-                <div className='rounded-xl border border-outline-variant bg-surface-container p-4'>
-                  <div className='mb-4'>
-                    <h3 className='font-h3 text-lg text-on-surface'>Holatni boshqarish</h3>
-                    <p className='mt-1 text-body-sm text-on-surface-variant'>
-                      Zanjir bo'yicha yangilang. Cancellation uchun sabab yozib qoldiring.
-                    </p>
                   </div>
                   <div className='space-y-4'>
-                    <div>
-                      <label className='mb-1 block text-label-md font-label-md text-on-surface-variant'>
-                        Yangi status
-                      </label>
-                      <select
-                        value={draft.status}
-                        onChange={(e) =>
-                          updateDraft(order.id, 'status', e.target.value, order.status, draft.note)
-                        }
-                        className='w-full rounded-lg border border-outline-variant bg-surface-bright px-3 py-2 outline-none focus:border-primary'
+                    {order.is_credit && (
+                      <div
+                        className={`rounded-xl border p-4 ${
+                          order.credit_paid
+                            ? 'border-green-200 bg-green-50'
+                            : order.credit_is_overdue
+                              ? 'border-red-300 bg-red-50'
+                              : 'border-amber-300 bg-amber-50'
+                        }`}
                       >
-                        {ADMIN_ORDER_STATUS_OPTIONS.map((o) => (
-                          <option key={o.value} value={o.value}>
-                            {o.label}
-                          </option>
-                        ))}
-                      </select>
+                        <div className='mb-2 flex items-center gap-2'>
+                          <span
+                            className={`material-symbols-outlined text-[20px] ${
+                              order.credit_paid
+                                ? 'text-green-600'
+                                : order.credit_is_overdue
+                                  ? 'text-red-600'
+                                  : 'text-amber-600'
+                            }`}
+                          >
+                            {order.credit_paid
+                              ? 'check_circle'
+                              : order.credit_is_overdue
+                                ? 'warning'
+                                : 'schedule'}
+                          </span>
+                          <span
+                            className={`font-semibold text-sm ${
+                              order.credit_paid
+                                ? 'text-green-700'
+                                : order.credit_is_overdue
+                                  ? 'text-red-700'
+                                  : 'text-amber-700'
+                            }`}
+                          >
+                            {order.credit_paid
+                              ? "Muddatli to'lov to'langan"
+                              : order.credit_is_overdue
+                                ? "To'lov muddati o'tdi!"
+                                : "Muddatli to'lov kutilmoqda"}
+                          </span>
+                        </div>
+                        <div className='text-xs text-on-surface-variant space-y-1'>
+                          <div>
+                            Muddat: <strong>{order.credit_days} kun</strong>
+                          </div>
+                          <div>
+                            To'lov sanasi: <strong>{order.credit_due_date}</strong>
+                          </div>
+                          {order.credit_paid && order.credit_paid_at && (
+                            <div>
+                              To'langan:{' '}
+                              <strong>
+                                {new Date(order.credit_paid_at).toLocaleString('uz-UZ')}
+                              </strong>
+                            </div>
+                          )}
+                          {order.user && (
+                            <div>
+                              Foydalanuvchi: <strong>{order.user.phone}</strong>
+                            </div>
+                          )}
+                        </div>
+                        {!order.credit_paid && (
+                          <button
+                            type='button'
+                            disabled={creditPayMutation.isPending}
+                            onClick={() => creditPayMutation.mutate(order.id)}
+                            className='mt-3 w-full rounded-lg bg-green-600 px-4 py-2 text-sm font-semibold text-white hover:bg-green-700 disabled:opacity-60'
+                          >
+                            {creditPayMutation.isPending
+                              ? 'Qayd etilmoqda...'
+                              : "Muddatli to'lovni qabul qilish"}
+                          </button>
+                        )}
+                      </div>
+                    )}
+
+                    <div className='rounded-xl border border-outline-variant bg-surface-container p-4'>
+                      <div className='mb-4'>
+                        <h3 className='font-h3 text-lg text-on-surface'>Holatni boshqarish</h3>
+                        <p className='mt-1 text-body-sm text-on-surface-variant'>
+                          Zanjir bo'yicha yangilang. Cancellation uchun sabab yozib qoldiring.
+                        </p>
+                      </div>
+                      <div className='space-y-4'>
+                        <div>
+                          <label className='mb-1 block text-label-md font-label-md text-on-surface-variant'>
+                            Yangi status
+                          </label>
+                          <select
+                            value={draft.status}
+                            onChange={(e) =>
+                              updateDraft(
+                                order.id,
+                                'status',
+                                e.target.value,
+                                order.status,
+                                draft.note,
+                              )
+                            }
+                            className='w-full rounded-lg border border-outline-variant bg-surface-bright px-3 py-2 outline-none focus:border-primary'
+                          >
+                            {ADMIN_ORDER_STATUS_OPTIONS.map((o) => (
+                              <option key={o.value} value={o.value}>
+                                {o.label}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                        <div>
+                          <label className='mb-1 block text-label-md font-label-md text-on-surface-variant'>
+                            Izoh / cancellation reason
+                          </label>
+                          <textarea
+                            rows={4}
+                            value={draft.note}
+                            onChange={(e) =>
+                              updateDraft(order.id, 'note', e.target.value, order.status, '')
+                            }
+                            className='w-full rounded-lg border border-outline-variant bg-surface-bright px-3 py-2 outline-none focus:border-primary'
+                            placeholder='Masalan: mahsulot tekshirildi, qadoqlash boshlandi yoki cancellation sababi.'
+                          />
+                        </div>
+                        <button
+                          type='button'
+                          disabled={statusMutation.isPending || !hasDraftChanges}
+                          onClick={() =>
+                            statusMutation.mutate({
+                              id: order.id,
+                              status: draft.status,
+                              note: draft.note.trim(),
+                            })
+                          }
+                          className='w-full rounded-lg bg-primary px-4 py-2 font-label-md text-on-primary hover:opacity-90 disabled:opacity-60'
+                        >
+                          {statusMutation.isPending ? 'Saqlanmoqda...' : 'Statusni saqlash'}
+                        </button>
+                        <button
+                          type='button'
+                          onClick={() => printReceipt(order, loadStoreInfo().name ? loadStoreInfo() : undefined)}
+                          className='flex w-full items-center justify-center gap-2 rounded-lg border border-outline-variant px-4 py-2 text-sm font-medium text-on-surface-variant hover:border-primary hover:text-primary'
+                        >
+                          <span className='material-symbols-outlined text-[18px]'>receipt_long</span>
+                          Chek chiqarish
+                        </button>
+                      </div>
                     </div>
-                    <div>
-                      <label className='mb-1 block text-label-md font-label-md text-on-surface-variant'>
-                        Izoh / cancellation reason
-                      </label>
-                      <textarea
-                        rows={4}
-                        value={draft.note}
-                        onChange={(e) =>
-                          updateDraft(order.id, 'note', e.target.value, order.status, '')
-                        }
-                        className='w-full rounded-lg border border-outline-variant bg-surface-bright px-3 py-2 outline-none focus:border-primary'
-                        placeholder='Masalan: mahsulot tekshirildi, qadoqlash boshlandi yoki cancellation sababi.'
-                      />
-                    </div>
-                    <button
-                      type='button'
-                      disabled={statusMutation.isPending || !hasDraftChanges}
-                      onClick={() =>
-                        statusMutation.mutate({
-                          id: order.id,
-                          status: draft.status,
-                          note: draft.note.trim(),
-                        })
-                      }
-                      className='w-full rounded-lg bg-primary px-4 py-2 font-label-md text-on-primary hover:opacity-90 disabled:opacity-60'
-                    >
-                      {statusMutation.isPending ? 'Saqlanmoqda...' : 'Statusni saqlash'}
-                    </button>
                   </div>
                 </div>
               </div>
-            </div>
-          );
-        })}
-      </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Pagination */}
+      {totalCount > 0 && (
+        <div className='flex items-center justify-between rounded-xl border border-outline-variant bg-surface-container-lowest px-4 py-3'>
+          <span className='text-sm text-on-surface-variant'>
+            {(filters.page - 1) * 20 + 1}–{Math.min(filters.page * 20, totalCount)} /{' '}
+            {totalCount} ta buyurtma
+          </span>
+          <div className='flex items-center gap-2'>
+            <button
+              disabled={!hasPrev}
+              onClick={() => setFilters((c) => ({ ...c, page: c.page - 1 }))}
+              className='flex items-center gap-1 rounded-lg border border-outline-variant px-3 py-1.5 text-sm disabled:opacity-40 hover:bg-surface-container'
+            >
+              <span className='material-symbols-outlined text-[16px]'>chevron_left</span>
+              Oldingi
+            </button>
+            <span className='text-sm text-on-surface-variant'>
+              {filters.page} / {totalPages}
+            </span>
+            <button
+              disabled={!hasNext}
+              onClick={() => setFilters((c) => ({ ...c, page: c.page + 1 }))}
+              className='flex items-center gap-1 rounded-lg border border-outline-variant px-3 py-1.5 text-sm disabled:opacity-40 hover:bg-surface-container'
+            >
+              Keyingi
+              <span className='material-symbols-outlined text-[16px]'>chevron_right</span>
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
@@ -1916,16 +2713,16 @@ const StockTab = () => {
     () => ({ min_stock: minStock, max_stock: maxStock }),
     [minStock, maxStock],
   );
-  const { data, isLoading, isError, refetch } = useQuery<AdminStockItem[]>({
+  const { data, isLoading, isError, refetch } = useQuery<{ stats: StockStats; items: AdminStockItem[] }>({
     queryKey: ['admin-stock-report', params],
     queryFn: () => adminGetStockReport(params).then((r) => r.data),
     staleTime: 30_000,
   });
   const filteredItems = useMemo(() => {
-    if (!data) return [];
-    if (!search.trim()) return data;
+    const items = data?.items ?? [];
+    if (!search.trim()) return items;
     const q = search.toLowerCase();
-    return data.filter(
+    return items.filter(
       (item) =>
         item.name.toLowerCase().includes(q) ||
         item.sku.toLowerCase().includes(q) ||
@@ -1933,8 +2730,70 @@ const StockTab = () => {
     );
   }, [data, search]);
   const fmt = (v: number) => Math.round(v).toLocaleString('uz-UZ');
+  const stats = data?.stats;
+  const kpiCards = [
+    {
+      label: 'Jami pozitsiyalar',
+      value: stats?.total_products ?? '—',
+      unit: 'ta',
+      icon: 'inventory_2',
+      color: 'text-primary',
+      bg: 'bg-primary/10',
+    },
+    {
+      label: 'Jami zaxira',
+      value: stats ? fmt(stats.total_stock) : '—',
+      unit: 'dona',
+      icon: 'warehouse',
+      color: 'text-secondary',
+      bg: 'bg-secondary/10',
+    },
+    {
+      label: 'Ombor qiymati',
+      value: stats ? fmt(stats.total_value) : '—',
+      unit: "so'm",
+      icon: 'paid',
+      color: 'text-[#22c55e]',
+      bg: 'bg-[#22c55e]/10',
+    },
+    {
+      label: 'Kritik (0 dona)',
+      value: stats?.critical_count ?? '—',
+      unit: 'ta',
+      icon: 'priority_high',
+      color: 'text-error',
+      bg: 'bg-error/10',
+    },
+    {
+      label: 'Kam qolgan (1–5)',
+      value: stats?.low_count ?? '—',
+      unit: 'ta',
+      icon: 'warning',
+      color: 'text-[#f59e0b]',
+      bg: 'bg-[#f59e0b]/10',
+    },
+  ];
   return (
     <div className='space-y-6'>
+      {/* KPI cards */}
+      <div className='grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5'>
+        {kpiCards.map((c) => (
+          <div
+            key={c.label}
+            className='flex flex-col gap-2 rounded-2xl border border-outline-variant bg-surface-container-lowest p-4 shadow-sm'
+          >
+            <div className={`flex h-10 w-10 items-center justify-center rounded-xl ${c.bg} ${c.color}`}>
+              <span className='material-symbols-outlined text-[20px]'>{c.icon}</span>
+            </div>
+            <p className='text-xs font-semibold uppercase text-on-surface-variant leading-tight'>{c.label}</p>
+            <p className={`text-xl font-bold ${c.color}`}>
+              {isLoading ? <span className='material-symbols-outlined animate-spin text-[18px]'>progress_activity</span> : c.value}
+              {!isLoading && <span className='ml-1 text-xs font-normal text-on-surface-variant'>{c.unit}</span>}
+            </p>
+          </div>
+        ))}
+      </div>
+
       <div className='rounded-2xl border border-outline-variant bg-surface-container-lowest p-5 shadow-sm'>
         <div className='flex flex-col gap-5 lg:flex-row lg:items-end'>
           <div className='flex-1'>
@@ -1994,7 +2853,7 @@ const StockTab = () => {
           <h3 className='font-semibold text-on-surface'>
             Zaxira holati{' '}
             <span className='ml-2 text-sm font-normal text-on-surface-variant'>
-              ({filteredItems.length} ta pozitsiya)
+              ({filteredItems.length} ta ko'rsatilmoqda)
             </span>
           </h3>
         </div>
@@ -2136,17 +2995,1060 @@ interface ReportTimeline {
   discount: number;
   count: number;
 }
+interface ReportOrderItem {
+  id: number;
+  product_name: string;
+  variant_str: string;
+  quantity: number;
+  original_price: number;
+  sold_price: number;
+  discount_percent: number;
+  discount_amount: number;
+}
+
+interface ReportOrder {
+  id: number;
+  created_at: string;
+  receiver_name: string;
+  receiver_phone: string;
+  total_price: number;
+  total_discount: number;
+  items: ReportOrderItem[];
+}
+
 interface ReportData {
   summary: ReportSummary;
   timeline: ReportTimeline[];
   products: ReportProduct[];
+  orders: ReportOrder[];
 }
 
 const TODAY = new Date().toISOString().slice(0, 10);
 const YEAR_START = `${new Date().getFullYear()}-01-01`;
 const MONTH_START = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}-01`;
 
+interface StockStats {
+  total_products: number;
+  total_stock: number;
+  total_value: number;
+  critical_count: number;
+  low_count: number;
+}
+
+interface KassaData {
+  total_income: number;
+  total_expense: number;
+  balance: number;
+  payment_breakdown: { cash: number; card: number; credit: number };
+  weekly_chart: Array<{ date: string; income: number }>;
+  history: {
+    id: number;
+    amount: number;
+    reason: string;
+    created_at: string;
+    admin_name: string;
+  }[];
+}
+
+const KassaTab = () => {
+  const [showModal, setShowModal] = useState(false);
+  const [amount, setAmount] = useState('');
+  const [reason, setReason] = useState('');
+
+  const { data, isLoading, refetch } = useQuery<KassaData>({
+    queryKey: ['admin-kassa'],
+    queryFn: () => adminGetKassa().then((r) => r.data),
+    staleTime: 0,
+  });
+
+  const withdrawMutation = useMutation({
+    mutationFn: () => adminWithdrawKassa({ amount: Number(amount), reason }),
+    onSuccess: (res) => {
+      toast.success(res.data.message || 'Muvaffaqiyatli yechildi!');
+      setShowModal(false);
+      setAmount('');
+      setReason('');
+      refetch();
+    },
+    onError: (err: any) => {
+      toast.error(err?.response?.data?.error || 'Xatolik yuz berdi');
+    },
+  });
+
+  const fmt = (v?: number) => (v || 0).toLocaleString('uz-UZ');
+
+  if (isLoading) {
+    return (
+      <div className='py-16 text-center'>
+        <span className='material-symbols-outlined mb-2 block animate-spin text-5xl text-primary'>
+          progress_activity
+        </span>
+        <p className='text-on-surface-variant'>Yuklanmoqda...</p>
+      </div>
+    );
+  }
+
+  // Weekly chart helpers
+  const chart = data?.weekly_chart ?? [];
+  const maxIncome = Math.max(...chart.map((d) => d.income), 1);
+  const barW = 28;
+  const gap = 10;
+  const H = 80;
+  const DAY_SHORT = ['Yak', 'Du', 'Se', 'Ch', 'Pa', 'Sh', 'Ya'];
+
+  const bd = data?.payment_breakdown ?? { cash: 0, card: 0, credit: 0 };
+  const totalIncome = data?.total_income || 1;
+  const breakdownItems = [
+    { label: 'Naqd pul', icon: 'payments', value: bd.cash, color: 'text-[#22c55e]', bg: 'bg-[#22c55e]/10', bar: 'bg-[#22c55e]' },
+    { label: 'Plastik karta', icon: 'credit_card', value: bd.card, color: 'text-primary', bg: 'bg-primary/10', bar: 'bg-primary' },
+    { label: 'Nasiya', icon: 'calendar_month', value: bd.credit, color: 'text-[#f59e0b]', bg: 'bg-[#f59e0b]/10', bar: 'bg-[#f59e0b]' },
+  ];
+
+  return (
+    <div className='space-y-6'>
+      {/* Header */}
+      <div className='flex flex-col gap-4 md:flex-row md:items-end md:justify-between'>
+        <div>
+          <h2 className='font-h3 text-h3 text-on-surface'>Moliya va Kassa</h2>
+          <p className='mt-1 text-body-sm text-on-surface-variant'>
+            Kassadagi haqiqiy mablag', to'lov usullari va chiqimlar tarixi
+          </p>
+        </div>
+        <button
+          onClick={() => setShowModal(true)}
+          className='flex items-center gap-2 rounded-xl border-2 border-error px-5 py-2.5 font-bold text-error hover:bg-error/10 transition-all'
+        >
+          <span className='material-symbols-outlined'>money_off</span>
+          Pul Yechish
+        </button>
+      </div>
+
+      {/* Main KPI cards */}
+      <div className='grid grid-cols-1 gap-4 md:grid-cols-3'>
+        <div className='flex items-center gap-4 rounded-2xl border border-outline-variant bg-surface-container-lowest p-6 shadow-sm relative overflow-hidden'>
+          <div className='absolute -right-4 -top-4 opacity-5'>
+            <span className='material-symbols-outlined text-[120px]'>add_circle</span>
+          </div>
+          <div className='flex h-14 w-14 flex-shrink-0 items-center justify-center rounded-2xl bg-[#22c55e]/10 text-[#22c55e]'>
+            <span className='material-symbols-outlined text-3xl'>payments</span>
+          </div>
+          <div className='min-w-0'>
+            <p className='text-sm font-semibold uppercase text-on-surface-variant mb-1'>Barcha tushumlar</p>
+            <p className='text-2xl font-bold text-[#22c55e]'>{fmt(data?.total_income)} <span className='text-base font-normal'>so'm</span></p>
+          </div>
+        </div>
+        <div className='flex items-center gap-4 rounded-2xl border border-outline-variant bg-surface-container-lowest p-6 shadow-sm relative overflow-hidden'>
+          <div className='absolute -right-4 -top-4 opacity-5'>
+            <span className='material-symbols-outlined text-[120px]'>remove_circle</span>
+          </div>
+          <div className='flex h-14 w-14 flex-shrink-0 items-center justify-center rounded-2xl bg-error/10 text-error'>
+            <span className='material-symbols-outlined text-3xl'>money_off</span>
+          </div>
+          <div className='min-w-0'>
+            <p className='text-sm font-semibold uppercase text-on-surface-variant mb-1'>Jami chiqimlar</p>
+            <p className='text-2xl font-bold text-error'>{fmt(data?.total_expense)} <span className='text-base font-normal'>so'm</span></p>
+          </div>
+        </div>
+        <div className='flex items-center gap-4 rounded-2xl border-2 border-primary bg-primary/5 p-6 shadow-md relative overflow-hidden'>
+          <div className='absolute -right-4 -top-4 opacity-10'>
+            <span className='material-symbols-outlined text-[120px]'>account_balance_wallet</span>
+          </div>
+          <div className='flex h-14 w-14 flex-shrink-0 items-center justify-center rounded-2xl bg-primary text-on-primary shadow-sm'>
+            <span className='material-symbols-outlined text-3xl'>account_balance_wallet</span>
+          </div>
+          <div className='min-w-0'>
+            <p className='text-sm font-bold uppercase text-primary mb-1'>Kassadagi Qoldiq</p>
+            <p className='text-3xl font-black text-on-surface'>{fmt(data?.balance)} <span className='text-lg font-bold'>so'm</span></p>
+          </div>
+        </div>
+      </div>
+
+      {/* Payment breakdown + weekly chart */}
+      <div className='grid grid-cols-1 gap-6 lg:grid-cols-2'>
+        {/* Payment breakdown */}
+        <div className='rounded-2xl border border-outline-variant bg-surface-container-lowest p-6 shadow-sm'>
+          <h3 className='mb-5 flex items-center gap-2 font-semibold text-on-surface'>
+            <span className='material-symbols-outlined text-primary text-[20px]'>pie_chart</span>
+            To'lov usullari bo'yicha tushum
+          </h3>
+          <div className='space-y-4'>
+            {breakdownItems.map((b) => {
+              const pct = totalIncome > 0 ? Math.round((b.value / totalIncome) * 100) : 0;
+              return (
+                <div key={b.label}>
+                  <div className='flex items-center justify-between mb-1.5'>
+                    <div className='flex items-center gap-2'>
+                      <span className={`flex h-8 w-8 items-center justify-center rounded-lg ${b.bg} ${b.color}`}>
+                        <span className='material-symbols-outlined text-[16px]'>{b.icon}</span>
+                      </span>
+                      <span className='text-sm font-medium text-on-surface'>{b.label}</span>
+                    </div>
+                    <div className='text-right'>
+                      <span className={`text-sm font-bold ${b.color}`}>{fmt(b.value)} so'm</span>
+                      <span className='ml-2 text-xs text-on-surface-variant'>({pct}%)</span>
+                    </div>
+                  </div>
+                  <div className='h-2 rounded-full bg-surface-container overflow-hidden'>
+                    <div
+                      className={`h-full rounded-full ${b.bar} transition-all duration-500`}
+                      style={{ width: `${pct}%` }}
+                    />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Weekly chart */}
+        <div className='rounded-2xl border border-outline-variant bg-surface-container-lowest p-6 shadow-sm'>
+          <h3 className='mb-5 flex items-center gap-2 font-semibold text-on-surface'>
+            <span className='material-symbols-outlined text-primary text-[20px]'>bar_chart</span>
+            Haftalik tushum (oxirgi 7 kun)
+          </h3>
+          {chart.length > 0 ? (
+            <svg
+              viewBox={`0 0 ${chart.length * (barW + gap) - gap} ${H + 40}`}
+              className='w-full'
+              aria-label='Haftalik tushum grafigi'
+            >
+              {chart.map((day, i) => {
+                const bh = Math.max((day.income / maxIncome) * H, day.income > 0 ? 4 : 0);
+                const x = i * (barW + gap);
+                const dt = new Date(day.date);
+                const lbl = DAY_SHORT[dt.getDay()];
+                const hasIncome = day.income > 0;
+                return (
+                  <g key={day.date}>
+                    <title>{day.date}: {fmt(day.income)} so'm</title>
+                    <rect
+                      x={x} y={H - bh} width={barW} height={bh} rx={6}
+                      fill='currentColor'
+                      className={`${hasIncome ? 'text-primary opacity-75 hover:opacity-100' : 'text-outline-variant opacity-40'} transition-opacity`}
+                    />
+                    <text
+                      x={x + barW / 2} y={H + 16}
+                      textAnchor='middle' fontSize='10' fill='currentColor'
+                      className='text-on-surface-variant'
+                    >
+                      {lbl}
+                    </text>
+                    {hasIncome && (
+                      <text
+                        x={x + barW / 2} y={H - bh - 5}
+                        textAnchor='middle' fontSize='8' fill='currentColor'
+                        className='text-primary font-bold'
+                      >
+                        {(day.income / 1_000_000).toFixed(1)}M
+                      </text>
+                    )}
+                  </g>
+                );
+              })}
+            </svg>
+          ) : (
+            <div className='flex h-[120px] items-center justify-center text-on-surface-variant'>
+              <span className='material-symbols-outlined mr-2 text-3xl opacity-40'>bar_chart</span>
+              Ma'lumot yo'q
+            </div>
+          )}
+          <p className='mt-2 text-center text-xs text-on-surface-variant'>
+            Faqat yetkazilgan buyurtmalar hisoblanadi
+          </p>
+        </div>
+      </div>
+
+      {/* Withdrawal history */}
+      <div className='overflow-hidden rounded-2xl border border-outline-variant bg-surface-container-lowest shadow-sm'>
+        <div className='border-b border-outline-variant bg-surface-container px-6 py-4 flex items-center justify-between'>
+          <h3 className='font-bold text-on-surface flex items-center gap-2'>
+            <span className='material-symbols-outlined text-primary'>history</span>
+            Chiqimlar Tarixi (Ledger)
+          </h3>
+          <span className='text-sm font-semibold text-on-surface-variant bg-surface px-3 py-1 rounded-full border border-outline-variant'>
+            {data?.history?.length || 0} ta yozuv
+          </span>
+        </div>
+        <div className='overflow-x-auto'>
+          <table className='w-full text-left text-sm'>
+            <thead className='bg-surface-container/40 border-b border-outline-variant'>
+              <tr>
+                <th className='px-6 py-3 font-bold uppercase text-xs text-on-surface-variant'>No</th>
+                <th className='px-6 py-3 font-bold uppercase text-xs text-on-surface-variant'>Sana va Vaqt</th>
+                <th className='px-6 py-3 font-bold uppercase text-xs text-on-surface-variant'>Yechilgan Miqdor</th>
+                <th className='px-6 py-3 font-bold uppercase text-xs text-on-surface-variant'>Maqsad (Izoh)</th>
+                <th className='px-6 py-3 font-bold uppercase text-xs text-on-surface-variant'>Admin</th>
+              </tr>
+            </thead>
+            <tbody className='divide-y divide-outline-variant'>
+              {data?.history?.map((w, i) => (
+                <tr key={w.id} className='hover:bg-primary/5 transition-colors'>
+                  <td className='px-6 py-3 font-semibold text-on-surface-variant'>{i + 1}</td>
+                  <td className='px-6 py-3 text-on-surface'>
+                    {new Date(w.created_at).toLocaleString('uz-UZ', {
+                      day: '2-digit', month: '2-digit', year: 'numeric',
+                      hour: '2-digit', minute: '2-digit',
+                    })}
+                  </td>
+                  <td className='px-6 py-3 font-bold text-error'>−{fmt(w.amount)} so'm</td>
+                  <td className='px-6 py-3 text-on-surface font-medium'>{w.reason}</td>
+                  <td className='px-6 py-3 text-on-surface-variant'>
+                    <div className='flex items-center gap-1.5'>
+                      <span className='material-symbols-outlined text-[16px]'>account_circle</span>
+                      {w.admin_name}
+                    </div>
+                  </td>
+                </tr>
+              ))}
+              {(!data?.history || data.history.length === 0) && (
+                <tr>
+                  <td colSpan={5} className='px-6 py-12 text-center text-on-surface-variant'>
+                    <span className='material-symbols-outlined text-4xl opacity-50 mb-2 block'>receipt_long</span>
+                    Hozircha hech qanday pul yechilmagan
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* Withdraw modal */}
+      {showModal && (
+        <div className='fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4'>
+          <div className='w-full max-w-md rounded-2xl bg-surface-container-lowest p-6 shadow-2xl relative'>
+            <button
+              onClick={() => setShowModal(false)}
+              className='absolute right-4 top-4 flex h-8 w-8 items-center justify-center rounded-full bg-surface hover:bg-outline-variant transition-colors'
+            >
+              <span className='material-symbols-outlined text-[20px]'>close</span>
+            </button>
+            <h3 className='font-h3 text-h3 text-on-surface flex items-center gap-2 mb-6'>
+              <span className='material-symbols-outlined text-error text-3xl'>money_off</span>
+              Pul Yechish
+            </h3>
+            <div className='mb-6 bg-surface-container p-4 rounded-xl border border-outline-variant flex justify-between items-center'>
+              <span className='font-semibold text-on-surface-variant'>Kassadagi Qoldiq:</span>
+              <span className='font-bold text-lg text-primary'>{fmt(data?.balance)} so'm</span>
+            </div>
+            <div className='space-y-4'>
+              <div>
+                <label className='mb-1.5 block text-sm font-bold text-on-surface'>
+                  Yechiladigan summa (so'm) <span className='text-error'>*</span>
+                </label>
+                <input
+                  type='number'
+                  min='0'
+                  max={data?.balance}
+                  value={amount}
+                  onChange={(e) => setAmount(e.target.value)}
+                  placeholder='Masalan: 1500000'
+                  className='w-full rounded-xl border-2 border-outline-variant bg-surface px-4 py-3 font-semibold text-lg focus:border-primary focus:outline-none'
+                />
+              </div>
+              <div>
+                <label className='mb-1.5 block text-sm font-bold text-on-surface'>
+                  Maqsad / Izoh <span className='text-error'>*</span>
+                </label>
+                <textarea
+                  value={reason}
+                  onChange={(e) => setReason(e.target.value)}
+                  placeholder="Pul nima uchun yechilmoqda? (Kuryerga, Ijara uchun...)"
+                  rows={3}
+                  className='w-full rounded-xl border-2 border-outline-variant bg-surface px-4 py-3 text-sm focus:border-primary focus:outline-none resize-none'
+                />
+              </div>
+            </div>
+            <div className='mt-8 flex justify-end gap-3'>
+              <button
+                onClick={() => setShowModal(false)}
+                className='rounded-xl border border-outline px-6 py-2.5 font-bold text-on-surface hover:bg-surface-container transition-colors'
+              >
+                Bekor qilish
+              </button>
+              <button
+                onClick={() => withdrawMutation.mutate()}
+                disabled={withdrawMutation.isPending || !amount || !reason || Number(amount) <= 0 || Number(amount) > (data?.balance || 0)}
+                className='rounded-xl bg-error px-6 py-2.5 font-bold text-white shadow-md hover:bg-error/90 disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center gap-2'
+              >
+                {withdrawMutation.isPending ? (
+                  <span className='material-symbols-outlined animate-spin text-[20px]'>progress_activity</span>
+                ) : (
+                  <span className='material-symbols-outlined text-[20px]'>check_circle</span>
+                )}
+                Tasdiqlash
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+interface AdminUser {
+  id: number;
+  phone: string;
+  first_name: string;
+  last_name: string;
+  is_active: boolean;
+  is_verified: boolean;
+  is_staff: boolean;
+  credit_ban: boolean;
+  overdue_credit_count: number;
+  date_joined: string;
+  order_count: number;
+  total_spent: number;
+}
+
+interface AdminUserDetail extends AdminUser {
+  last_login: string | null;
+  recent_orders: Array<{
+    id: number;
+    status: string;
+    total_price: number | string;
+    created_at: string;
+    payment_method: string;
+    is_credit: boolean;
+  }>;
+}
+
+const UsersTab = () => {
+  const qc = useQueryClient();
+  const [page, setPage] = useState(1);
+  const [q, setQ] = useState('');
+  const [draftQ, setDraftQ] = useState('');
+  const [filterActive, setFilterActive] = useState('');
+  const [filterBan, setFilterBan] = useState('');
+  const [selectedId, setSelectedId] = useState<number | null>(null);
+
+  const { data, isLoading } = useQuery({
+    queryKey: ['admin-users', page, q, filterActive, filterBan],
+    queryFn: () =>
+      adminGetUsers({
+        q: q || undefined,
+        is_active: filterActive || undefined,
+        credit_ban: filterBan || undefined,
+        page,
+        page_size: 20,
+      }).then((r) => r.data as { count: number; next: string | null; previous: string | null; results: AdminUser[] }),
+    placeholderData: (prev) => prev,
+  });
+
+  const { data: detailData, isLoading: detailLoading } = useQuery({
+    queryKey: ['admin-user-detail', selectedId],
+    queryFn: () => adminGetUser(selectedId!).then((r) => r.data as AdminUserDetail),
+    enabled: selectedId !== null,
+  });
+
+  const toggleBanMutation = useMutation({
+    mutationFn: (id: number) => adminToggleUserBan(id),
+    onSuccess: (res, id) => {
+      qc.invalidateQueries({ queryKey: ['admin-users'] });
+      qc.setQueryData(['admin-user-detail', id], (old: AdminUserDetail | undefined) =>
+        old
+          ? { ...old, credit_ban: res.data.credit_ban, overdue_credit_count: res.data.overdue_credit_count }
+          : old,
+      );
+      toast.success(res.data.credit_ban ? 'Kredit ban yoqildi' : 'Kredit ban olib tashlandi');
+    },
+  });
+
+  const toggleActiveMutation = useMutation({
+    mutationFn: (id: number) => adminToggleUserActive(id),
+    onSuccess: (res, id) => {
+      qc.invalidateQueries({ queryKey: ['admin-users'] });
+      qc.setQueryData(['admin-user-detail', id], (old: AdminUserDetail | undefined) =>
+        old ? { ...old, is_active: res.data.is_active } : old,
+      );
+      toast.success(res.data.is_active ? 'Faollashtirildi' : 'Bloklandi');
+    },
+  });
+
+  const users: AdminUser[] = data?.results || [];
+  const totalCount = data?.count || 0;
+  const totalPages = Math.ceil(totalCount / 20);
+
+  return (
+    <div className='flex gap-4'>
+      {/* List panel */}
+      <div className={`flex flex-col gap-4 transition-all ${selectedId ? 'w-full lg:w-[55%]' : 'w-full'}`}>
+        {/* Filters */}
+        <div className='flex flex-wrap items-center gap-2 rounded-xl border border-outline-variant bg-surface-container-lowest p-3'>
+          <form
+            className='flex flex-1 items-center gap-2'
+            onSubmit={(e) => {
+              e.preventDefault();
+              setQ(draftQ);
+              setPage(1);
+            }}
+          >
+            <span className='material-symbols-outlined text-[18px] text-on-surface-variant'>search</span>
+            <input
+              value={draftQ}
+              onChange={(e) => setDraftQ(e.target.value)}
+              placeholder='Telefon yoki ism...'
+              className='flex-1 bg-transparent text-sm text-on-surface outline-none placeholder:text-on-surface-variant/60'
+            />
+            {draftQ && (
+              <button type='button' onClick={() => { setDraftQ(''); setQ(''); setPage(1); }}>
+                <span className='material-symbols-outlined text-[16px] text-on-surface-variant'>close</span>
+              </button>
+            )}
+          </form>
+          <select
+            value={filterActive}
+            onChange={(e) => { setFilterActive(e.target.value); setPage(1); }}
+            className='rounded-lg border border-outline-variant bg-surface-container px-2 py-1.5 text-xs text-on-surface outline-none'
+          >
+            <option value=''>Barchasi</option>
+            <option value='true'>Faol</option>
+            <option value='false'>Bloklangan</option>
+          </select>
+          <select
+            value={filterBan}
+            onChange={(e) => { setFilterBan(e.target.value); setPage(1); }}
+            className='rounded-lg border border-outline-variant bg-surface-container px-2 py-1.5 text-xs text-on-surface outline-none'
+          >
+            <option value=''>Barcha kredit</option>
+            <option value='false'>Ban yo'q</option>
+            <option value='true'>Kredit ban</option>
+          </select>
+        </div>
+
+        {/* Stats row */}
+        <div className='flex items-center justify-between px-1'>
+          <p className='text-sm text-on-surface-variant'>
+            Jami: <span className='font-semibold text-on-surface'>{totalCount}</span> foydalanuvchi
+          </p>
+          {(q || filterActive || filterBan) && (
+            <button
+              onClick={() => { setQ(''); setDraftQ(''); setFilterActive(''); setFilterBan(''); setPage(1); }}
+              className='text-xs text-primary hover:underline'
+            >
+              Filterni tozalash
+            </button>
+          )}
+        </div>
+
+        {/* Table */}
+        <div className='overflow-hidden rounded-xl border border-outline-variant bg-surface-container-lowest'>
+          {isLoading ? (
+            <div className='flex h-40 items-center justify-center'>
+              <span className='material-symbols-outlined animate-spin text-[32px] text-primary'>progress_activity</span>
+            </div>
+          ) : users.length === 0 ? (
+            <div className='flex h-40 flex-col items-center justify-center gap-2 text-on-surface-variant'>
+              <span className='material-symbols-outlined text-[40px]'>people</span>
+              <p className='text-sm'>Foydalanuvchi topilmadi</p>
+            </div>
+          ) : (
+            <div className='overflow-x-auto'>
+              <table className='w-full text-sm'>
+                <thead>
+                  <tr className='border-b border-outline-variant bg-surface-container text-xs text-on-surface-variant'>
+                    <th className='px-4 py-3 text-left font-medium'>Foydalanuvchi</th>
+                    <th className='hidden px-4 py-3 text-center font-medium md:table-cell'>Buyurtmalar</th>
+                    <th className='hidden px-4 py-3 text-right font-medium md:table-cell'>Jami xarid</th>
+                    <th className='px-4 py-3 text-center font-medium'>Holat</th>
+                  </tr>
+                </thead>
+                <tbody className='divide-y divide-outline-variant/50'>
+                  {users.map((u) => (
+                    <tr
+                      key={u.id}
+                      onClick={() => setSelectedId(selectedId === u.id ? null : u.id)}
+                      className={`cursor-pointer transition-colors hover:bg-surface-container/50 ${selectedId === u.id ? 'bg-primary/5' : ''}`}
+                    >
+                      <td className='px-4 py-3'>
+                        <div className='flex items-center gap-3'>
+                          <div className='flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full bg-primary/10 text-sm font-bold text-primary'>
+                            {(u.first_name?.[0] || u.phone[0]).toUpperCase()}
+                          </div>
+                          <div>
+                            <p className='font-medium text-on-surface'>
+                              {u.first_name || u.last_name
+                                ? `${u.first_name} ${u.last_name}`.trim()
+                                : u.phone}
+                            </p>
+                            {(u.first_name || u.last_name) && (
+                              <p className='text-xs text-on-surface-variant'>{u.phone}</p>
+                            )}
+                            <div className='mt-0.5 flex flex-wrap gap-1'>
+                              {u.is_staff && (
+                                <span className='rounded-full bg-secondary/10 px-1.5 py-0.5 text-[10px] font-medium text-secondary'>
+                                  Staff
+                                </span>
+                              )}
+                              {u.credit_ban && (
+                                <span className='rounded-full bg-error/10 px-1.5 py-0.5 text-[10px] font-medium text-error'>
+                                  Kredit ban
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      </td>
+                      <td className='hidden px-4 py-3 text-center text-on-surface-variant md:table-cell'>
+                        {u.order_count}
+                      </td>
+                      <td className='hidden px-4 py-3 text-right font-medium text-on-surface md:table-cell'>
+                        {formatMoney(u.total_spent)} so'm
+                      </td>
+                      <td className='px-4 py-3 text-center'>
+                        <span
+                          className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium ${
+                            u.is_active
+                              ? 'bg-green-100 text-green-700'
+                              : 'bg-error/10 text-error'
+                          }`}
+                        >
+                          <span className='material-symbols-outlined text-[12px]'>
+                            {u.is_active ? 'check_circle' : 'block'}
+                          </span>
+                          {u.is_active ? 'Faol' : 'Bloklangan'}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+
+        {/* Pagination */}
+        {totalPages > 1 && (
+          <div className='flex items-center justify-between rounded-xl border border-outline-variant bg-surface-container-lowest px-4 py-3'>
+            <p className='text-xs text-on-surface-variant'>
+              {(page - 1) * 20 + 1}–{Math.min(page * 20, totalCount)} / {totalCount}
+            </p>
+            <div className='flex gap-1'>
+              <button
+                disabled={page === 1}
+                onClick={() => setPage((p) => p - 1)}
+                className='rounded-lg p-1.5 text-on-surface-variant hover:bg-surface-container disabled:opacity-40'
+              >
+                <span className='material-symbols-outlined text-[18px]'>chevron_left</span>
+              </button>
+              {Array.from({ length: Math.min(totalPages, 7) }, (_, i) => {
+                const p = totalPages <= 7 ? i + 1 : page <= 4 ? i + 1 : page >= totalPages - 3 ? totalPages - 6 + i : page - 3 + i;
+                return (
+                  <button
+                    key={p}
+                    onClick={() => setPage(p)}
+                    className={`min-w-[32px] rounded-lg px-2 py-1 text-xs font-medium ${p === page ? 'bg-primary text-on-primary' : 'text-on-surface-variant hover:bg-surface-container'}`}
+                  >
+                    {p}
+                  </button>
+                );
+              })}
+              <button
+                disabled={page === totalPages}
+                onClick={() => setPage((p) => p + 1)}
+                className='rounded-lg p-1.5 text-on-surface-variant hover:bg-surface-container disabled:opacity-40'
+              >
+                <span className='material-symbols-outlined text-[18px]'>chevron_right</span>
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Detail panel */}
+      {selectedId && (
+        <div className='hidden flex-1 lg:block'>
+          <div className='sticky top-20 overflow-hidden rounded-xl border border-outline-variant bg-surface-container-lowest'>
+            {/* Header */}
+            <div className='flex items-center justify-between border-b border-outline-variant bg-surface-container px-5 py-3'>
+              <p className='font-semibold text-on-surface'>Foydalanuvchi ma'lumotlari</p>
+              <button
+                onClick={() => setSelectedId(null)}
+                className='rounded-lg p-1 text-on-surface-variant hover:bg-surface-container-high'
+              >
+                <span className='material-symbols-outlined text-[18px]'>close</span>
+              </button>
+            </div>
+
+            {detailLoading ? (
+              <div className='flex h-48 items-center justify-center'>
+                <span className='material-symbols-outlined animate-spin text-[32px] text-primary'>progress_activity</span>
+              </div>
+            ) : detailData ? (
+              <div className='max-h-[calc(100vh-180px)] overflow-y-auto'>
+                {/* Avatar + name */}
+                <div className='flex items-center gap-4 p-5'>
+                  <div className='flex h-16 w-16 flex-shrink-0 items-center justify-center rounded-full bg-primary/10 text-2xl font-bold text-primary'>
+                    {(detailData.first_name?.[0] || detailData.phone[0]).toUpperCase()}
+                  </div>
+                  <div>
+                    <p className='text-base font-bold text-on-surface'>
+                      {detailData.first_name || detailData.last_name
+                        ? `${detailData.first_name} ${detailData.last_name}`.trim()
+                        : detailData.phone}
+                    </p>
+                    <p className='text-sm text-on-surface-variant'>{detailData.phone}</p>
+                    <div className='mt-1 flex flex-wrap gap-1.5'>
+                      {detailData.is_staff && (
+                        <span className='rounded-full bg-secondary/10 px-2 py-0.5 text-xs font-medium text-secondary'>Staff</span>
+                      )}
+                      {detailData.is_verified && (
+                        <span className='rounded-full bg-success/10 px-2 py-0.5 text-xs font-medium text-green-600'>Tasdiqlangan</span>
+                      )}
+                      {detailData.credit_ban && (
+                        <span className='rounded-full bg-error/10 px-2 py-0.5 text-xs font-medium text-error'>
+                          Kredit ban ({detailData.overdue_credit_count})
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Stats */}
+                <div className='grid grid-cols-2 gap-3 border-t border-outline-variant px-5 py-4'>
+                  <div className='rounded-xl bg-surface-container p-3 text-center'>
+                    <p className='text-2xl font-bold text-primary'>{detailData.order_count}</p>
+                    <p className='text-xs text-on-surface-variant'>Buyurtmalar</p>
+                  </div>
+                  <div className='rounded-xl bg-surface-container p-3 text-center'>
+                    <p className='text-lg font-bold text-on-surface'>{formatMoney(detailData.total_spent)}</p>
+                    <p className='text-xs text-on-surface-variant'>Jami xarid (so'm)</p>
+                  </div>
+                </div>
+
+                {/* Info */}
+                <div className='border-t border-outline-variant px-5 py-4'>
+                  <p className='mb-3 text-xs font-semibold uppercase tracking-wider text-on-surface-variant/60'>
+                    Ma'lumotlar
+                  </p>
+                  <div className='space-y-2 text-sm'>
+                    <div className='flex items-center justify-between'>
+                      <span className='text-on-surface-variant'>Ro'yxatdan o'tgan</span>
+                      <span className='font-medium text-on-surface'>{formatDate(detailData.date_joined)}</span>
+                    </div>
+                    <div className='flex items-center justify-between'>
+                      <span className='text-on-surface-variant'>So'nggi kirish</span>
+                      <span className='font-medium text-on-surface'>
+                        {detailData.last_login ? formatDate(detailData.last_login) : '—'}
+                      </span>
+                    </div>
+                    <div className='flex items-center justify-between'>
+                      <span className='text-on-surface-variant'>Holat</span>
+                      <span className={`font-medium ${detailData.is_active ? 'text-green-600' : 'text-error'}`}>
+                        {detailData.is_active ? 'Faol' : 'Bloklangan'}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Actions */}
+                <div className='flex gap-2 border-t border-outline-variant px-5 py-4'>
+                  <button
+                    disabled={toggleActiveMutation.isPending || detailData.is_staff}
+                    onClick={() => toggleActiveMutation.mutate(detailData.id)}
+                    title={detailData.is_staff ? 'Staff bloklanmaydi' : ''}
+                    className={`flex flex-1 items-center justify-center gap-2 rounded-xl py-2.5 text-sm font-medium transition-all disabled:opacity-50 ${
+                      detailData.is_active
+                        ? 'bg-error/10 text-error hover:bg-error/20'
+                        : 'bg-green-100 text-green-700 hover:bg-green-200'
+                    }`}
+                  >
+                    <span className='material-symbols-outlined text-[18px]'>
+                      {detailData.is_active ? 'block' : 'check_circle'}
+                    </span>
+                    {detailData.is_active ? 'Bloklash' : 'Faollashtirish'}
+                  </button>
+                  <button
+                    disabled={toggleBanMutation.isPending}
+                    onClick={() => toggleBanMutation.mutate(detailData.id)}
+                    className={`flex flex-1 items-center justify-center gap-2 rounded-xl py-2.5 text-sm font-medium transition-all disabled:opacity-50 ${
+                      detailData.credit_ban
+                        ? 'bg-amber-100 text-amber-700 hover:bg-amber-200'
+                        : 'bg-error/10 text-error hover:bg-error/20'
+                    }`}
+                  >
+                    <span className='material-symbols-outlined text-[18px]'>
+                      {detailData.credit_ban ? 'lock_open' : 'lock'}
+                    </span>
+                    {detailData.credit_ban ? "Ban o'chirish" : 'Kredit ban'}
+                  </button>
+                </div>
+
+                {/* Recent orders */}
+                {detailData.recent_orders.length > 0 && (
+                  <div className='border-t border-outline-variant px-5 py-4'>
+                    <p className='mb-3 text-xs font-semibold uppercase tracking-wider text-on-surface-variant/60'>
+                      So'nggi buyurtmalar
+                    </p>
+                    <div className='space-y-2'>
+                      {detailData.recent_orders.map((o) => (
+                        <div
+                          key={o.id}
+                          className='flex items-center justify-between rounded-xl bg-surface-container px-3 py-2'
+                        >
+                          <div>
+                            <p className='text-sm font-medium text-on-surface'>#{o.id}</p>
+                            <p className='text-xs text-on-surface-variant'>{formatDate(o.created_at)}</p>
+                          </div>
+                          <div className='text-right'>
+                            <p className='text-sm font-semibold text-on-surface'>
+                              {formatMoney(o.total_price)} so'm
+                            </p>
+                            <span
+                              className={`inline-block rounded-full px-2 py-0.5 text-[10px] font-medium ${getOrderStatusBadge(o.status)}`}
+                            >
+                              {getOrderStatusLabel(o.status)}
+                            </span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            ) : null}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+interface AdminFeedback {
+  id: number;
+  user_id: number;
+  user_phone: string;
+  user_name: string;
+  message: string;
+  status: 'new' | 'read' | 'resolved';
+  created_at: string;
+}
+
+const FEEDBACK_STATUS_LABELS: Record<string, string> = {
+  new: "Yangi",
+  read: "O'qilgan",
+  resolved: "Yechildi",
+};
+
+const FEEDBACK_STATUS_COLORS: Record<string, string> = {
+  new: 'bg-blue-100 text-blue-700',
+  read: 'bg-amber-100 text-amber-700',
+  resolved: 'bg-green-100 text-green-700',
+};
+
+const FeedbackTab = () => {
+  const qc = useQueryClient();
+  const [page, setPage] = useState(1);
+  const [filterStatus, setFilterStatus] = useState('');
+  const [q, setQ] = useState('');
+  const [draftQ, setDraftQ] = useState('');
+  const [expandedId, setExpandedId] = useState<number | null>(null);
+
+  const { data, isLoading } = useQuery({
+    queryKey: ['admin-feedbacks', page, filterStatus, q],
+    queryFn: () =>
+      adminGetFeedbacks({ status: filterStatus || undefined, q: q || undefined, page, page_size: 20 }).then(
+        (r) => r.data as { count: number; next: string | null; previous: string | null; results: AdminFeedback[] },
+      ),
+    placeholderData: (prev) => prev,
+  });
+
+  const updateMutation = useMutation({
+    mutationFn: ({ id, status }: { id: number; status: string }) => adminUpdateFeedback(id, { status }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['admin-feedbacks'] });
+      qc.invalidateQueries({ queryKey: ['admin-dashboard'] });
+      toast.success('Status yangilandi');
+    },
+    onError: () => toast.error('Xatolik yuz berdi'),
+  });
+
+  const feedbacks: AdminFeedback[] = data?.results || [];
+  const totalCount = data?.count || 0;
+  const totalPages = Math.ceil(totalCount / 20);
+
+  const STATUS_TABS = [
+    { value: '', label: 'Barchasi', count: totalCount },
+    { value: 'new', label: 'Yangi', icon: 'fiber_new' },
+    { value: 'read', label: "O'qilgan", icon: 'mark_email_read' },
+    { value: 'resolved', label: 'Yechildi', icon: 'check_circle' },
+  ];
+
+  return (
+    <div className='space-y-4'>
+      {/* Header + search */}
+      <div className='flex flex-wrap items-center gap-3 rounded-xl border border-outline-variant bg-surface-container-lowest p-4'>
+        <form
+          className='flex flex-1 items-center gap-2 rounded-lg border border-outline-variant bg-surface-container px-3 py-2'
+          onSubmit={(e) => {
+            e.preventDefault();
+            setQ(draftQ);
+            setPage(1);
+          }}
+        >
+          <span className='material-symbols-outlined text-[18px] text-on-surface-variant'>search</span>
+          <input
+            value={draftQ}
+            onChange={(e) => setDraftQ(e.target.value)}
+            placeholder="Telefon yoki xabar bo'yicha izlash..."
+            className='flex-1 bg-transparent text-sm text-on-surface outline-none placeholder:text-on-surface-variant/60'
+          />
+          {draftQ && (
+            <button type='button' onClick={() => { setDraftQ(''); setQ(''); setPage(1); }}>
+              <span className='material-symbols-outlined text-[16px] text-on-surface-variant'>close</span>
+            </button>
+          )}
+        </form>
+        <span className='text-sm text-on-surface-variant'>
+          Jami: <span className='font-semibold text-on-surface'>{totalCount}</span>
+        </span>
+      </div>
+
+      {/* Status tabs */}
+      <div className='flex gap-1 rounded-xl border border-outline-variant bg-surface-container-lowest p-1'>
+        {STATUS_TABS.map((tab) => (
+          <button
+            key={tab.value}
+            onClick={() => { setFilterStatus(tab.value); setPage(1); }}
+            className={`flex items-center gap-1.5 rounded-lg px-4 py-2 text-sm font-medium transition-all ${
+              filterStatus === tab.value
+                ? 'bg-primary text-on-primary shadow-sm'
+                : 'text-on-surface-variant hover:bg-surface-container hover:text-on-surface'
+            }`}
+          >
+            {'icon' in tab && <span className='material-symbols-outlined text-[16px]'>{tab.icon}</span>}
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Feedback list */}
+      {isLoading ? (
+        <div className='flex h-48 items-center justify-center rounded-xl border border-outline-variant bg-surface-container-lowest'>
+          <span className='material-symbols-outlined animate-spin text-[36px] text-primary'>progress_activity</span>
+        </div>
+      ) : feedbacks.length === 0 ? (
+        <div className='flex h-48 flex-col items-center justify-center gap-3 rounded-xl border border-outline-variant bg-surface-container-lowest text-on-surface-variant'>
+          <span className='material-symbols-outlined text-[48px]'>forum</span>
+          <p className='text-sm'>Fikrlar topilmadi</p>
+        </div>
+      ) : (
+        <div className='space-y-3'>
+          {feedbacks.map((fb) => (
+            <div
+              key={fb.id}
+              className='overflow-hidden rounded-xl border border-outline-variant bg-surface-container-lowest shadow-sm transition-shadow hover:shadow-md'
+            >
+              {/* Card header */}
+              <div className='flex items-start gap-4 p-4'>
+                {/* Avatar */}
+                <div className='flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full bg-primary/10 text-sm font-bold text-primary'>
+                  {(fb.user_name?.[0] || fb.user_phone[0]).toUpperCase()}
+                </div>
+
+                {/* Content */}
+                <div className='flex-1 min-w-0'>
+                  <div className='flex flex-wrap items-center gap-2'>
+                    <p className='text-sm font-semibold text-on-surface'>
+                      {fb.user_name || fb.user_phone}
+                    </p>
+                    {fb.user_name && (
+                      <p className='text-xs text-on-surface-variant'>{fb.user_phone}</p>
+                    )}
+                    <span
+                      className={`ml-auto rounded-full px-2 py-0.5 text-[11px] font-medium ${FEEDBACK_STATUS_COLORS[fb.status]}`}
+                    >
+                      {FEEDBACK_STATUS_LABELS[fb.status]}
+                    </span>
+                  </div>
+                  <p className='mt-1 text-xs text-on-surface-variant'>
+                    {new Date(fb.created_at).toLocaleString('uz-UZ', {
+                      year: 'numeric', month: '2-digit', day: '2-digit',
+                      hour: '2-digit', minute: '2-digit',
+                    })}
+                  </p>
+                  {/* Message preview */}
+                  <p
+                    className={`mt-2 text-sm text-on-surface ${expandedId === fb.id ? '' : 'line-clamp-2'}`}
+                  >
+                    {fb.message}
+                  </p>
+                  {fb.message.length > 120 && (
+                    <button
+                      onClick={() => setExpandedId(expandedId === fb.id ? null : fb.id)}
+                      className='mt-1 text-xs font-medium text-primary hover:underline'
+                    >
+                      {expandedId === fb.id ? "Yig'irish ▲" : "Ko'proq ▼"}
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Action buttons */}
+              <div className='flex items-center gap-2 border-t border-outline-variant/50 bg-surface-container/40 px-4 py-2.5'>
+                <span className='text-xs text-on-surface-variant'>Statusni o'zgartirish:</span>
+                {(['new', 'read', 'resolved'] as const).map((s) => (
+                  <button
+                    key={s}
+                    disabled={fb.status === s || updateMutation.isPending}
+                    onClick={() => updateMutation.mutate({ id: fb.id, status: s })}
+                    className={`rounded-lg px-3 py-1 text-xs font-medium transition-all disabled:cursor-default disabled:opacity-50 ${
+                      fb.status === s
+                        ? `${FEEDBACK_STATUS_COLORS[s]} ring-1 ring-current`
+                        : 'bg-surface-container text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface'
+                    }`}
+                  >
+                    {FEEDBACK_STATUS_LABELS[s]}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Pagination */}
+      {totalPages > 1 && (
+        <div className='flex items-center justify-between rounded-xl border border-outline-variant bg-surface-container-lowest px-4 py-3'>
+          <p className='text-xs text-on-surface-variant'>
+            {(page - 1) * 20 + 1}–{Math.min(page * 20, totalCount)} / {totalCount}
+          </p>
+          <div className='flex gap-1'>
+            <button
+              disabled={page === 1}
+              onClick={() => setPage((p) => p - 1)}
+              className='rounded-lg p-1.5 text-on-surface-variant hover:bg-surface-container disabled:opacity-40'
+            >
+              <span className='material-symbols-outlined text-[18px]'>chevron_left</span>
+            </button>
+            {Array.from({ length: Math.min(totalPages, 5) }, (_, i) => {
+              const p = totalPages <= 5 ? i + 1 : page <= 3 ? i + 1 : page >= totalPages - 2 ? totalPages - 4 + i : page - 2 + i;
+              return (
+                <button
+                  key={p}
+                  onClick={() => setPage(p)}
+                  className={`min-w-[32px] rounded-lg px-2 py-1 text-xs font-medium ${p === page ? 'bg-primary text-on-primary' : 'text-on-surface-variant hover:bg-surface-container'}`}
+                >
+                  {p}
+                </button>
+              );
+            })}
+            <button
+              disabled={page === totalPages}
+              onClick={() => setPage((p) => p + 1)}
+              className='rounded-lg p-1.5 text-on-surface-variant hover:bg-surface-container disabled:opacity-40'
+            >
+              <span className='material-symbols-outlined text-[18px]'>chevron_right</span>
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
 const ReportsTab = () => {
+  const [subTab, setSubTab] = useState<'general' | 'sales'>('general');
   const [dateFrom, setDateFrom] = useState(MONTH_START);
   const [dateTo, setDateTo] = useState(TODAY);
   const [period, setPeriod] = useState<'daily' | 'monthly' | 'yearly'>('daily');
@@ -2159,22 +4061,6 @@ const ReportsTab = () => {
     queryKey: ['admin-report', params],
     queryFn: () => adminGetReport(params).then((r) => r.data),
     staleTime: 30_000,
-  });
-  const [editingRate, setEditingRate] = useState(false);
-  const [newRateValue, setNewRateValue] = useState('');
-  const { data: rateData, refetch: refetchRate } = useQuery({
-    queryKey: ['admin-exchange-rate'],
-    queryFn: () => adminGetExchangeRate().then((r) => r.data),
-  });
-  const updateRateMutation = useMutation({
-    mutationFn: (val: string) => adminUpdateExchangeRate({ usd_rate: val }),
-    onSuccess: (res) => {
-      toast.success(res.data.message || 'Dollar kursi yangilandi');
-      setEditingRate(false);
-      refetchRate();
-      refetch();
-    },
-    onError: () => toast.error('Kursni yangilashda xatolik'),
   });
   const summary: ReportSummary = data?.summary ?? {
     total_revenue: 0,
@@ -2326,54 +4212,6 @@ const ReportsTab = () => {
           </p>
         </div>
         <div className='flex flex-wrap items-center gap-2'>
-          <div className='mr-4 flex items-center gap-3 rounded-xl border border-outline-variant bg-surface-container-highest px-4 py-2 shadow-sm'>
-            <span className='material-symbols-outlined text-[20px] text-tertiary'>
-              currency_exchange
-            </span>
-            {editingRate ? (
-              <div className='flex items-center gap-2'>
-                <input
-                  type='number'
-                  value={newRateValue}
-                  onChange={(e) => setNewRateValue(e.target.value)}
-                  className='w-24 rounded border border-outline bg-surface px-2 py-1 text-sm focus:outline-none'
-                  placeholder='Kurs'
-                  autoFocus
-                />
-                <button
-                  onClick={() => updateRateMutation.mutate(newRateValue)}
-                  disabled={updateRateMutation.isPending}
-                  className='rounded bg-primary px-2 py-1 text-xs text-on-primary'
-                >
-                  OK
-                </button>
-                <button
-                  onClick={() => setEditingRate(false)}
-                  className='rounded bg-surface-variant px-2 py-1 text-xs text-on-surface-variant'
-                >
-                  X
-                </button>
-              </div>
-            ) : (
-              <div className='flex items-center gap-3'>
-                <div className='text-sm'>
-                  <span className='text-on-surface-variant'>Dollar kursi:</span>{' '}
-                  <span className='font-bold text-on-surface'>
-                    {rateData?.usd_rate ? rateData.usd_rate.toLocaleString() : '...'} so'm
-                  </span>
-                </div>
-                <button
-                  onClick={() => {
-                    setNewRateValue(String(rateData?.usd_rate || ''));
-                    setEditingRate(true);
-                  }}
-                  className='flex h-7 w-7 items-center justify-center rounded-full hover:bg-surface-variant'
-                >
-                  <span className='material-symbols-outlined text-[16px] text-primary'>edit</span>
-                </button>
-              </div>
-            )}
-          </div>
           <button
             onClick={exportExcel}
             className='flex items-center gap-2 rounded-lg border border-[#22c55e] bg-[#22c55e]/10 px-4 py-2 text-sm font-semibold text-[#22c55e] hover:bg-[#22c55e] hover:text-white'
@@ -2482,48 +4320,37 @@ const ReportsTab = () => {
           </div>
         ))}
       </div>
-      {data?.timeline && data.timeline.length > 0 && (
-        <div className='overflow-hidden rounded-2xl border border-outline-variant bg-surface-container-lowest shadow-sm'>
-          <div className='border-b border-outline-variant bg-surface-container px-5 py-3'>
-            <h3 className='font-semibold text-on-surface'>Vaqt Bo\'yicha Tushum</h3>
-          </div>
-          <div className='overflow-x-auto'>
-            <table className='w-full min-w-[500px] text-left text-sm'>
-              <thead className='bg-surface-container/60'>
-                <tr>
-                  {['Sana', 'Tushum', 'Chegirma', 'Buyurtmalar'].map((h) => (
-                    <th
-                      key={h}
-                      className='px-5 py-2.5 font-semibold uppercase text-xs text-on-surface-variant'
-                    >
-                      {h}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody className='divide-y divide-outline-variant'>
-                {data.timeline.map((row, i) => (
-                  <tr key={i} className='hover:bg-surface-container/40'>
-                    <td className='px-5 py-2.5 font-medium text-on-surface'>{row.date}</td>
-                    <td className='px-5 py-2.5 font-semibold text-primary'>
-                      {fmt(row.revenue)} so'm
-                    </td>
-                    <td className='px-5 py-2.5 text-[#f59e0b]'>{fmt(row.discount)} so'm</td>
-                    <td className='px-5 py-2.5 text-on-surface-variant'>{row.count} ta</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
+      <div className='flex items-center gap-2 border-b border-outline-variant pb-3 mt-6'>
+        <button
+          onClick={() => setSubTab('general')}
+          className={`flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold transition-colors ${subTab === 'general' ? 'bg-primary text-on-primary' : 'bg-surface-container text-on-surface hover:bg-outline-variant'}`}
+        >
+          <span className='material-symbols-outlined text-[18px]'>bar_chart</span>
+          Umumiy
+        </button>
+        <button
+          onClick={() => setSubTab('sales')}
+          className={`flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold transition-colors ${subTab === 'sales' ? 'bg-primary text-on-primary' : 'bg-surface-container text-on-surface hover:bg-outline-variant'}`}
+        >
+          <span className='material-symbols-outlined text-[18px]'>receipt_long</span>
+          Savdo
+        </button>
+      </div>
+
       <div className='overflow-hidden rounded-2xl border border-outline-variant bg-surface-container-lowest shadow-sm'>
         <div className='border-b border-outline-variant bg-surface-container px-5 py-3'>
           <h3 className='font-semibold text-on-surface'>
-            Tovarlar Bo\'yicha Statistika{' '}
-            <span className='ml-2 text-sm font-normal text-on-surface-variant'>
-              ({filteredProducts.length} ta)
-            </span>
+            {subTab === 'general' ? 'Tovarlar Bo\'yicha Statistika' : 'Cheklar (Savdo) Bo\'yicha Statistika'}
+            {subTab === 'general' && (
+              <span className='ml-2 text-sm font-normal text-on-surface-variant'>
+                ({filteredProducts.length} ta)
+              </span>
+            )}
+            {subTab === 'sales' && (
+              <span className='ml-2 text-sm font-normal text-on-surface-variant'>
+                ({data?.orders?.length || 0} ta chek)
+              </span>
+            )}
           </h3>
         </div>
         {isLoading ? (
@@ -2543,16 +4370,16 @@ const ReportsTab = () => {
               Qayta urinish
             </button>
           </div>
-        ) : filteredProducts.length === 0 ? (
+        ) : (subTab === 'general' && filteredProducts.length === 0) || (subTab === 'sales' && (!data?.orders || data.orders.length === 0)) ? (
           <div className='py-16 text-center'>
             <span className='material-symbols-outlined mb-2 block text-5xl text-outline'>
               inventory_2
             </span>
             <p className='text-on-surface-variant'>Ma\'lumot topilmadi</p>
           </div>
-        ) : (
-          <div className='overflow-x-auto'>
-            <table className='w-full min-w-[1200px] border-collapse text-left text-sm'>
+        ) : subTab === 'general' ? (
+          <div key="general-table-container" className='overflow-x-auto'>
+            <table key="general-table" className='w-full min-w-[1200px] border-collapse text-left text-sm'>
               <thead>
                 <tr className='bg-surface-container'>
                   {[
@@ -2655,7 +4482,534 @@ const ReportsTab = () => {
               </tfoot>
             </table>
           </div>
+        ) : (
+          <div key="sales-table-container" className='overflow-x-auto'>
+            <table key="sales-table" className='w-full min-w-[1000px] border-collapse text-left text-sm'>
+              <thead>
+                <tr className='bg-surface-container'>
+                  <th className='border border-outline-variant/50 px-3 py-3 text-center text-xs font-bold uppercase text-on-surface-variant w-16'>No</th>
+                  <th className='border border-outline-variant/50 px-3 py-3 text-left text-xs font-bold uppercase text-on-surface-variant w-full'>Tovar nomi</th>
+                  <th className='border border-outline-variant/50 px-3 py-3 text-center text-xs font-bold uppercase text-on-surface-variant'>Soni</th>
+                  <th className='border border-outline-variant/50 px-3 py-3 text-right text-xs font-bold uppercase text-on-surface-variant'>Narxi</th>
+                  <th className='border border-outline-variant/50 px-3 py-3 text-right text-xs font-bold uppercase text-on-surface-variant'>Sotilgan narxi</th>
+                  <th className='border border-outline-variant/50 px-3 py-3 text-center text-xs font-bold uppercase text-on-surface-variant'>Chegirma %</th>
+                  <th className='border border-outline-variant/50 px-3 py-3 text-right text-xs font-bold uppercase text-on-surface-variant'>Chegirma summasi</th>
+                </tr>
+              </thead>
+              <tbody>
+                {[...(data?.orders ?? [])].reverse().map((order, orderIndex) => (
+                  <Fragment key={order.id}>
+                    {/* Order Header Row */}
+                    <tr className='bg-green-100 dark:bg-green-900/30 font-bold'>
+                      <td className='border border-outline-variant/40 px-3 py-2.5 text-center text-green-800 dark:text-green-400'>
+                        {orderIndex + 1}
+                      </td>
+                      <td colSpan={6} className='border border-outline-variant/40 px-3 py-2.5 text-green-900 dark:text-green-300'>
+                        <span className='mr-4'>Chek №{order.id} ({new Date(order.created_at).toLocaleString('uz-UZ')})</span>
+                        <span className='font-normal opacity-80 mr-1'>Xaridor:</span> 
+                        <span>{order.receiver_name || 'Ismsiz'}</span>
+                      </td>
+                    </tr>
+                    {/* Order Items */}
+                    {order.items.map((item, itemIndex) => (
+                      <tr key={item.id} className='bg-surface-container-lowest hover:bg-primary/5'>
+                        <td className='border border-outline-variant/40 px-3 py-2 text-center text-on-surface-variant'>
+                          {itemIndex + 1}
+                        </td>
+                        <td className='border border-outline-variant/40 px-3 py-2 text-on-surface'>
+                          {item.product_name}
+                        </td>
+                        <td className='border border-outline-variant/40 px-3 py-2 text-center font-semibold'>
+                          {item.quantity}
+                        </td>
+                        <td className='border border-outline-variant/40 px-3 py-2 text-right'>
+                          {fmt(item.original_price)}
+                        </td>
+                        <td className='border border-outline-variant/40 px-3 py-2 text-right text-primary font-semibold'>
+                          {fmt(item.sold_price)}
+                        </td>
+                        <td className='border border-outline-variant/40 px-3 py-2 text-center text-error'>
+                          {item.discount_percent > 0 ? `${item.discount_percent}%` : '0%'}
+                        </td>
+                        <td className='border border-outline-variant/40 px-3 py-2 text-right text-error font-medium'>
+                          {item.discount_amount > 0 ? fmt(item.discount_amount) : '0'}
+                        </td>
+                      </tr>
+                    ))}
+                    {/* Order Subtotal Row */}
+                    <tr className='bg-surface-container-high font-semibold text-on-surface text-sm border-b-[3px] border-outline-variant/30'>
+                      <td colSpan={2} className='border border-outline-variant/40 px-3 py-2.5 text-right opacity-80'>Shu chek bo'yicha jami:</td>
+                      <td className='border border-outline-variant/40 px-3 py-2.5 text-center text-primary'>
+                        {order.items.reduce((acc, item) => acc + item.quantity, 0)}
+                      </td>
+                      <td className='border border-outline-variant/40 px-3 py-2.5 text-right'>
+                        {fmt(order.items.reduce((acc, item) => acc + (item.original_price * item.quantity), 0))}
+                      </td>
+                      <td className='border border-outline-variant/40 px-3 py-2.5 text-right text-primary'>
+                        {fmt(order.total_price)}
+                      </td>
+                      <td className='border border-outline-variant/40 px-3 py-2.5 text-center text-error'>
+                        {order.total_discount > 0 && order.total_price > 0 
+                          ? `${((order.total_discount / (order.total_price + order.total_discount)) * 100).toFixed(2)}%`
+                          : '0%'}
+                      </td>
+                      <td className='border border-outline-variant/40 px-3 py-2.5 text-right text-error'>
+                        {order.total_discount > 0 ? fmt(order.total_discount) : '0'}
+                      </td>
+                    </tr>
+                  </Fragment>
+                ))}
+                {(!data?.orders || data.orders.length === 0) && (
+                  <tr>
+                    <td colSpan={7} className='py-8 text-center text-on-surface-variant'>
+                      Ma'lumot topilmadi
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+              <tfoot className='bg-surface-container border-t-2 border-outline-variant font-bold text-on-surface'>
+                <tr>
+                  <td colSpan={2} className='px-3 py-4 text-right uppercase'>Jami:</td>
+                  <td className='px-3 py-4 text-center text-primary text-base'>
+                    {data?.orders?.reduce((acc, order) => acc + order.items.reduce((sum, item) => sum + item.quantity, 0), 0) || 0}
+                  </td>
+                  <td className='px-3 py-4 text-right text-base'>
+                    {fmt(data?.orders?.reduce((acc, order) => acc + order.items.reduce((sum, item) => sum + (item.original_price * item.quantity), 0), 0) || 0)} so'm
+                  </td>
+                  <td className='px-3 py-4 text-right text-primary text-base'>
+                    {fmt(data?.orders?.reduce((acc, order) => acc + order.total_price, 0) || 0)} so'm
+                  </td>
+                  <td className='px-3 py-4 text-center'></td>
+                  <td className='px-3 py-4 text-right text-error text-base'>
+                    {fmt(data?.orders?.reduce((acc, order) => acc + order.items.reduce((sum, item) => sum + item.discount_amount, 0), 0) || 0)} so'm
+                  </td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
         )}
+      </div>
+    </div>
+  );
+};
+
+// ─── Nasiya Tab ──────────────────────────────────────────────────────────────
+const NasiyaTab = () => {
+  const qc = useQueryClient();
+  const [filter, setFilter] = useState<'active' | 'overdue' | 'paid'>('active');
+  const [page, setPage] = useState(1);
+  const PAGE_SIZE = 15;
+
+  const params = useMemo(
+    () => ({
+      is_credit: 'true',
+      status: 'DELIVERED',
+      page,
+      page_size: PAGE_SIZE,
+    }),
+    [page],
+  );
+
+  const { data, isLoading, isError } = useQuery({
+    queryKey: ['admin-nasiya', page],
+    queryFn: () => adminGetOrders(params).then((r) => r.data as { count: number; next: string | null; results: AdminOrder[] }),
+    placeholderData: (prev) => prev,
+    staleTime: 30_000,
+  });
+
+  const payMutation = useMutation({
+    mutationFn: (id: number) => adminPayCreditOrder(id),
+    onSuccess: () => {
+      toast.success("To'lov muvaffaqiyatli qayd etildi!");
+      qc.invalidateQueries({ queryKey: ['admin-nasiya'] });
+    },
+    onError: () => toast.error('Xatolik yuz berdi'),
+  });
+
+  const fmt = (v: string | number) => Number(v || 0).toLocaleString('uz-UZ');
+  const today = new Date();
+
+  const allOrders: AdminOrder[] = data?.results ?? [];
+  const filtered = useMemo(() => {
+    if (filter === 'paid') return allOrders.filter((o) => o.credit_paid);
+    if (filter === 'overdue')
+      return allOrders.filter((o) => !o.credit_paid && o.credit_is_overdue);
+    return allOrders.filter((o) => !o.credit_paid && !o.credit_is_overdue);
+  }, [allOrders, filter]);
+
+  const counts = useMemo(() => ({
+    active: allOrders.filter((o) => !o.credit_paid && !o.credit_is_overdue).length,
+    overdue: allOrders.filter((o) => !o.credit_paid && o.credit_is_overdue).length,
+    paid: allOrders.filter((o) => o.credit_paid).length,
+  }), [allOrders]);
+
+  const totalPages = Math.ceil((data?.count ?? 0) / PAGE_SIZE);
+
+  const FILTERS: { key: 'active' | 'overdue' | 'paid'; label: string; icon: string; color: string }[] = [
+    { key: 'active', label: 'Faol nasiyalar', icon: 'schedule', color: 'text-primary' },
+    { key: 'overdue', label: 'Muddati o\'tgan', icon: 'warning', color: 'text-error' },
+    { key: 'paid', label: 'To\'langan', icon: 'check_circle', color: 'text-[#22c55e]' },
+  ];
+
+  return (
+    <div className='space-y-6'>
+      <div>
+        <h2 className='font-h3 text-h3 text-on-surface'>Nasiya Buyurtmalar</h2>
+        <p className='mt-1 text-body-sm text-on-surface-variant'>
+          Muddatli to'lov bilan amalga oshirilgan barcha buyurtmalar
+        </p>
+      </div>
+
+      {/* Filter pills */}
+      <div className='flex flex-wrap gap-2'>
+        {FILTERS.map((f) => (
+          <button
+            key={f.key}
+            onClick={() => { setFilter(f.key); setPage(1); }}
+            className={`flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold transition-all border ${
+              filter === f.key
+                ? 'bg-primary text-on-primary border-primary shadow-sm'
+                : 'border-outline-variant bg-surface-container-lowest text-on-surface-variant hover:border-primary hover:text-primary'
+            }`}
+          >
+            <span className={`material-symbols-outlined text-[18px] ${filter === f.key ? '' : f.color}`}>
+              {f.icon}
+            </span>
+            {f.label}
+            <span className={`rounded-full px-2 py-0.5 text-xs font-bold ${
+              filter === f.key ? 'bg-white/20 text-white' : 'bg-surface-container text-on-surface-variant'
+            }`}>
+              {counts[f.key]}
+            </span>
+          </button>
+        ))}
+      </div>
+
+      {/* Orders list */}
+      {isLoading ? (
+        <div className='py-16 text-center'>
+          <span className='material-symbols-outlined mb-2 block animate-spin text-5xl text-primary'>
+            progress_activity
+          </span>
+          <p className='text-on-surface-variant'>Yuklanmoqda...</p>
+        </div>
+      ) : isError ? (
+        <div className='rounded-2xl border border-error-container bg-error-container/20 py-12 text-center text-error'>
+          <span className='material-symbols-outlined mb-2 block text-4xl'>error</span>
+          <p>Xatolik yuz berdi</p>
+        </div>
+      ) : filtered.length === 0 ? (
+        <div className='rounded-2xl border border-outline-variant bg-surface-container-lowest py-16 text-center'>
+          <span className='material-symbols-outlined mb-3 block text-5xl text-outline'>calendar_month</span>
+          <p className='font-semibold text-on-surface-variant'>
+            {filter === 'paid' ? "To'langan nasiya yo'q" : filter === 'overdue' ? "Muddati o'tgan nasiya yo'q" : 'Faol nasiya yo\'q'}
+          </p>
+        </div>
+      ) : (
+        <div className='overflow-hidden rounded-2xl border border-outline-variant bg-surface-container-lowest shadow-sm'>
+          <table className='w-full min-w-[900px] text-left text-sm'>
+            <thead className='bg-surface-container'>
+              <tr>
+                {['Chek #', 'Xaridor', 'Summa', 'Muddat (kun)', 'To\'lov sanasi', 'Qolgan / O\'tgan', 'Holat', 'Amal'].map((h) => (
+                  <th key={h} className='px-4 py-3 text-xs font-bold uppercase text-on-surface-variant'>
+                    {h}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody className='divide-y divide-outline-variant'>
+              {filtered.map((order) => {
+                const dueDate = order.credit_due_date ? new Date(order.credit_due_date) : null;
+                const diffDays = dueDate
+                  ? Math.ceil((dueDate.getTime() - today.getTime()) / 86_400_000)
+                  : null;
+                const isOverdue = order.credit_is_overdue;
+                const isPaid = order.credit_paid;
+
+                return (
+                  <tr key={order.id} className={`transition-colors ${isOverdue && !isPaid ? 'bg-error/5 hover:bg-error/10' : 'hover:bg-primary/5'}`}>
+                    <td className='px-4 py-3 font-mono font-bold text-on-surface'>#{order.id}</td>
+                    <td className='px-4 py-3'>
+                      <div className='font-semibold text-on-surface'>{order.receiver_name}</div>
+                      <div className='text-xs text-on-surface-variant'>{order.receiver_phone}</div>
+                    </td>
+                    <td className='px-4 py-3 font-bold text-primary'>{fmt(order.total_price)} so'm</td>
+                    <td className='px-4 py-3 text-center'>
+                      <span className='rounded-lg bg-surface-container px-2 py-1 font-mono font-bold text-on-surface'>
+                        {order.credit_days ?? '—'} kun
+                      </span>
+                    </td>
+                    <td className='px-4 py-3 text-on-surface'>
+                      {dueDate
+                        ? dueDate.toLocaleDateString('uz-UZ', { day: '2-digit', month: '2-digit', year: 'numeric' })
+                        : '—'}
+                    </td>
+                    <td className='px-4 py-3'>
+                      {isPaid ? (
+                        <span className='text-xs text-[#22c55e] font-semibold'>
+                          {order.credit_paid_at
+                            ? new Date(order.credit_paid_at).toLocaleDateString('uz-UZ')
+                            : 'To\'langan'}
+                        </span>
+                      ) : diffDays !== null ? (
+                        <span className={`text-sm font-bold ${isOverdue ? 'text-error' : diffDays <= 3 ? 'text-[#f59e0b]' : 'text-on-surface'}`}>
+                          {isOverdue
+                            ? `${Math.abs(diffDays)} kun o'tdi`
+                            : `${diffDays} kun qoldi`}
+                        </span>
+                      ) : '—'}
+                    </td>
+                    <td className='px-4 py-3'>
+                      {isPaid ? (
+                        <span className='inline-flex items-center gap-1 rounded-lg bg-[#22c55e]/10 px-2 py-1 text-xs font-bold text-[#22c55e]'>
+                          <span className='material-symbols-outlined text-[14px]'>check_circle</span>
+                          To'langan
+                        </span>
+                      ) : isOverdue ? (
+                        <span className='inline-flex items-center gap-1 rounded-lg bg-error/10 px-2 py-1 text-xs font-bold text-error'>
+                          <span className='material-symbols-outlined text-[14px]'>warning</span>
+                          Muddati o'tdi
+                        </span>
+                      ) : (
+                        <span className='inline-flex items-center gap-1 rounded-lg bg-[#f59e0b]/10 px-2 py-1 text-xs font-bold text-[#f59e0b]'>
+                          <span className='material-symbols-outlined text-[14px]'>schedule</span>
+                          Kutilmoqda
+                        </span>
+                      )}
+                    </td>
+                    <td className='px-4 py-3'>
+                      {!isPaid && (
+                        <button
+                          onClick={() => {
+                            if (confirm(`#${order.id} buyurtmani to'langan deb belgilash?`))
+                              payMutation.mutate(order.id);
+                          }}
+                          disabled={payMutation.isPending}
+                          className='flex items-center gap-1 rounded-lg bg-primary px-3 py-1.5 text-xs font-bold text-on-primary hover:opacity-90 disabled:opacity-50 transition-opacity'
+                        >
+                          <span className='material-symbols-outlined text-[14px]'>check</span>
+                          To'landi
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* Pagination */}
+      {totalPages > 1 && (
+        <div className='flex items-center justify-center gap-2'>
+          <button
+            disabled={page === 1}
+            onClick={() => setPage((p) => p - 1)}
+            className='rounded-lg p-1.5 text-on-surface-variant hover:bg-surface-container disabled:opacity-40'
+          >
+            <span className='material-symbols-outlined text-[18px]'>chevron_left</span>
+          </button>
+          {Array.from({ length: Math.min(totalPages, 5) }, (_, i) => {
+            const p = totalPages <= 5 ? i + 1 : page <= 3 ? i + 1 : page >= totalPages - 2 ? totalPages - 4 + i : page - 2 + i;
+            return (
+              <button
+                key={p}
+                onClick={() => setPage(p)}
+                className={`min-w-[32px] rounded-lg px-2 py-1 text-xs font-medium ${p === page ? 'bg-primary text-on-primary' : 'text-on-surface-variant hover:bg-surface-container'}`}
+              >
+                {p}
+              </button>
+            );
+          })}
+          <button
+            disabled={page === totalPages}
+            onClick={() => setPage((p) => p + 1)}
+            className='rounded-lg p-1.5 text-on-surface-variant hover:bg-surface-container disabled:opacity-40'
+          >
+            <span className='material-symbols-outlined text-[18px]'>chevron_right</span>
+          </button>
+        </div>
+      )}
+    </div>
+  );
+};
+
+// ─── Sozlamalar Tab ───────────────────────────────────────────────────────────
+const STORE_INFO_KEY = 'bozor_store_info';
+const loadStoreInfo = () => {
+  try {
+    return JSON.parse(localStorage.getItem(STORE_INFO_KEY) || '{}');
+  } catch {
+    return {};
+  }
+};
+
+const SozlamalarTab = () => {
+  const qc = useQueryClient();
+
+  // Dollar kursi
+  const [editingRate, setEditingRate] = useState(false);
+  const [newRateValue, setNewRateValue] = useState('');
+  const { data: rateData, refetch: refetchRate } = useQuery({
+    queryKey: ['admin-exchange-rate'],
+    queryFn: () => adminGetExchangeRate().then((r) => r.data),
+  });
+  const updateRateMutation = useMutation({
+    mutationFn: (val: string) => adminUpdateExchangeRate({ usd_rate: val }),
+    onSuccess: (res) => {
+      toast.success(res.data.message || 'Dollar kursi yangilandi');
+      setEditingRate(false);
+      refetchRate();
+      qc.invalidateQueries({ queryKey: ['admin-report'] });
+    },
+    onError: () => toast.error('Kursni yangilashda xatolik'),
+  });
+
+  // Do'kon sozlamalari (localStorage) — nom o'zgartirilmaydi
+  const FIXED_STORE_NAME = loadStoreInfo().name || 'Bozor UZ';
+  const [storePhone, setStorePhone] = useState(() => loadStoreInfo().phone || '+998 71 000-00-00');
+  const [storeAddress, setStoreAddress] = useState(() => loadStoreInfo().address || 'Toshkent sh.');
+  const [storeSaved, setStoreSaved] = useState(false);
+
+  const saveStoreInfo = () => {
+    localStorage.setItem(STORE_INFO_KEY, JSON.stringify({ name: FIXED_STORE_NAME, phone: storePhone, address: storeAddress }));
+    setStoreSaved(true);
+    toast.success("Do'kon ma'lumotlari saqlandi!");
+    setTimeout(() => setStoreSaved(false), 2000);
+  };
+
+  return (
+    <div className='space-y-6 max-w-2xl'>
+      <div>
+        <h2 className='font-h3 text-h3 text-on-surface'>Sozlamalar</h2>
+        <p className='mt-1 text-body-sm text-on-surface-variant'>
+          Tizim sozlamalari, dollar kursi va do'kon ma'lumotlari
+        </p>
+      </div>
+
+      {/* Dollar kursi */}
+      <div className='rounded-2xl border border-outline-variant bg-surface-container-lowest p-6 shadow-sm'>
+        <h3 className='mb-1 flex items-center gap-2 font-semibold text-on-surface'>
+          <span className='flex h-9 w-9 items-center justify-center rounded-xl bg-tertiary/10 text-tertiary'>
+            <span className='material-symbols-outlined text-[20px]'>currency_exchange</span>
+          </span>
+          Dollar kursi (USD → UZS)
+        </h3>
+        <p className='mb-5 ml-11 text-sm text-on-surface-variant'>
+          Mahsulot narxlarini avtomatik hisoblash uchun ishlatiladi
+        </p>
+
+        <div className='flex items-center gap-4 rounded-xl border border-outline-variant bg-surface-container p-4'>
+          <div className='flex-1'>
+            <p className='text-xs font-semibold uppercase text-on-surface-variant mb-1'>Joriy kurs</p>
+            <p className='text-2xl font-black text-on-surface'>
+              {rateData?.usd_rate ? Number(rateData.usd_rate).toLocaleString('uz-UZ') : '...'}
+              <span className='ml-1 text-base font-normal text-on-surface-variant'>so'm / $1</span>
+            </p>
+          </div>
+          {editingRate ? (
+            <div className='flex items-center gap-2'>
+              <input
+                type='number'
+                value={newRateValue}
+                onChange={(e) => setNewRateValue(e.target.value)}
+                className='w-32 rounded-xl border-2 border-primary bg-surface px-3 py-2 text-sm font-bold focus:outline-none'
+                placeholder='Yangi kurs'
+                autoFocus
+              />
+              <button
+                onClick={() => updateRateMutation.mutate(newRateValue)}
+                disabled={updateRateMutation.isPending || !newRateValue}
+                className='flex items-center gap-1 rounded-xl bg-primary px-4 py-2 text-sm font-bold text-on-primary disabled:opacity-50'
+              >
+                {updateRateMutation.isPending ? (
+                  <span className='material-symbols-outlined animate-spin text-[16px]'>progress_activity</span>
+                ) : (
+                  <span className='material-symbols-outlined text-[16px]'>check</span>
+                )}
+                Saqlash
+              </button>
+              <button
+                onClick={() => setEditingRate(false)}
+                className='rounded-xl border border-outline-variant px-3 py-2 text-sm text-on-surface-variant hover:bg-surface-container'
+              >
+                Bekor
+              </button>
+            </div>
+          ) : (
+            <button
+              onClick={() => {
+                setNewRateValue(String(rateData?.usd_rate || ''));
+                setEditingRate(true);
+              }}
+              className='flex items-center gap-2 rounded-xl border border-outline-variant px-4 py-2 text-sm font-semibold text-on-surface hover:bg-surface-container hover:text-primary transition-colors'
+            >
+              <span className='material-symbols-outlined text-[18px]'>edit</span>
+              O'zgartirish
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Do'kon sozlamalari */}
+      <div className='rounded-2xl border border-outline-variant bg-surface-container-lowest p-6 shadow-sm'>
+        <h3 className='mb-1 flex items-center gap-2 font-semibold text-on-surface'>
+          <span className='flex h-9 w-9 items-center justify-center rounded-xl bg-secondary/10 text-secondary'>
+            <span className='material-symbols-outlined text-[20px]'>store</span>
+          </span>
+          Do'kon ma'lumotlari
+        </h3>
+        <p className='mb-5 ml-11 text-sm text-on-surface-variant'>
+          Savdo cheki (receipt) da ko'rinadigan telefon raqam va manzil
+        </p>
+
+        <div className='space-y-4'>
+          <div>
+            <label className='mb-1.5 block text-sm font-bold text-on-surface'>Telefon raqam</label>
+            <input
+              type='text'
+              value={storePhone}
+              onChange={(e) => setStorePhone(e.target.value)}
+              placeholder="+998 71 000-00-00"
+              className='w-full rounded-xl border-2 border-outline-variant bg-surface px-4 py-3 text-sm focus:border-primary focus:outline-none'
+            />
+          </div>
+          <div>
+            <label className='mb-1.5 block text-sm font-bold text-on-surface'>Manzil</label>
+            <input
+              type='text'
+              value={storeAddress}
+              onChange={(e) => setStoreAddress(e.target.value)}
+              placeholder="Toshkent sh., ..."
+              className='w-full rounded-xl border-2 border-outline-variant bg-surface px-4 py-3 text-sm focus:border-primary focus:outline-none'
+            />
+          </div>
+          <div className='flex items-center gap-3 pt-2'>
+            <button
+              onClick={saveStoreInfo}
+              className='flex items-center gap-2 rounded-xl bg-primary px-6 py-2.5 font-bold text-on-primary hover:opacity-90 transition-opacity'
+            >
+              <span className='material-symbols-outlined text-[18px]'>{storeSaved ? 'check_circle' : 'save'}</span>
+              {storeSaved ? 'Saqlandi!' : 'Saqlash'}
+            </button>
+            <p className='text-xs text-on-surface-variant'>
+              Bu ma'lumotlar brauzerda saqlanadi va chek chiqarishda ishlatiladi
+            </p>
+          </div>
+        </div>
+
+        {/* Receipt preview */}
+        <div className='mt-6 rounded-xl border border-outline-variant bg-surface-container p-4'>
+          <p className='mb-2 text-xs font-semibold uppercase text-on-surface-variant'>Chek ko'rinishi:</p>
+          <div className='rounded-lg border border-outline bg-surface p-3 font-mono text-xs text-on-surface'>
+            <div className='text-center font-bold uppercase tracking-widest'>{FIXED_STORE_NAME}</div>
+            {storePhone && <div className='text-center text-on-surface-variant'>{storePhone}</div>}
+            {storeAddress && <div className='text-center text-on-surface-variant'>{storeAddress}</div>}
+            <div className='my-1.5 border-t border-dashed border-outline-variant' />
+            <div className='text-on-surface-variant'>CHEK #000001</div>
+          </div>
+        </div>
       </div>
     </div>
   );
@@ -2678,6 +5032,8 @@ const ProductEditor = ({
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [variantImageFiles, setVariantImageFiles] = useState<Record<string, File | null>>({});
   const [variantImagePreviews, setVariantImagePreviews] = useState<Record<string, string>>({});
+  const [variantGalleryFiles, setVariantGalleryFiles] = useState<Record<string, File[]>>({});
+  const [variantGalleryPreviews, setVariantGalleryPreviews] = useState<Record<string, string[]>>({});
   const [removeImage, setRemoveImage] = useState(false);
   const [formError, setFormError] = useState('');
   const [showBulkGenerator, setShowBulkGenerator] = useState(false);
@@ -2715,11 +5071,14 @@ const ProductEditor = ({
 
   useEffect(() => {
     Object.values(variantImagePreviews).forEach((url) => URL.revokeObjectURL(url));
+    Object.values(variantGalleryPreviews).forEach((urls) => urls.forEach((u) => URL.revokeObjectURL(u)));
     setForm(mapProductToForm(product));
     setVariants(mapProductVariants(product));
     setImageFile(null);
     setVariantImageFiles({});
     setVariantImagePreviews({});
+    setVariantGalleryFiles({});
+    setVariantGalleryPreviews({});
     setRemoveImage(false);
     setFormError('');
   }, [product, mode]);
@@ -2819,6 +5178,42 @@ const ProductEditor = ({
           item.client_id === variant.client_id ? { ...item, remove_image: false } : item,
         ),
       );
+  };
+
+  const handleVariantGalleryAdd = (clientId: string, files: File[]) => {
+    setVariantGalleryFiles((c) => ({ ...c, [clientId]: [...(c[clientId] || []), ...files] }));
+    setVariantGalleryPreviews((c) => ({
+      ...c,
+      [clientId]: [...(c[clientId] || []), ...files.map((f) => URL.createObjectURL(f))],
+    }));
+  };
+
+  const handleVariantGalleryRemoveNew = (clientId: string, idx: number) => {
+    setVariantGalleryFiles((c) => {
+      const next = [...(c[clientId] || [])];
+      next.splice(idx, 1);
+      return { ...c, [clientId]: next };
+    });
+    setVariantGalleryPreviews((c) => {
+      const next = [...(c[clientId] || [])];
+      if (next[idx]) URL.revokeObjectURL(next[idx]);
+      next.splice(idx, 1);
+      return { ...c, [clientId]: next };
+    });
+  };
+
+  const handleVariantGalleryDeleteExisting = (clientId: string, imageId: number) => {
+    setVariants((c) =>
+      c.map((v) =>
+        v.client_id === clientId
+          ? {
+              ...v,
+              existingImages: v.existingImages.filter((img) => img.id !== imageId),
+              deleteImageIds: [...v.deleteImageIds, imageId],
+            }
+          : v,
+      ),
+    );
   };
 
   const removeVariantAt = (index: number) => {
@@ -2971,12 +5366,19 @@ const ProductEditor = ({
         } as VariantFormState),
       );
     variantsPayload.forEach((v, i) => {
-      const file = variantImageFiles[v.client_id];
-      if (file) payload.append(`variant_image_${i}`, file);
+      const swatchFile = variantImageFiles[v.client_id];
+      if (swatchFile) payload.append(`variant_image_${i}`, swatchFile);
+      const galleryFiles = variantGalleryFiles[v.client_id] || [];
+      galleryFiles.forEach((f, j) => payload.append(`variant_images_${i}_${j}`, f));
     });
     payload.append(
       'variants_data',
-      JSON.stringify(variantsPayload.map(({ client_id, ...v }) => v)),
+      JSON.stringify(
+        variantsPayload.map(({ client_id, ...v }) => {
+          const deleteIds = variants.find((vv) => vv.client_id === client_id)?.deleteImageIds || [];
+          return { ...v, delete_image_ids: deleteIds };
+        }),
+      ),
     );
     await saveMutation.mutateAsync(payload);
   };
@@ -3349,11 +5751,15 @@ const ProductEditor = ({
               variants={variants}
               variantImageFiles={variantImageFiles}
               variantImagePreviews={variantImagePreviews}
+              variantGalleryPreviews={variantGalleryPreviews}
               onVariantChange={handleVariantChange}
               onVariantPriceChange={handleVariantPriceChange}
               onVariantImageChange={handleVariantImageChange}
               onRemoveVariant={removeVariantAt}
               onGenerateSku={handleGenerateVariantSku}
+              onGalleryAdd={handleVariantGalleryAdd}
+              onGalleryRemoveNew={handleVariantGalleryRemoveNew}
+              onGalleryDeleteExisting={handleVariantGalleryDeleteExisting}
               onAddVariantToGroup={(baseVariant) => {
                 const newVar = emptyVariant(baseVariant.group_id);
                 newVar.color = baseVariant.color;
@@ -3416,16 +5822,21 @@ const ColorGroupVariantEditor = ({
   variants,
   variantImageFiles,
   variantImagePreviews,
+  variantGalleryPreviews,
   onVariantChange,
   onVariantPriceChange,
   onVariantImageChange,
   onRemoveVariant,
   onGenerateSku,
+  onGalleryAdd,
+  onGalleryRemoveNew,
+  onGalleryDeleteExisting,
   onAddVariantToGroup,
 }: {
   variants: VariantFormState[];
   variantImageFiles: Record<string, File | null>;
   variantImagePreviews: Record<string, string>;
+  variantGalleryPreviews: Record<string, string[]>;
   onVariantChange: (index: number, field: keyof VariantFormState, value: string) => void;
   onVariantPriceChange: (
     index: number,
@@ -3436,6 +5847,9 @@ const ColorGroupVariantEditor = ({
   onVariantImageChange: (variant: VariantFormState, file: File | null) => void;
   onRemoveVariant: (index: number) => void;
   onGenerateSku: (index: number) => void;
+  onGalleryAdd: (clientId: string, files: File[]) => void;
+  onGalleryRemoveNew: (clientId: string, idx: number) => void;
+  onGalleryDeleteExisting: (clientId: string, imageId: number) => void;
   onAddVariantToGroup: (baseVariant: VariantFormState) => void;
 }) => {
   // Group variants by color (or client_id if no color)
@@ -3569,7 +5983,7 @@ const ColorGroupVariantEditor = ({
                     </div>
                     <div className='mt-4'>
                       <label className='mb-2 block text-[11px] font-bold uppercase text-on-surface-variant'>
-                        Rang rasmi
+                        Rang (swatch) rasmi
                       </label>
                       <input
                         type='file'
@@ -3595,6 +6009,54 @@ const ColorGroupVariantEditor = ({
                           </label>
                         </div>
                       )}
+                    </div>
+
+                    {/* Gallery images */}
+                    <div className='mt-4'>
+                      <label className='mb-2 block text-[11px] font-bold uppercase text-on-surface-variant'>
+                        Galereya rasmlari
+                      </label>
+                      <div className='flex flex-wrap gap-2 mb-2'>
+                        {baseVariant.existingImages.map((img) => (
+                          <div key={img.id} className='relative group/img'>
+                            <img src={img.url} alt='' className='h-20 w-20 rounded-lg object-cover border border-outline-variant' />
+                            <button
+                              type='button'
+                              onClick={() => onGalleryDeleteExisting(baseVariant.client_id, img.id)}
+                              className='absolute -top-1.5 -right-1.5 hidden group-hover/img:flex h-5 w-5 items-center justify-center rounded-full bg-error text-on-error text-[11px] shadow'
+                            >
+                              <span className='material-symbols-outlined text-[13px]'>close</span>
+                            </button>
+                          </div>
+                        ))}
+                        {(variantGalleryPreviews[baseVariant.client_id] || []).map((url, j) => (
+                          <div key={`new-${j}`} className='relative group/img'>
+                            <img src={url} alt='' className='h-20 w-20 rounded-lg object-cover border-2 border-primary/50' />
+                            <button
+                              type='button'
+                              onClick={() => onGalleryRemoveNew(baseVariant.client_id, j)}
+                              className='absolute -top-1.5 -right-1.5 hidden group-hover/img:flex h-5 w-5 items-center justify-center rounded-full bg-error text-on-error text-[11px] shadow'
+                            >
+                              <span className='material-symbols-outlined text-[13px]'>close</span>
+                            </button>
+                          </div>
+                        ))}
+                        <label className='flex h-20 w-20 cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed border-outline-variant bg-surface-container-lowest text-on-surface-variant hover:border-primary hover:text-primary transition-colors'>
+                          <span className='material-symbols-outlined text-2xl'>add_photo_alternate</span>
+                          <span className='text-[10px] mt-0.5'>Qo'shish</span>
+                          <input
+                            type='file'
+                            accept='image/*'
+                            multiple
+                            className='hidden'
+                            onChange={(e) => {
+                              const files = Array.from(e.target.files || []);
+                              if (files.length) onGalleryAdd(baseVariant.client_id, files);
+                              e.target.value = '';
+                            }}
+                          />
+                        </label>
+                      </div>
                     </div>
                   </div>
                 </div>

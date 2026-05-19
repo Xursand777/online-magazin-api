@@ -63,6 +63,7 @@ class OrderSerializer(serializers.ModelSerializer):
     payment = PaymentSerializer(read_only=True)
     history = OrderHistorySerializer(many=True, read_only=True)
     can_cancel = serializers.SerializerMethodField()
+    credit_is_overdue = serializers.SerializerMethodField()
 
     class Meta:
         model = Order
@@ -79,6 +80,12 @@ class OrderSerializer(serializers.ModelSerializer):
             'total_price',
             'cancellation_reason',
             'cancelled_at',
+            'is_credit',
+            'credit_days',
+            'credit_due_date',
+            'credit_paid',
+            'credit_paid_at',
+            'credit_is_overdue',
             'created_at',
             'updated_at',
             'can_cancel',
@@ -94,11 +101,25 @@ class OrderSerializer(serializers.ModelSerializer):
             'total_price',
             'cancellation_reason',
             'cancelled_at',
+            'is_credit',
+            'credit_days',
+            'credit_due_date',
+            'credit_paid',
+            'credit_paid_at',
+            'credit_is_overdue',
             'can_cancel',
         )
 
     def get_can_cancel(self, obj):
         return obj.status in Order.CANCELLABLE_STATUSES
+
+    def get_credit_is_overdue(self, obj):
+        if not obj.is_credit or obj.credit_paid:
+            return False
+        if obj.status in Order.CANCELLATION_STATUSES:
+            return False
+        from django.utils import timezone
+        return obj.credit_due_date is not None and obj.credit_due_date < timezone.now().date()
 
 
 class QuickOrderSerializer(serializers.Serializer):
@@ -110,6 +131,17 @@ class QuickOrderSerializer(serializers.Serializer):
     receiver_phone = serializers.CharField(max_length=20)
     delivery_address = serializers.CharField()
     payment_method = serializers.ChoiceField(choices=Order.PAYMENT_METHOD_CHOICES, default=Order.PAYMENT_METHOD_CASH)
+    credit_days = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        min_value=Order.CREDIT_DAYS_MIN,
+        max_value=Order.CREDIT_DAYS_MAX,
+    )
+
+    def validate(self, attrs):
+        if attrs.get('payment_method') == Order.PAYMENT_METHOD_CREDIT and not attrs.get('credit_days'):
+            raise serializers.ValidationError({'credit_days': "To'lov muddati (kunlar soni) ko'rsatilishi shart."})
+        return attrs
 
 
 class OrderFromCartSerializer(serializers.Serializer):
@@ -117,6 +149,17 @@ class OrderFromCartSerializer(serializers.Serializer):
     receiver_phone = serializers.CharField(max_length=20)
     delivery_address = serializers.CharField()
     payment_method = serializers.ChoiceField(choices=Order.PAYMENT_METHOD_CHOICES, default=Order.PAYMENT_METHOD_CASH)
+    credit_days = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        min_value=Order.CREDIT_DAYS_MIN,
+        max_value=Order.CREDIT_DAYS_MAX,
+    )
+
+    def validate(self, attrs):
+        if attrs.get('payment_method') == Order.PAYMENT_METHOD_CREDIT and not attrs.get('credit_days'):
+            raise serializers.ValidationError({'credit_days': "To'lov muddati (kunlar soni) ko'rsatilishi shart."})
+        return attrs
 
 
 class CancelOrderSerializer(serializers.Serializer):

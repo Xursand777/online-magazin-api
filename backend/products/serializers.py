@@ -4,7 +4,7 @@ from decimal import Decimal
 
 from django.utils.text import slugify
 from rest_framework import serializers
-from .models import Category, HomeBanner, Product, ProductImage, ProductVariant
+from .models import Category, HomeBanner, Product, ProductImage, ProductVariant, ProductVariantImage
 
 
 HEX_COLOR_RE = re.compile(r'^#[0-9a-fA-F]{6}$')
@@ -35,6 +35,7 @@ class ProductImageSerializer(serializers.ModelSerializer):
 
 class ProductVariantSerializer(serializers.ModelSerializer):
     image_url = serializers.SerializerMethodField()
+    images = serializers.SerializerMethodField()
 
     class Meta:
         model = ProductVariant
@@ -43,6 +44,7 @@ class ProductVariantSerializer(serializers.ModelSerializer):
             'color',
             'color_hex',
             'image_url',
+            'images',
             'quality',
             'model',
             'size',
@@ -58,6 +60,15 @@ class ProductVariantSerializer(serializers.ModelSerializer):
         request = self.context.get('request')
         return absolute_media_url(request, obj.image)
 
+    def get_images(self, obj):
+        request = self.context.get('request')
+        variant_images = list(obj.images.all())
+        if variant_images:
+            return [{'id': vi.id, 'url': absolute_media_url(request, vi.image)} for vi in variant_images]
+        if obj.image:
+            return [{'id': None, 'url': absolute_media_url(request, obj.image)}]
+        return []
+
 
 class AdminProductVariantSerializer(ProductVariantSerializer):
     class Meta(ProductVariantSerializer.Meta):
@@ -67,6 +78,7 @@ class AdminProductVariantSerializer(ProductVariantSerializer):
             'barcode',
             'is_active',
             'position',
+            'images',
         )
 
 class ProductListSerializer(serializers.ModelSerializer):
@@ -300,6 +312,7 @@ class AdminProductVariantInputSerializer(serializers.Serializer):
     color = serializers.CharField(required=False, allow_blank=True, allow_null=True)
     color_hex = serializers.CharField(required=False, allow_blank=True, allow_null=True)
     remove_image = serializers.BooleanField(required=False, default=False)
+    delete_image_ids = serializers.ListField(child=serializers.IntegerField(), required=False, default=list)
     quality = serializers.CharField(required=False, allow_blank=True, allow_null=True)
     model = serializers.CharField(required=False, allow_blank=True, allow_null=True)
     size = serializers.CharField(required=False, allow_blank=True, allow_null=True)
@@ -436,7 +449,7 @@ class AdminProductSerializer(serializers.ModelSerializer):
         return normalized, has_content
 
     def _sync_variants(self, product, variants_data):
-        existing_variants = {variant.id: variant for variant in product.variants.all()}
+        existing_variants = {variant.id: variant for variant in product.variants.prefetch_related('images').all()}
         keep_variant_ids = []
         files = self.context.get('request').FILES if self.context.get('request') else {}
         seen_skus = set()
@@ -446,6 +459,7 @@ class AdminProductSerializer(serializers.ModelSerializer):
             payload, has_content = self._normalize_variant_payload(variant)
             image_file = files.get(f'variant_image_{index}')
             remove_image = variant.get('remove_image', False)
+            delete_image_ids = variant.get('delete_image_ids', [])
             if not has_content:
                 continue
 
@@ -471,11 +485,33 @@ class AdminProductSerializer(serializers.ModelSerializer):
                 if image_file:
                     current_variant.image = image_file
                 current_variant.save()
+
+                if delete_image_ids:
+                    current_variant.images.filter(id__in=delete_image_ids).delete()
+
+                j = 0
+                base_order = current_variant.images.count()
+                while True:
+                    gallery_file = files.get(f'variant_images_{index}_{j}')
+                    if gallery_file is None:
+                        break
+                    ProductVariantImage.objects.create(variant=current_variant, image=gallery_file, order=base_order + j)
+                    j += 1
+
                 keep_variant_ids.append(current_variant.id)
             else:
                 if image_file:
                     payload['image'] = image_file
                 new_variant = ProductVariant.objects.create(product=product, **payload)
+
+                j = 0
+                while True:
+                    gallery_file = files.get(f'variant_images_{index}_{j}')
+                    if gallery_file is None:
+                        break
+                    ProductVariantImage.objects.create(variant=new_variant, image=gallery_file, order=j)
+                    j += 1
+
                 keep_variant_ids.append(new_variant.id)
 
         product.variants.exclude(id__in=keep_variant_ids).delete()

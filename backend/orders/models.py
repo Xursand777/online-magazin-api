@@ -36,18 +36,30 @@ class Order(models.Model):
         STATUS_CANCELLED_BY_ADMIN,
         STATUS_SYSTEM_AUTO_CANCEL,
     }
+    # Foydalanuvchi bekor qila oladigan statuslar (PACKING va undan keyingisi bekor qilinmaydi)
     CANCELLABLE_STATUSES = {
         STATUS_PENDING,
         STATUS_CONFIRMED,
+    }
+    # Admin barcha faol buyurtmalarni bekor qila oladi
+    ADMIN_CANCELLABLE_STATUSES = {
+        STATUS_PENDING,
+        STATUS_CONFIRMED,
         STATUS_PACKING,
+        STATUS_SHIPPING,
     }
 
     PAYMENT_METHOD_CASH = 'cash'
     PAYMENT_METHOD_CARD = 'card'
+    PAYMENT_METHOD_CREDIT = 'credit'
     PAYMENT_METHOD_CHOICES = [
-        (PAYMENT_METHOD_CASH, 'Cash on Delivery'),
-        (PAYMENT_METHOD_CARD, 'Card (Click/Payme)'),
+        (PAYMENT_METHOD_CASH, 'Naqd pul'),
+        (PAYMENT_METHOD_CARD, 'Karta (Click/Payme)'),
+        (PAYMENT_METHOD_CREDIT, "Muddatli to'lov"),
     ]
+
+    CREDIT_DAYS_MIN = 5
+    CREDIT_DAYS_MAX = 20
 
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -78,6 +90,17 @@ class Order(models.Model):
 
     cancellation_reason = models.TextField(blank=True, default='')
     cancelled_at = models.DateTimeField(null=True, blank=True)
+
+    # Kredit maydonlari
+    is_credit = models.BooleanField(default=False)
+    credit_days = models.PositiveSmallIntegerField(null=True, blank=True)
+    credit_due_date = models.DateField(null=True, blank=True)
+    credit_paid = models.BooleanField(default=False)
+    credit_paid_at = models.DateTimeField(null=True, blank=True)
+    credit_overdue_counted = models.BooleanField(
+        default=False,
+        help_text="Muddati o'tganligi foydalanuvchi hisobiga qo'shilganmi."
+    )
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -161,3 +184,23 @@ class OrderHistory(models.Model):
 
     def __str__(self):
         return f"Order #{self.order_id}: {self.from_status or 'START'} -> {self.to_status}"
+
+class Withdrawal(models.Model):
+    amount = models.DecimalField(max_digits=12, decimal_places=2, verbose_name="Yechilgan summa")
+    reason = models.CharField(max_length=255, verbose_name="Maqsad/Izoh")
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name="Sana va vaqt")
+    admin = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        verbose_name="Kassir (Admin)",
+        related_name="withdrawals"
+    )
+
+    class Meta:
+        ordering = ['-created_at']
+        verbose_name = "Kassa chiqimi (Withdrawal)"
+        verbose_name_plural = "Kassa chiqimlari"
+
+    def __str__(self):
+        return f"{self.amount} so'm - {self.reason}"

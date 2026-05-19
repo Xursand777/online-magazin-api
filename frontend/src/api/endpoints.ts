@@ -55,6 +55,9 @@ export const createOrderFromCart = (data: object) => apiClient.post('/orders/fro
 export const createQuickOrder = (data: object) => apiClient.post('/orders/quick/', data);
 export const cancelOrder = (id: number | string, data: { cancellation_reason: string }) =>
   apiClient.post(`/orders/${id}/cancel/`, data);
+export const getCreditStatus = () => apiClient.get('/orders/credit-status/');
+export const adminPayCreditOrder = (id: number | string) =>
+  apiClient.post(`/orders/admin/${id}/pay-credit/`);
 
 // ADMIN
 export const adminGetProducts = (params?: object) => apiClient.get('/admin/products/', { params });
@@ -74,7 +77,8 @@ export const adminCreateCategory = (data: FormData | object) =>
   apiClient.post('/admin/categories/', data, { headers: { 'Content-Type': 'multipart/form-data' } });
 export const adminUpdateCategory = (id: number, data: object) => apiClient.patch(`/admin/categories/${id}/`, data);
 export const adminDeleteCategory = (id: number) => apiClient.delete(`/admin/categories/${id}/`);
-export const adminGetOrders = (params?: object) => apiClient.get('/orders/admin/', { params });
+export const adminGetOrders = (params?: { q?: string; status?: string; date_from?: string; date_to?: string; payment_method?: string; is_credit?: string; page?: number; page_size?: number }) => apiClient.get('/orders/admin/', { params });
+export const adminGetDashboard = () => apiClient.get('/orders/admin/dashboard/');
 export const adminUpdateOrderStatus = (
   id: number | string,
   data: { status: string; note?: string }
@@ -91,3 +95,45 @@ export const adminUpdateExchangeRate = (data: { usd_rate: number | string }) =>
 
 export const adminGetStockReport = (params?: { min_stock?: number; max_stock?: number }) =>
   apiClient.get('/admin/stock-report/', { params });
+
+export const adminSearchUser = (phone: string) =>
+  apiClient.get('/admin-search/', { params: { phone } });
+
+export const adminGetKassa = () => apiClient.get('/orders/admin/kassa/');
+export const adminWithdrawKassa = (data: { amount: number; reason: string }) => 
+  apiClient.post('/orders/admin/kassa/withdraw/', data);
+
+export const adminCreatePosOrder = (data: {
+  phone: string;
+  first_name?: string;
+  last_name?: string;
+  payment_method: string;
+  credit_days?: number;
+  items: Array<{ product_id: number; variant_id?: number; quantity: number }>;
+}) => apiClient.post('/orders/admin/pos-order/', data);
+
+export const adminGetCustomerHistory = (phone: string) =>
+  apiClient.get('/orders/admin/customer-history/', { params: { phone } });
+
+// ADMIN USERS
+// ADMIN FEEDBACK
+export const adminGetFeedbacks = (params?: {
+  status?: string;
+  q?: string;
+  page?: number;
+  page_size?: number;
+}) => apiClient.get('/admin/feedback/', { params });
+export const adminUpdateFeedback = (id: number, data: { status: string }) =>
+  apiClient.patch(`/admin/feedback/${id}/`, data);
+
+export const adminGetUsers = (params?: {
+  q?: string;
+  is_active?: string;
+  credit_ban?: string;
+  page?: number;
+  page_size?: number;
+}) => apiClient.get('/admin/users/', { params });
+export const adminGetUser = (id: number) => apiClient.get(`/admin/users/${id}/`);
+export const adminToggleUserBan = (id: number) => apiClient.post(`/admin/users/${id}/toggle-ban/`);
+export const adminToggleUserActive = (id: number) => apiClient.post(`/admin/users/${id}/toggle-active/`);
+

@@ -1,5 +1,5 @@
 from django.contrib import admin
-from .models import Category, HomeBanner, Product, ProductImage, ProductVariant
+from .models import Category, HomeBanner, Product, ProductImage, ProductVariant, ProductVariantImage
 
 @admin.register(Category)
 class CategoryAdmin(admin.ModelAdmin):
@@ -9,6 +9,10 @@ class CategoryAdmin(admin.ModelAdmin):
 
 class ProductImageInline(admin.TabularInline):
     model = ProductImage
+    extra = 1
+
+class ProductVariantImageInline(admin.TabularInline):
+    model = ProductVariantImage
     extra = 1
 
 class ProductVariantInline(admin.TabularInline):

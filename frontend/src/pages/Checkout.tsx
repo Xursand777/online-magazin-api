@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useCartStore } from '../store/cartStore';
 import { useAuthStore } from '../store/authStore';
-import { createOrderFromCart, getProfile } from '../api/endpoints';
+import { createOrderFromCart, getCreditStatus, getProfile } from '../api/endpoints';
 import { toast } from '../utils/toast';
 
 const formatPrice = (v: string | number) =>
@@ -21,18 +21,29 @@ const getCheckoutErrorMessage = (err: any) => {
   return "Buyurtma berishda xatolik yuz berdi.";
 };
 
+interface CreditStatus {
+  credit_ban: boolean;
+  overdue_credit_count: number;
+  has_unpaid_credit: boolean;
+  unpaid_credit_order_id: number | null;
+  unpaid_credit_due_date: string | null;
+  is_overdue: boolean;
+}
+
 const Checkout = () => {
   const navigate = useNavigate();
   const { cart, fetchCart, loading: cartLoading } = useCartStore();
   const { isAuthenticated } = useAuthStore();
   const [loading, setLoading] = useState(false);
   const [cartReady, setCartReady] = useState(false);
-  
+  const [creditStatus, setCreditStatus] = useState<CreditStatus | null>(null);
+
   const [formData, setFormData] = useState({
     receiver_name: '',
     receiver_phone: '',
     delivery_address: '',
-    payment_method: 'cash' as 'cash' | 'card',
+    payment_method: 'cash' as 'cash' | 'card' | 'credit',
+    credit_days: 10,
   });
 
   useEffect(() => {
@@ -58,6 +69,10 @@ const Checkout = () => {
           receiver_phone: p.phone || prev.receiver_phone,
         }));
       })
+      .catch(() => {});
+
+    getCreditStatus()
+      .then((res) => setCreditStatus(res.data))
       .catch(() => {});
 
     return () => {
@@ -99,10 +114,26 @@ const Checkout = () => {
       return;
     }
 
+    if (formData.payment_method === 'credit') {
+      if (creditStatus?.credit_ban) {
+        toast.error("Muddatli to'lov bloklangan — buyurtma bera olmaysiz.");
+        return;
+      }
+      if (creditStatus?.has_unpaid_credit) {
+        toast.error("Avval mavjud muddatli to'lov buyurtmangizni to'lang.");
+        return;
+      }
+    }
+
+    const payload: Record<string, unknown> = { ...formData };
+    if (formData.payment_method !== 'credit') {
+      delete payload.credit_days;
+    }
+
     setLoading(true);
     try {
-      const res = await createOrderFromCart(formData);
-      toast.success("Buyurtma qabul qilindi! ✅");
+      const res = await createOrderFromCart(payload);
+      toast.success("Buyurtma qabul qilindi!");
       await useCartStore.getState().fetchCart();
       navigate(`/profile`, { state: { newOrderId: res.data.id } });
     } catch (err: any) {
@@ -169,37 +200,126 @@ const Checkout = () => {
           {/* 2. Payment Methods */}
           <section className="bg-surface-container-lowest rounded-xl border border-outline-variant shadow-sm p-lg">
             <h2 className="font-h3 text-h3 text-on-surface mb-md border-b border-outline-variant pb-sm">To'lov turi</h2>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-md">
+
+            {/* Muddatli to'lov ogohlantirishlari */}
+            {creditStatus?.credit_ban && (
+              <div className="mb-md p-md rounded-xl border border-error bg-error-container/30 flex items-start gap-sm">
+                <span className="material-symbols-outlined text-error text-[22px] mt-0.5">block</span>
+                <div>
+                  <p className="font-label-md text-error font-semibold">Muddatli to'lov bloklangan</p>
+                  <p className="text-xs text-on-surface-variant mt-xs">
+                    Siz 3 marta to'lov muddatini o'tkazib yuborgansiz. Muddatli to'lov imkoniyatingiz doimiy taqiqlangan.
+                  </p>
+                </div>
+              </div>
+            )}
+            {!creditStatus?.credit_ban && creditStatus?.has_unpaid_credit && (
+              <div className="mb-md p-md rounded-xl border flex items-start gap-sm" style={{borderColor:'#f59e0b', background:'#fef3c720'}}>
+                <span className="material-symbols-outlined text-[22px] mt-0.5" style={{color:'#d97706'}}>warning</span>
+                <div>
+                  <p className="font-label-md font-semibold" style={{color:'#92400e'}}>
+                    To'lanmagan muddatli to'lov buyurtmangiz bor (#{creditStatus.unpaid_credit_order_id})
+                  </p>
+                  <p className="text-xs text-on-surface-variant mt-xs">
+                    To'lov muddati: <strong>{creditStatus.unpaid_credit_due_date}</strong>.
+                    {creditStatus.is_overdue && (
+                      <span className="text-error ml-1 font-semibold">Muddati o'tib ketgan!</span>
+                    )}
+                    {' '}Yangi buyurtma berib bo'lmaydi.
+                  </p>
+                </div>
+              </div>
+            )}
+            {!creditStatus?.credit_ban && !creditStatus?.has_unpaid_credit && (creditStatus?.overdue_credit_count ?? 0) > 0 && (
+              <div className="mb-md p-md rounded-xl border flex items-start gap-sm" style={{borderColor:'#f59e0b', background:'#fef3c720'}}>
+                <span className="material-symbols-outlined text-[20px] mt-0.5" style={{color:'#d97706'}}>info</span>
+                <p className="text-xs text-on-surface-variant">
+                  Siz {creditStatus!.overdue_credit_count} marta to'lov muddatini kechiktirdingiz.{' '}
+                  3 martadan so'ng muddatli to'lov imkoniyati to'liq bloklanadi.
+                </p>
+              </div>
+            )}
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-md">
               <label className="cursor-pointer">
-                <input 
-                  className="peer sr-only" 
-                  name="payment" 
-                  type="radio" 
+                <input
+                  className="peer sr-only"
+                  name="payment"
+                  type="radio"
                   checked={formData.payment_method === 'cash'}
                   onChange={() => setFormData({...formData, payment_method: 'cash'})}
                 />
-                <div className="border border-outline-variant rounded-xl p-md flex flex-col items-center text-center gap-sm peer-checked:border-primary peer-checked:bg-primary-container/10 transition-colors h-full">
-                  <span className="material-symbols-outlined text-on-surface-variant peer-checked:text-primary text-[32px]">payments</span>
-                  <span className="font-label-md text-label-md text-on-surface">Naqd pulda</span>
+                <div className="border-2 border-outline-variant rounded-xl p-md flex flex-col items-center text-center gap-sm peer-checked:border-primary peer-checked:bg-primary-container/10 transition-all h-full">
+                  <span className="material-symbols-outlined text-on-surface-variant text-[32px]">payments</span>
+                  <span className="font-label-md text-label-md text-on-surface">Naqd pul</span>
                   <span className="font-body-sm text-body-sm text-on-surface-variant text-xs">Yetkazilganda to'lash</span>
                 </div>
               </label>
-              
+
               <label className="cursor-pointer">
-                <input 
-                  className="peer sr-only" 
-                  name="payment" 
+                <input
+                  className="peer sr-only"
+                  name="payment"
                   type="radio"
                   checked={formData.payment_method === 'card'}
                   onChange={() => setFormData({...formData, payment_method: 'card'})}
                 />
-                <div className="border border-outline-variant rounded-xl p-md flex flex-col items-center text-center gap-sm peer-checked:border-primary peer-checked:bg-primary-container/10 transition-colors h-full">
-                  <span className="material-symbols-outlined text-on-surface-variant peer-checked:text-primary text-[32px]">credit_card</span>
+                <div className="border-2 border-outline-variant rounded-xl p-md flex flex-col items-center text-center gap-sm peer-checked:border-primary peer-checked:bg-primary-container/10 transition-all h-full">
+                  <span className="material-symbols-outlined text-on-surface-variant text-[32px]">credit_card</span>
                   <span className="font-label-md text-label-md text-on-surface">Karta orqali</span>
                   <span className="font-body-sm text-body-sm text-on-surface-variant text-xs">Click / Payme (Tez kunda)</span>
                 </div>
               </label>
+
+              <label className={creditStatus?.credit_ban || creditStatus?.has_unpaid_credit ? 'cursor-not-allowed opacity-50 select-none' : 'cursor-pointer'}>
+                <input
+                  className="peer sr-only"
+                  name="payment"
+                  type="radio"
+                  checked={formData.payment_method === 'credit'}
+                  disabled={!!(creditStatus?.credit_ban || creditStatus?.has_unpaid_credit)}
+                  onChange={() => {
+                    if (!creditStatus?.credit_ban && !creditStatus?.has_unpaid_credit) {
+                      setFormData({...formData, payment_method: 'credit'});
+                    }
+                  }}
+                />
+                <div className="border-2 border-outline-variant rounded-xl p-md flex flex-col items-center text-center gap-sm peer-checked:border-primary peer-checked:bg-primary-container/10 transition-all h-full">
+                  <span className="material-symbols-outlined text-on-surface-variant text-[32px]">schedule_send</span>
+                  <span className="font-label-md text-label-md text-on-surface">Muddatli to'lov</span>
+                  <span className="font-body-sm text-body-sm text-on-surface-variant text-xs">5 – 20 kun ichida to'lash</span>
+                </div>
+              </label>
             </div>
+
+            {/* Muddatli to'lov kunlari slider */}
+            {formData.payment_method === 'credit' && !creditStatus?.credit_ban && !creditStatus?.has_unpaid_credit && (
+              <div className="mt-md p-md rounded-xl border border-primary/40 bg-primary-container/10">
+                <div className="flex items-center justify-between mb-sm">
+                  <label className="font-label-md text-label-md text-on-surface">
+                    To'lov muddatini tanlang
+                  </label>
+                  <span className="font-bold text-primary text-lg">{formData.credit_days} kun</span>
+                </div>
+                <input
+                  type="range"
+                  min={5}
+                  max={20}
+                  step={1}
+                  value={formData.credit_days}
+                  onChange={(e) => setFormData({...formData, credit_days: Number(e.target.value)})}
+                  className="w-full accent-primary"
+                />
+                <div className="flex justify-between text-xs text-on-surface-variant mt-xs">
+                  <span>5 kun (minimum)</span>
+                  <span>20 kun (maksimum)</span>
+                </div>
+                <p className="text-xs text-on-surface-variant mt-sm leading-relaxed">
+                  Buyurtma tasdiqlangandan so'ng <strong>{formData.credit_days} kun</strong> ichida to'lashingiz kerak.
+                  Muddatni o'tkazib yuborsangiz, keyingi buyurtma berish imkoniyatingiz to'xtatiladi.
+                </p>
+              </div>
+            )}
           </section>
         </div>
 

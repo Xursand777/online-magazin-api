@@ -1,6 +1,6 @@
 import re
 
-from django.db.models import Case, IntegerField, Q, Value, When
+from django.db.models import Case, IntegerField, Q, Sum, Value, When
 from django.utils import timezone
 from rest_framework import generics, views, status, viewsets
 from rest_framework.pagination import PageNumberPagination
@@ -155,7 +155,7 @@ class ProductSearchView(generics.ListAPIView):
         )
 
 class ProductDetailView(generics.RetrieveAPIView):
-    queryset = Product.objects.filter(is_active=True)
+    queryset = Product.objects.filter(is_active=True).prefetch_related('images', 'variants', 'variants__images')
     serializer_class = ProductDetailSerializer
     permission_classes = (AllowAny,)
 
@@ -251,7 +251,7 @@ class AdminCategoryViewSet(viewsets.ModelViewSet):
     pagination_class = None
 
 class AdminProductViewSet(viewsets.ModelViewSet):
-    queryset = Product.objects.select_related('category').prefetch_related('images', 'variants').order_by('-updated_at')
+    queryset = Product.objects.select_related('category').prefetch_related('images', 'variants', 'variants__images').order_by('-updated_at')
     serializer_class = AdminProductSerializer
     permission_classes = (IsAdminUser,)
     parser_classes = (MultiPartParser, FormParser, JSONParser)
@@ -260,7 +260,7 @@ class AdminProductViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         queryset = (
             Product.objects.select_related('category')
-            .prefetch_related('images', 'variants')
+            .prefetch_related('images', 'variants', 'variants__images')
             .order_by('-updated_at', '-id')
         )
 
@@ -428,4 +428,49 @@ class AdminStockReportView(views.APIView):
         # Stog bo'yicha o'sish tartibida saralash
         items.sort(key=lambda x: x['stock'])
 
-        return Response(items)
+        # --- Ombor umumiy statistikasi (filtersiz, barcha mahsulotlar) ---
+        all_products_no_var = Product.objects.filter(variants__isnull=True)
+        all_variants = ProductVariant.objects.filter(is_active=True)
+
+        total_products = all_products_no_var.count() + all_variants.count()
+        total_stock = (
+            (all_products_no_var.aggregate(s=Sum('stock'))['s'] or 0)
+            + (all_variants.aggregate(s=Sum('stock'))['s'] or 0)
+        )
+
+        # Jami qiymat = narx × zaxira (sotish narxi asosida)
+        from django.db.models import F, ExpressionWrapper, DecimalField
+        val_products = all_products_no_var.annotate(
+            val=ExpressionWrapper(F('price') * F('stock'), output_field=DecimalField())
+        ).aggregate(s=Sum('val'))['s'] or 0
+
+        val_variants = all_variants.annotate(
+            eff_price=Case(
+                When(price__isnull=False, then=F('price')),
+                default=F('product__price'),
+                output_field=DecimalField()
+            ),
+            val=ExpressionWrapper(F('eff_price') * F('stock'), output_field=DecimalField())
+        ).aggregate(s=Sum('val'))['s'] or 0
+
+        total_value = float(val_products) + float(val_variants)
+
+        critical_count = (
+            all_products_no_var.filter(stock=0).count()
+            + all_variants.filter(stock=0).count()
+        )
+        low_count = (
+            all_products_no_var.filter(stock__gte=1, stock__lte=5).count()
+            + all_variants.filter(stock__gte=1, stock__lte=5).count()
+        )
+
+        return Response({
+            'stats': {
+                'total_products': total_products,
+                'total_stock': int(total_stock),
+                'total_value': total_value,
+                'critical_count': critical_count,
+                'low_count': low_count,
+            },
+            'items': items,
+        })

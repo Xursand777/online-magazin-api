@@ -155,6 +155,19 @@ class ProductVariant(models.Model):
         return " - ".join(parts)
 
 
+class ProductVariantImage(models.Model):
+    """Variant uchun bir nechta rasm (gallery)."""
+    variant = models.ForeignKey(ProductVariant, on_delete=models.CASCADE, related_name='images')
+    image = models.ImageField(upload_to='products/variant-images/')
+    order = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        ordering = ['order', 'id']
+
+    def __str__(self):
+        return f"Image for {self.variant}"
+
+
 class HomeBanner(models.Model):
     title = models.CharField(max_length=160)
     subtitle = models.CharField(max_length=320, blank=True, default='')

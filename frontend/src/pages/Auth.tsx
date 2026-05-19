@@ -7,15 +7,84 @@ import { registerUser, requestLoginOtp, verifyLoginOtp } from '../api/endpoints'
 import { toast } from '../utils/toast';
 
 const OTP_LENGTH = 6;
-
 type LoginStep = 'phone' | 'otp';
 
-const maskPhone = (phone: string) => {
-  const digits = phone.replace(/\D/g, '');
-  if (digits.length < 4) return phone;
-  const tail = digits.slice(-4);
-  return `+998 ** *** ${tail.slice(0, 2)} ${tail.slice(2)}`;
+// ─── Phone utils ─────────────────────────────────────────────────────────────
+
+// ─── PhoneInput — MODULE LEVEL ──────────────────────────────────────────────
+//
+// MUHIM: Bu komponent Auth() ichida EMAS, modul darajasida e'lon qilingan.
+// Auth ichida bo'lsa har render yangi funksiya referensi → React demount/remount
+// → fokus yo'qoladi. Modul darajasida bo'lganda referens barqaror, fokus saqlanadi.
+//
+// UX yondashuvi: +998 prefix qo'shma blokda, input ichida faqat 9 ta xom raqam.
+// maxLength YO'Q — onChange o'zi slice(0,9) bilan cheklaydi. Bu cursor jumping va
+// maxLength/format konfliktini butunlay bartaraf etadi (Telegram, OLX, Uzum uslubi).
+
+interface PhoneInputProps {
+  id: string;
+  digits: string;
+  onChange: (val: string) => void;
+  isComplete: boolean;
+  autoFocus?: boolean;
+}
+
+const PhoneInput = ({ id, digits, onChange, isComplete, autoFocus }: PhoneInputProps) => {
+  const len = digits.replace(/\D/g, '').length;
+  return (
+    <div
+      className={`flex items-center overflow-hidden rounded-2xl border bg-surface-bright transition-all duration-150 ${
+        isComplete
+          ? 'border-primary ring-2 ring-primary/15'
+          : 'border-outline-variant focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/15'
+      }`}
+    >
+      {/* Prefix — bosilmaydi, faqat ko'rsatish uchun */}
+      <span className="flex shrink-0 select-none items-center gap-1.5 border-r border-outline-variant bg-surface-container px-4 py-4 font-mono text-base font-semibold text-on-surface-variant">
+        🇺🇿 +998
+      </span>
+
+      {/* Faqat 9 ta raqam — formatsiz, cursor muammosiz */}
+      <input
+        id={id}
+        type="tel"
+        inputMode="numeric"
+        placeholder="901234567"
+        value={digits}
+        onChange={(e: ChangeEvent<HTMLInputElement>) =>
+          onChange(e.target.value.replace(/\D/g, '').slice(0, 9))
+        }
+        className="min-w-0 flex-1 bg-transparent px-4 py-4 font-mono text-lg tracking-widest text-on-surface outline-none placeholder:text-outline/40"
+        autoComplete="tel-national"
+        autoFocus={autoFocus}
+      />
+
+      {/* Holat indikatori */}
+      <div className="shrink-0 pr-4">
+        {isComplete ? (
+          <span className="material-symbols-outlined text-[22px] text-primary">check_circle</span>
+        ) : len > 0 ? (
+          <span className="flex h-6 w-6 items-center justify-center rounded-full bg-surface-container text-[11px] font-bold text-on-surface-variant">
+            {9 - len}
+          </span>
+        ) : null}
+      </div>
+    </div>
+  );
 };
+
+/** 9 ta raqamdan to'liq +998XXXXXXXXX telefon hosil qiladi */
+const toFullPhone = (digits9: string) => `+998${digits9.replace(/\D/g, '')}`;
+
+/** OTP ekranida ko'rinadigan qisman yashirilgan raqam */
+const maskPhone = (digits9: string) => {
+  const d = digits9.replace(/\D/g, '').slice(0, 9);
+  if (d.length < 9) return `+998 ${d}`;
+  // +998 XX *** ** XX — o'rta qismi yashiriladi
+  return `+998 ${d.slice(0, 2)} *** ${d.slice(5, 7)} ${d.slice(7)}`;
+};
+
+// ─── Component ───────────────────────────────────────────────────────────────
 
 const Auth = () => {
   const [isLogin, setIsLogin] = useState(true);
@@ -30,39 +99,43 @@ const Auth = () => {
   const redirectTarget = searchParams.get('redirect') || '/';
   const otpRefs = useRef<Array<HTMLInputElement | null>>([]);
 
-  const [loginForm, setLoginForm] = useState({ phone: '' });
+  // Telefon: faqat 9 ta raqam saqlanadi (prefix +998 ko'rsatiladi, lekin saqlanmaydi)
+  const [loginDigits, setLoginDigits] = useState('');
   const [otpDigits, setOtpDigits] = useState<string[]>(Array(OTP_LENGTH).fill(''));
-  const [regForm, setRegForm] = useState({
-    phone: '', password: '', confirm_password: '', terms_accepted: false,
-  });
+  const [otpPhone, setOtpPhone] = useState(''); // OTP yuborilgan 9-raqamli digits
+
+  const [regDigits, setRegDigits] = useState('');
+  const [regPassword, setRegPassword] = useState('');
+  const [regConfirm, setRegConfirm] = useState('');
+  const [regTerms, setRegTerms] = useState(false);
+
+  // ─── Timers ──────────────────────────────────────────────────────────────
 
   useEffect(() => {
     if (resendSeconds <= 0) return;
-    const timer = window.setTimeout(() => {
-      setResendSeconds((current) => Math.max(current - 1, 0));
-    }, 1000);
-    return () => window.clearTimeout(timer);
+    const t = window.setTimeout(() => setResendSeconds((s) => Math.max(s - 1, 0)), 1000);
+    return () => window.clearTimeout(t);
   }, [resendSeconds]);
 
   useEffect(() => {
     if (loginStep !== 'otp') return;
-    const firstEmptyIndex = otpDigits.findIndex((digit) => !digit);
-    const targetIndex = firstEmptyIndex === -1 ? OTP_LENGTH - 1 : firstEmptyIndex;
-    otpRefs.current[targetIndex]?.focus();
+    const idx = otpDigits.findIndex((d) => !d);
+    otpRefs.current[idx === -1 ? OTP_LENGTH - 1 : idx]?.focus();
   }, [loginStep, otpDigits]);
 
-  const resetOtpState = () => {
+  // ─── Helpers ─────────────────────────────────────────────────────────────
+
+  const resetOtp = () => {
     setOtpDigits(Array(OTP_LENGTH).fill(''));
     setOtpDebugCode('');
     setResendSeconds(0);
   };
 
-  const startOtpStep = (phone: string, debugCode?: string) => {
-    setLoginForm({ phone });
-    setOtpDigits(Array(OTP_LENGTH).fill(''));
-    setOtpDebugCode(debugCode || '');
-    setLoginStep('otp');
-    setResendSeconds(60);
+  const switchTab = (toLogin: boolean) => {
+    setIsLogin(toLogin);
+    setLoginStep('phone');
+    setError('');
+    resetOtp();
   };
 
   const completeSession = async (payload: { user: any; access: string; refresh: string }) => {
@@ -75,46 +148,62 @@ const Auth = () => {
     navigate(payload.user.is_admin && redirectTarget === '/' ? '/admin' : redirectTarget);
   };
 
-  const handleRequestOtp = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
+  const extractError = (err: unknown): string => {
+    if (axios.isAxiosError(err)) {
+      const data = err.response?.data;
+      return (
+        data?.phone?.[0] ||
+        data?.password?.[0] ||
+        data?.terms_accepted?.[0] ||
+        data?.non_field_errors?.[0] ||
+        data?.error ||
+        data?.detail ||
+        'Xatolik yuz berdi.'
+      );
+    }
+    return 'Ulanishda muammo. Server ishlab turibdimi?';
+  };
+
+  // ─── Login handlers ───────────────────────────────────────────────────────
+
+  const handleRequestOtp = async (e: FormEvent) => {
+    e.preventDefault();
+    const digits = loginDigits.replace(/\D/g, '');
+    if (digits.length !== 9) {
+      setError("Telefon raqamini to'liq kiriting (9 ta raqam).");
+      return;
+    }
     setError('');
     setLoading(true);
     try {
-      const response = await requestLoginOtp({ phone: loginForm.phone });
-      startOtpStep(loginForm.phone, response.data?.debug_code);
-      if (response.data?.debug_code) {
-        toast.info('Test kodi sahifada ko\'rsatildi.');
-      }
+      const res = await requestLoginOtp({ phone: toFullPhone(digits) });
+      setOtpPhone(digits);
+      setOtpDigits(Array(OTP_LENGTH).fill(''));
+      setOtpDebugCode(res.data?.debug_code || '');
+      setLoginStep('otp');
+      setResendSeconds(60);
+      if (res.data?.debug_code) toast.info("Test kodi sahifada ko'rsatildi.");
     } catch (err) {
-      if (axios.isAxiosError(err)) {
-        setError(err.response?.data?.error || "Kod yuborishda xatolik yuz berdi.");
-      } else {
-        setError("Ulanishda muammo. Server ishlab turibdimi?");
-      }
+      setError(extractError(err));
     } finally {
       setLoading(false);
     }
   };
 
-  const handleVerifyOtp = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    setError('');
+  const handleVerifyOtp = async (e: FormEvent) => {
+    e.preventDefault();
     const code = otpDigits.join('');
     if (code.length !== OTP_LENGTH) {
-      setError('6 xonali kodni to\'liq kiriting.');
+      setError("6 xonali kodni to'liq kiriting.");
       return;
     }
-
+    setError('');
     setLoading(true);
     try {
-      const response = await verifyLoginOtp({ phone: loginForm.phone, code });
-      await completeSession(response.data);
+      const res = await verifyLoginOtp({ phone: toFullPhone(otpPhone), code });
+      await completeSession(res.data);
     } catch (err) {
-      if (axios.isAxiosError(err)) {
-        setError(err.response?.data?.error || 'Kod noto\'g\'ri yoki eskirgan.');
-      } else {
-        setError('Ulanishda muammo. Qayta urinib ko\'ring.');
-      }
+      setError(extractError(err));
     } finally {
       setLoading(false);
     }
@@ -125,105 +214,93 @@ const Auth = () => {
     setError('');
     setLoading(true);
     try {
-      const response = await requestLoginOtp({ phone: loginForm.phone });
+      const res = await requestLoginOtp({ phone: toFullPhone(otpPhone) });
       setOtpDigits(Array(OTP_LENGTH).fill(''));
-      setOtpDebugCode(response.data?.debug_code || '');
+      setOtpDebugCode(res.data?.debug_code || '');
       setResendSeconds(60);
-      if (response.data?.debug_code) {
-        toast.info('Yangi test kodi chiqarildi.');
-      }
+      if (res.data?.debug_code) toast.info('Yangi test kodi chiqarildi.');
     } catch (err) {
-      if (axios.isAxiosError(err)) {
-        setError(err.response?.data?.error || "Kod qayta yuborilmadi.");
-      } else {
-        setError("Ulanishda muammo. Qayta urinib ko'ring.");
-      }
+      setError(extractError(err));
     } finally {
       setLoading(false);
     }
   };
 
-  const handleRegister = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
+  // ─── Register handler ─────────────────────────────────────────────────────
+
+  const handleRegister = async (e: FormEvent) => {
+    e.preventDefault();
+    const digits = regDigits.replace(/\D/g, '');
+    if (digits.length !== 9) {
+      setError("Telefon raqamini to'liq kiriting (9 ta raqam).");
+      return;
+    }
+    if (regPassword !== regConfirm) {
+      setError('Parollar mos kelmadi.');
+      return;
+    }
+    if (!regTerms) {
+      setError('Shartlarga roziligingizni bildiring.');
+      return;
+    }
     setError('');
-
-    if (regForm.password !== regForm.confirm_password) {
-      setError("Parollar mos kelmadi.");
-      return;
-    }
-    if (!regForm.terms_accepted) {
-      setError("Shartlarga roziligingizni bildiring.");
-      return;
-    }
-
     setLoading(true);
     try {
+      const fullPhone = toFullPhone(digits);
       await registerUser({
-        phone: regForm.phone,
-        password: regForm.password,
-        confirm_password: regForm.confirm_password,
-        terms_accepted: regForm.terms_accepted,
+        phone: fullPhone,
+        password: regPassword,
+        confirm_password: regConfirm,
+        terms_accepted: regTerms,
       });
-      const response = await requestLoginOtp({ phone: regForm.phone });
+      const res = await requestLoginOtp({ phone: fullPhone });
+      setOtpPhone(digits);
+      setOtpDigits(Array(OTP_LENGTH).fill(''));
+      setOtpDebugCode(res.data?.debug_code || '');
       setIsLogin(true);
-      startOtpStep(regForm.phone, response.data?.debug_code);
+      setLoginStep('otp');
+      setResendSeconds(60);
       toast.success("Ro'yxatdan o'tildi. Endi kodni tasdiqlang.");
     } catch (err) {
-      if (axios.isAxiosError(err)) {
-        const data = err.response?.data;
-        const msg = data?.phone?.[0] || data?.password?.[0] || data?.terms_accepted?.[0] || data?.error || "Ro'yxatdan o'tishda xatolik.";
-        setError(msg);
-      } else {
-        setError("Ulanishda muammo.");
-      }
+      setError(extractError(err));
     } finally {
       setLoading(false);
     }
   };
+
+  // ─── OTP input helpers ────────────────────────────────────────────────────
 
   const updateOtpDigit = (index: number, value: string) => {
     const digit = value.replace(/\D/g, '').slice(-1);
-    setOtpDigits((current) => {
-      const next = [...current];
+    setOtpDigits((cur) => {
+      const next = [...cur];
       next[index] = digit;
       return next;
     });
-    if (digit && index < OTP_LENGTH - 1) {
-      otpRefs.current[index + 1]?.focus();
-    }
+    if (digit && index < OTP_LENGTH - 1) otpRefs.current[index + 1]?.focus();
   };
 
-  const handleOtpKeyDown = (index: number, event: KeyboardEvent<HTMLInputElement>) => {
-    if (event.key === 'Backspace' && !otpDigits[index] && index > 0) {
-      otpRefs.current[index - 1]?.focus();
-    }
-    if (event.key === 'ArrowLeft' && index > 0) {
-      otpRefs.current[index - 1]?.focus();
-    }
-    if (event.key === 'ArrowRight' && index < OTP_LENGTH - 1) {
-      otpRefs.current[index + 1]?.focus();
-    }
+  const handleOtpKeyDown = (index: number, e: KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Backspace' && !otpDigits[index] && index > 0) otpRefs.current[index - 1]?.focus();
+    if (e.key === 'ArrowLeft' && index > 0) otpRefs.current[index - 1]?.focus();
+    if (e.key === 'ArrowRight' && index < OTP_LENGTH - 1) otpRefs.current[index + 1]?.focus();
   };
 
-  const handleOtpPaste = (event: React.ClipboardEvent<HTMLDivElement>) => {
-    const pasted = event.clipboardData.getData('text').replace(/\D/g, '').slice(0, OTP_LENGTH);
+  const handleOtpPaste = (e: React.ClipboardEvent<HTMLDivElement>) => {
+    const pasted = e.clipboardData.getData('text').replace(/\D/g, '').slice(0, OTP_LENGTH);
     if (!pasted) return;
-    event.preventDefault();
-    const next = Array(OTP_LENGTH).fill('').map((_, index) => pasted[index] || '');
-    setOtpDigits(next);
+    e.preventDefault();
+    setOtpDigits(Array(OTP_LENGTH).fill('').map((_, i) => pasted[i] || ''));
     otpRefs.current[Math.min(pasted.length, OTP_LENGTH) - 1]?.focus();
   };
 
-  const renderError = error ? (
-    <div className="mb-5 flex items-center gap-2 rounded-xl border border-error/30 bg-error-container/60 px-4 py-3 text-sm text-on-error-container">
-      <span className="material-symbols-outlined text-[18px]">error</span>
-      <span>{error}</span>
-    </div>
-  ) : null;
+
+  // ─── Render ───────────────────────────────────────────────────────────────
 
   return (
     <div className="flex min-h-[calc(100vh-200px)] flex-grow items-center justify-center bg-surface-container-low px-4 py-8">
       <div className="w-full max-w-[460px]">
+        {/* Logo */}
         <div className="mb-10 text-center">
           <Link to="/" className="inline-block">
             <h1 className="text-h1 font-h1 text-primary">Bozor</h1>
@@ -232,14 +309,10 @@ const Auth = () => {
         </div>
 
         <div className="overflow-hidden rounded-[28px] border border-outline-variant bg-surface-container-lowest p-5 shadow-[0_16px_48px_rgba(15,23,42,0.10)] md:p-6">
+          {/* Tab switcher */}
           <div className="mb-6 flex rounded-2xl border border-outline-variant bg-surface-container-low p-1">
             <button
-              onClick={() => {
-                setIsLogin(true);
-                setLoginStep('phone');
-                setError('');
-                resetOtpState();
-              }}
+              onClick={() => switchTab(true)}
               className={`flex-1 rounded-xl px-4 py-3 text-sm font-semibold transition-colors ${
                 isLogin ? 'bg-primary text-on-primary shadow-sm' : 'text-on-surface-variant'
               }`}
@@ -247,11 +320,7 @@ const Auth = () => {
               Kirish
             </button>
             <button
-              onClick={() => {
-                setIsLogin(false);
-                setError('');
-                resetOtpState();
-              }}
+              onClick={() => switchTab(false)}
               className={`flex-1 rounded-xl px-4 py-3 text-sm font-semibold transition-colors ${
                 !isLogin ? 'bg-primary text-on-primary shadow-sm' : 'text-on-surface-variant'
               }`}
@@ -260,147 +329,156 @@ const Auth = () => {
             </button>
           </div>
 
-          {renderError}
+          {error && (
+            <div className="mb-5 flex items-center gap-2 rounded-xl border border-error/30 bg-error-container/60 px-4 py-3 text-sm text-on-error-container">
+              <span className="material-symbols-outlined text-[18px]">error</span>
+              <span>{error}</span>
+            </div>
+          )}
 
-          {isLogin ? (
-            loginStep === 'phone' ? (
-              <form className="space-y-6" onSubmit={handleRequestOtp}>
+          {/* ── LOGIN FLOW ── */}
+          {isLogin && loginStep === 'phone' && (
+            <form className="space-y-6" onSubmit={handleRequestOtp}>
+              <div>
+                <p className="mb-1 text-xl font-bold text-on-surface">Telefon orqali kirish</p>
+                <p className="text-sm leading-6 text-on-surface-variant">
+                  O'zbekiston telefon raqamingizni kiriting — tasdiqlash kodi yuboriladi.
+                </p>
+              </div>
+
+              <div>
+                <label className="mb-2 block text-sm font-semibold text-on-surface" htmlFor="phone-login">
+                  Telefon raqam
+                </label>
+                <PhoneInput
+                  id="phone-login"
+                  digits={loginDigits}
+                  onChange={setLoginDigits}
+                  isComplete={loginDigits.replace(/\D/g, '').length === 9}
+                />
+                <p className="mt-1.5 text-xs text-on-surface-variant">
+                  Masalan: +998 90 123 45 67
+                </p>
+              </div>
+
+              <button
+                type="submit"
+                disabled={loading || loginDigits.replace(/\D/g, '').length !== 9}
+                className="flex w-full items-center justify-center gap-2 rounded-2xl bg-primary px-5 py-4 text-base font-semibold text-on-primary transition-opacity hover:opacity-92 disabled:opacity-50"
+              >
+                {loading && <span className="material-symbols-outlined animate-spin text-[18px]">progress_activity</span>}
+                Kodni yuborish
+              </button>
+            </form>
+          )}
+
+          {/* ── OTP STEP ── */}
+          {isLogin && loginStep === 'otp' && (
+            <form className="space-y-6" onSubmit={handleVerifyOtp}>
+              <div className="flex items-start justify-between gap-4">
                 <div>
-                  <div className="mb-2 text-xl font-bold text-on-surface">Telefon orqali kirish</div>
+                  <p className="mb-1 text-xl font-bold text-on-surface">Tasdiqlash kodi</p>
                   <p className="text-sm leading-6 text-on-surface-variant">
-                    Telefon raqamingizni kiriting. Tasdiqlash kodi yuboriladi.
+                    <span className="font-mono font-semibold text-on-surface">{maskPhone(otpPhone)}</span> raqamiga
+                    yuborilgan 6 xonali kodni kiriting.
                   </p>
                 </div>
-
-                <div>
-                  <label className="mb-2 block text-sm font-semibold text-on-surface" htmlFor="phone-login">
-                    Telefon raqam
-                  </label>
-                  <div className="flex items-center overflow-hidden rounded-2xl border border-outline-variant bg-surface-bright transition-shadow focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/15">
-                    <span className="border-r border-outline-variant bg-surface-container px-4 py-4 text-lg text-on-surface-variant">+998</span>
-                    <input
-                      id="phone-login"
-                      type="tel"
-                      placeholder="90 123 45 67"
-                      required
-                      value={loginForm.phone}
-                      onChange={(event) => setLoginForm({ phone: event.target.value })}
-                      className="flex-1 bg-transparent px-4 py-4 text-lg text-on-surface outline-none placeholder:text-outline/60"
-                    />
-                  </div>
-                </div>
-
                 <button
-                  type="submit"
-                  disabled={loading}
-                  className="flex w-full items-center justify-center gap-2 rounded-2xl bg-primary px-5 py-4 text-base font-semibold text-on-primary transition-opacity hover:opacity-92 disabled:opacity-60"
+                  type="button"
+                  onClick={() => {
+                    setLoginStep('phone');
+                    resetOtp();
+                    setError('');
+                  }}
+                  className="shrink-0 text-sm font-semibold text-primary hover:underline"
                 >
-                  {loading ? <span className="material-symbols-outlined animate-spin text-[18px]">progress_activity</span> : null}
-                  Kodni yuborish
+                  O'zgartirish
                 </button>
-              </form>
-            ) : (
-              <form className="space-y-6" onSubmit={handleVerifyOtp}>
-                <div className="flex items-start justify-between gap-4">
-                  <div>
-                    <div className="mb-2 text-xl font-bold text-on-surface">Tasdiqlash kodi</div>
-                    <p className="text-sm leading-6 text-on-surface-variant">
-                      {maskPhone(loginForm.phone)} raqamiga yuborilgan 6 xonali kodni kiriting.
-                    </p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setLoginStep('phone');
-                      setOtpDigits(Array(OTP_LENGTH).fill(''));
-                      setOtpDebugCode('');
-                      setResendSeconds(0);
-                      setError('');
-                    }}
-                    className="text-sm font-semibold text-primary hover:underline"
-                  >
-                    O'zgartirish
-                  </button>
-                </div>
+              </div>
 
-                {otpDebugCode ? (
-                  <div className="rounded-2xl border border-primary/30 bg-primary-container/10 px-4 py-3 text-sm text-primary">
-                    Test kodi: <span className="font-bold tracking-[0.3em]">{otpDebugCode}</span>. SMS integratsiyasi hozircha yo'q, kod backend konsoliga ham chiqadi.
-                  </div>
-                ) : null}
-
-                <div onPaste={handleOtpPaste}>
-                  <div className="mb-2 block text-sm font-semibold text-on-surface">Kod</div>
-                  <div className="grid grid-cols-6 gap-2 md:gap-3">
-                    {otpDigits.map((digit, index) => (
-                      <input
-                        key={index}
-                        ref={(element) => {
-                          otpRefs.current[index] = element;
-                        }}
-                        value={digit}
-                        inputMode="numeric"
-                        autoComplete={index === 0 ? 'one-time-code' : 'off'}
-                        maxLength={1}
-                        onChange={(event: ChangeEvent<HTMLInputElement>) => updateOtpDigit(index, event.target.value)}
-                        onKeyDown={(event) => handleOtpKeyDown(index, event)}
-                        className="h-14 rounded-2xl border border-outline-variant bg-surface-bright text-center text-xl font-bold text-on-surface outline-none transition-all focus:border-primary focus:ring-2 focus:ring-primary/15 md:h-16 md:text-2xl"
-                      />
-                    ))}
-                  </div>
-                </div>
-
-                <div className="flex items-center justify-between gap-3 text-sm">
-                  <span className="text-on-surface-variant">
-                    {resendSeconds > 0 ? `Kodni qayta yuborish: 00:${String(resendSeconds).padStart(2, '0')}` : 'Kod kelmadimi?'}
+              {otpDebugCode && (
+                <div className="rounded-2xl border border-primary/30 bg-primary-container/10 px-4 py-3 text-sm text-primary">
+                  Test kodi:{' '}
+                  <span className="font-bold tracking-[0.3em]">{otpDebugCode}</span>
+                  <span className="ml-2 text-on-surface-variant">
+                    (SMS integratsiyasi yo'q — backend konsolida ham ko'rinadi)
                   </span>
-                  <button
-                    type="button"
-                    onClick={handleResendOtp}
-                    disabled={loading || resendSeconds > 0}
-                    className="font-semibold text-primary disabled:text-on-surface-variant"
-                  >
-                    Qayta yuborish
-                  </button>
                 </div>
+              )}
 
+              <div>
+                <p className="mb-2 block text-sm font-semibold text-on-surface">Kod</p>
+                <div className="grid grid-cols-6 gap-2 md:gap-3" onPaste={handleOtpPaste}>
+                  {otpDigits.map((digit, i) => (
+                    <input
+                      key={i}
+                      ref={(el) => { otpRefs.current[i] = el; }}
+                      value={digit}
+                      inputMode="numeric"
+                      autoComplete={i === 0 ? 'one-time-code' : 'off'}
+                      maxLength={1}
+                      onChange={(e: ChangeEvent<HTMLInputElement>) => updateOtpDigit(i, e.target.value)}
+                      onKeyDown={(e) => handleOtpKeyDown(i, e)}
+                      className="h-14 rounded-2xl border border-outline-variant bg-surface-bright text-center text-xl font-bold text-on-surface outline-none transition-all focus:border-primary focus:ring-2 focus:ring-primary/15 md:h-16 md:text-2xl"
+                    />
+                  ))}
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between gap-3 text-sm">
+                <span className="text-on-surface-variant">
+                  {resendSeconds > 0
+                    ? `Qayta yuborish: 00:${String(resendSeconds).padStart(2, '0')}`
+                    : 'Kod kelmadimi?'}
+                </span>
                 <button
-                  type="submit"
-                  disabled={loading}
-                  className="flex w-full items-center justify-center gap-2 rounded-2xl bg-primary px-5 py-4 text-base font-semibold text-on-primary transition-opacity hover:opacity-92 disabled:opacity-60"
+                  type="button"
+                  onClick={handleResendOtp}
+                  disabled={loading || resendSeconds > 0}
+                  className="font-semibold text-primary disabled:text-on-surface-variant"
                 >
-                  {loading ? <span className="material-symbols-outlined animate-spin text-[18px]">progress_activity</span> : null}
-                  Kirishni tasdiqlash
+                  Qayta yuborish
                 </button>
-              </form>
-            )
-          ) : (
+              </div>
+
+              <button
+                type="submit"
+                disabled={loading}
+                className="flex w-full items-center justify-center gap-2 rounded-2xl bg-primary px-5 py-4 text-base font-semibold text-on-primary transition-opacity hover:opacity-92 disabled:opacity-60"
+              >
+                {loading && <span className="material-symbols-outlined animate-spin text-[18px]">progress_activity</span>}
+                Kirishni tasdiqlash
+              </button>
+            </form>
+          )}
+
+          {/* ── REGISTER FORM ── */}
+          {!isLogin && (
             <form className="space-y-5" onSubmit={handleRegister}>
               <div>
-                <div className="mb-2 text-xl font-bold text-on-surface">Akkaunt yaratish</div>
+                <p className="mb-1 text-xl font-bold text-on-surface">Akkaunt yaratish</p>
                 <p className="text-sm leading-6 text-on-surface-variant">
                   Ro'yxatdan o'tgandan keyin telefon orqali kod bilan tasdiqlaysiz.
                 </p>
               </div>
 
+              {/* Phone */}
               <div>
                 <label className="mb-2 block text-sm font-semibold text-on-surface" htmlFor="phone-register">
                   Telefon raqam
                 </label>
-                <div className="flex items-center overflow-hidden rounded-2xl border border-outline-variant bg-surface-bright transition-shadow focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/15">
-                  <span className="border-r border-outline-variant bg-surface-container px-4 py-4 text-lg text-on-surface-variant">+998</span>
-                  <input
-                    id="phone-register"
-                    type="tel"
-                    placeholder="90 123 45 67"
-                    required
-                    value={regForm.phone}
-                    onChange={(event) => setRegForm({ ...regForm, phone: event.target.value })}
-                    className="flex-1 bg-transparent px-4 py-4 text-lg text-on-surface outline-none placeholder:text-outline/60"
-                  />
-                </div>
+                <PhoneInput
+                  id="phone-register"
+                  digits={regDigits}
+                  onChange={setRegDigits}
+                  isComplete={regDigits.replace(/\D/g, '').length === 9}
+                />
+                <p className="mt-1.5 text-xs text-on-surface-variant">
+                  Masalan: +998 90 123 45 67
+                </p>
               </div>
 
+              {/* Password */}
               <div>
                 <label className="mb-2 block text-sm font-semibold text-on-surface" htmlFor="password-reg">
                   Parol
@@ -410,34 +488,49 @@ const Auth = () => {
                   type="password"
                   placeholder="Kamida 8 ta belgi"
                   required
-                  value={regForm.password}
-                  onChange={(event) => setRegForm({ ...regForm, password: event.target.value })}
+                  value={regPassword}
+                  onChange={(e) => setRegPassword(e.target.value)}
                   className="w-full rounded-2xl border border-outline-variant bg-surface-bright px-4 py-4 text-base text-on-surface outline-none transition-shadow focus:border-primary focus:ring-2 focus:ring-primary/15"
                 />
               </div>
 
+              {/* Confirm password */}
               <div>
                 <label className="mb-2 block text-sm font-semibold text-on-surface" htmlFor="confirm-password">
                   Parolni tasdiqlang
                 </label>
-                <input
-                  id="confirm-password"
-                  type="password"
-                  placeholder="••••••••"
-                  required
-                  value={regForm.confirm_password}
-                  onChange={(event) => setRegForm({ ...regForm, confirm_password: event.target.value })}
-                  className="w-full rounded-2xl border border-outline-variant bg-surface-bright px-4 py-4 text-base text-on-surface outline-none transition-shadow focus:border-primary focus:ring-2 focus:ring-primary/15"
-                />
+                <div className="relative">
+                  <input
+                    id="confirm-password"
+                    type="password"
+                    placeholder="••••••••"
+                    required
+                    value={regConfirm}
+                    onChange={(e) => setRegConfirm(e.target.value)}
+                    className={`w-full rounded-2xl border bg-surface-bright px-4 py-4 text-base text-on-surface outline-none transition-shadow focus:ring-2 focus:ring-primary/15 ${
+                      regConfirm && regConfirm !== regPassword
+                        ? 'border-error focus:border-error'
+                        : 'border-outline-variant focus:border-primary'
+                    }`}
+                  />
+                  {regConfirm && regConfirm === regPassword && (
+                    <span className="material-symbols-outlined absolute right-4 top-1/2 -translate-y-1/2 text-primary text-[20px]">
+                      check_circle
+                    </span>
+                  )}
+                </div>
+                {regConfirm && regConfirm !== regPassword && (
+                  <p className="mt-1 text-xs text-error">Parollar mos kelmadi</p>
+                )}
               </div>
 
-              <label className="flex items-start gap-3 rounded-2xl border border-outline-variant bg-surface-container-low px-4 py-3">
+              {/* Terms */}
+              <label className="flex cursor-pointer items-start gap-3 rounded-2xl border border-outline-variant bg-surface-container-low px-4 py-3">
                 <input
-                  id="terms"
                   type="checkbox"
-                  checked={regForm.terms_accepted}
-                  onChange={(event) => setRegForm({ ...regForm, terms_accepted: event.target.checked })}
-                  className="mt-1 rounded border-outline-variant text-primary focus:ring-primary"
+                  checked={regTerms}
+                  onChange={(e) => setRegTerms(e.target.checked)}
+                  className="mt-1 rounded border-outline-variant accent-primary"
                 />
                 <span className="text-sm leading-6 text-on-surface-variant">
                   <a className="font-semibold text-primary hover:underline" href="#">
@@ -449,10 +542,10 @@ const Auth = () => {
 
               <button
                 type="submit"
-                disabled={loading}
-                className="flex w-full items-center justify-center gap-2 rounded-2xl bg-primary px-5 py-4 text-base font-semibold text-on-primary transition-opacity hover:opacity-92 disabled:opacity-60"
+                disabled={loading || regDigits.replace(/\D/g, '').length !== 9}
+                className="flex w-full items-center justify-center gap-2 rounded-2xl bg-primary px-5 py-4 text-base font-semibold text-on-primary transition-opacity hover:opacity-92 disabled:opacity-50"
               >
-                {loading ? <span className="material-symbols-outlined animate-spin text-[18px]">progress_activity</span> : null}
+                {loading && <span className="material-symbols-outlined animate-spin text-[18px]">progress_activity</span>}
                 Ro'yxatdan o'tish
               </button>
             </form>

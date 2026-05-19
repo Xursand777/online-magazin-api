@@ -9,6 +9,7 @@ import {
   CANCELLABLE_ORDER_STATUSES,
   getOrderStatusBadge,
   getOrderStatusLabel,
+  getPaymentMethodLabel,
   getPaymentStatusLabel,
 } from '../utils/orderStatus';
 import { toast } from '../utils/toast';
@@ -35,6 +36,7 @@ interface ProfileOrderHistory {
 interface ProfileOrder {
   id: number;
   status: string;
+  payment_method: string;
   total_price: string | number;
   created_at: string;
   receiver_name: string;
@@ -42,6 +44,12 @@ interface ProfileOrder {
   delivery_address: string;
   cancellation_reason: string;
   can_cancel: boolean;
+  is_credit: boolean;
+  credit_days: number | null;
+  credit_due_date: string | null;
+  credit_paid: boolean;
+  credit_paid_at: string | null;
+  credit_is_overdue: boolean;
   payment?: {
     status: string;
     method: string;
@@ -238,16 +246,34 @@ const Profile = () => {
                           <span className={`px-2.5 py-1 rounded-full text-[11px] font-bold ${getOrderStatusBadge(order.status)}`}>
                             {getOrderStatusLabel(order.status)}
                           </span>
+                          {order.is_credit && (
+                            <span className={`px-2.5 py-1 rounded-full text-[11px] font-bold ${
+                              order.credit_paid
+                                ? 'bg-green-100 text-green-700'
+                                : order.credit_is_overdue
+                                ? 'bg-red-100 text-red-700'
+                                : 'bg-amber-100 text-amber-700'
+                            }`}>
+                              {order.credit_paid
+                                ? "Muddatli to'lov to'langan"
+                                : order.credit_is_overdue
+                                ? "To'lov muddati o'tdi!"
+                                : "Muddatli to'lov"}
+                            </span>
+                          )}
                         </div>
                         <p className="mt-1 text-xs text-on-surface-variant">
                           {new Date(order.created_at).toLocaleString('uz-UZ')}
                         </p>
                       </div>
                       <div className="text-left md:text-right">
-                        <p className="text-xs text-on-surface-variant">To&apos;lov</p>
+                        <p className="text-xs text-on-surface-variant">To&apos;lov turi</p>
                         <p className="font-body-md text-on-surface">
-                          {paymentStatus || 'Maʼlumot yoʼq'}
+                          {getPaymentMethodLabel(order.payment_method)}
                         </p>
+                        {paymentStatus && (
+                          <p className="text-xs text-on-surface-variant">{paymentStatus}</p>
+                        )}
                       </div>
                     </div>
 
@@ -336,6 +362,34 @@ const Profile = () => {
                             ))}
                           </div>
                         </div>
+
+                        {order.is_credit && !order.credit_paid && (
+                          <div className={`rounded-xl border p-md ${
+                            order.credit_is_overdue
+                              ? 'border-red-300 bg-red-50'
+                              : 'border-amber-300 bg-amber-50'
+                          }`}>
+                            <div className="flex items-center gap-sm mb-xs">
+                              <span className={`material-symbols-outlined text-[20px] ${order.credit_is_overdue ? 'text-red-600' : 'text-amber-600'}`}>
+                                {order.credit_is_overdue ? 'warning' : 'schedule'}
+                              </span>
+                              <span className={`font-label-md text-sm font-semibold ${order.credit_is_overdue ? 'text-red-700' : 'text-amber-700'}`}>
+                                {order.credit_is_overdue ? "To'lov muddati o'tdi!" : "Muddatli to'lov kutilmoqda"}
+                              </span>
+                            </div>
+                            <p className="text-xs text-on-surface-variant">
+                              To'lov muddati: <strong>{order.credit_due_date}</strong>
+                            </p>
+                            <p className="text-xs text-on-surface-variant mt-xs">
+                              Jami summa: <strong>{formatPrice(order.total_price)}</strong>
+                            </p>
+                            {order.credit_is_overdue && (
+                              <p className="text-xs text-red-600 mt-xs font-medium">
+                                Muddati o'tgan to'lov buyurtma tarixingizga salbiy ta'sir qiladi. Iltimos, imkon qadar tezroq to'lang.
+                              </p>
+                            )}
+                          </div>
+                        )}
 
                         {order.can_cancel && CANCELLABLE_ORDER_STATUSES.includes(order.status) && (
                           <div className="rounded-xl border border-outline-variant bg-surface-container-lowest p-md">

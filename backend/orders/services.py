@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import datetime
 from datetime import timedelta
 from decimal import Decimal
 from uuid import uuid4
@@ -88,9 +89,31 @@ def trigger_refund(payment):
 
 
 @transaction.atomic
-def create_order_with_items(*, user, receiver_name, receiver_phone, delivery_address, payment_method, items):
+def create_order_with_items(
+    *, user, receiver_name, receiver_phone, delivery_address,
+    payment_method, items, credit_days=None, skip_credit_check=False
+):
     if not items:
         raise serializers.ValidationError({'error': "Savat bo'sh."})
+
+    is_credit = (payment_method == Order.PAYMENT_METHOD_CREDIT)
+    if is_credit:
+        if user is None:
+            raise serializers.ValidationError({'error': "Muddatli to'lov faqat ro'yxatdan o'tgan mijozlar uchun mumkin."})
+        if credit_days is None:
+            raise serializers.ValidationError({'error': "To'lov muddati ko'rsatilmagan."})
+        if not (Order.CREDIT_DAYS_MIN <= credit_days <= Order.CREDIT_DAYS_MAX):
+            raise serializers.ValidationError({
+                'error': f"To'lov muddati {Order.CREDIT_DAYS_MIN} – {Order.CREDIT_DAYS_MAX} kun oralig'ida bo'lishi kerak."
+            })
+
+    # Muddatli to'lov cheklovlarini tekshiramiz (admin POS da o'tkazib yuboriladi)
+    if user is not None and not skip_credit_check:
+        check_credit_eligibility(user)
+
+    credit_due_date = None
+    if is_credit:
+        credit_due_date = timezone.now().date() + datetime.timedelta(days=credit_days)
 
     order = Order.objects.create(
         user=user,
@@ -99,6 +122,10 @@ def create_order_with_items(*, user, receiver_name, receiver_phone, delivery_add
         delivery_address=delivery_address,
         payment_method=payment_method,
         status=Order.STATUS_PENDING,
+        is_credit=is_credit,
+        credit_days=credit_days if is_credit else None,
+        credit_due_date=credit_due_date,
+        credit_paid=False,
     )
 
     total_price = Decimal('0.00')
@@ -144,10 +171,27 @@ def cancel_order(*, order, cancelled_status, actor_type, actor=None, reason=''):
         return order
 
     if order.status == Order.STATUS_DELIVERED:
-        raise serializers.ValidationError({'error': 'Yetkazilgan buyurtmani bekor qilib bo\'lmaydi.'})
+        raise serializers.ValidationError({'error': "Yetkazilgan buyurtmani bekor qilib bo'lmaydi."})
 
     if cancelled_status not in Order.CANCELLATION_STATUSES:
-        raise serializers.ValidationError({'error': "Noto'g'ri cancellation status."})
+        raise serializers.ValidationError({'error': "Noto'g'ri bekor qilish statusi."})
+
+    # Foydalanuvchi tomonidan bekor qilishda qat'iy holat tekshiruvi
+    if actor_type == OrderHistory.ACTOR_USER:
+        if order.status not in Order.CANCELLABLE_STATUSES:
+            raise serializers.ValidationError({
+                'error': (
+                    f"Buyurtmani '{order.status}' holatida bekor qilib bo'lmaydi. "
+                    "Faqat kutilmoqda yoki rasmiylashtirilgan buyurtmalarni bekor qilish mumkin."
+                )
+            })
+
+    # Admin uchun ham chegaralar
+    if actor_type == OrderHistory.ACTOR_ADMIN:
+        if order.status not in Order.ADMIN_CANCELLABLE_STATUSES:
+            raise serializers.ValidationError({
+                'error': "Yetkazilgan yoki allaqachon bekor qilingan buyurtmani bekor qilib bo'lmaydi."
+            })
 
     previous_status = order.status
     for item in order.items.select_related('product', 'variant'):
@@ -216,6 +260,123 @@ def transition_order_status(*, order, new_status, actor_type, actor=None, note='
         actor_type=actor_type,
         actor=actor,
         note=note or '',
+    )
+    return order
+
+
+@transaction.atomic
+def check_credit_eligibility(user):
+    """
+    Foydalanuvchi buyurtma bera olishini tekshiradi.
+    Quyidagi holatlarda xato qaytaradi:
+      - credit_ban=True (3 marta muddati o'tgan)
+      - Muddati o'tgan, to'lanmagan muddatli buyurtma mavjud
+      - Hali to'lanmagan aktiv muddatli buyurtma mavjud
+    Race condition'dan himoya uchun select_for_update ishlatiladi.
+    """
+    from django.db import transaction as db_transaction
+
+    # Foydalanuvchini lock qilib olamiz
+    user_locked = user.__class__.objects.select_for_update().get(pk=user.pk)
+
+    if user_locked.credit_ban:
+        raise serializers.ValidationError({
+            'error': (
+                "Siz buyurtma bera olmaysiz. "
+                "3 marta to'lov muddatini o'tkazib yuborgansiz — "
+                "muddatli to'lov imkoniyatingiz doimiy bloklangan."
+            )
+        })
+
+    today = timezone.now().date()
+
+    # Muddati o'tgan, to'lanmagan, hali hisobga olinmagan buyurtmalar
+    overdue_qs = (
+        Order.objects
+        .select_for_update()
+        .filter(
+            user=user_locked,
+            is_credit=True,
+            credit_paid=False,
+            credit_overdue_counted=False,
+            credit_due_date__lt=today,
+        )
+        .exclude(status__in=Order.CANCELLATION_STATUSES)
+    )
+
+    if overdue_qs.exists():
+        count = overdue_qs.count()
+        overdue_qs.update(credit_overdue_counted=True)
+        user_locked.overdue_credit_count = (user_locked.overdue_credit_count or 0) + count
+        if user_locked.overdue_credit_count >= 3:
+            user_locked.credit_ban = True
+        user_locked.save(update_fields=['overdue_credit_count', 'credit_ban'])
+
+        # user ob'ektini yangilaymiz
+        user.credit_ban = user_locked.credit_ban
+        user.overdue_credit_count = user_locked.overdue_credit_count
+
+        if user_locked.credit_ban:
+            raise serializers.ValidationError({
+                'error': (
+                    "To'lov muddatingiz 3 marta o'tib ketdi. "
+                    "Muddatli to'lov imkoniyatingiz doimiy bloklandi. "
+                    "Qo'shimcha ma'lumot uchun do'kon bilan bog'laning."
+                )
+            })
+
+        raise serializers.ValidationError({
+            'error': (
+                "Sizda muddati o'tgan to'lanmagan muddatli to'lov buyurtmangiz bor. "
+                "Avval uni to'lang, keyin yangi buyurtma bering."
+            )
+        })
+
+    # Hali muddati kelmagan, lekin to'lanmagan aktiv muddatli buyurtma
+    active_credit = (
+        Order.objects
+        .filter(user=user_locked, is_credit=True, credit_paid=False)
+        .exclude(status__in=Order.CANCELLATION_STATUSES)
+        .order_by('credit_due_date')
+        .first()
+    )
+
+    if active_credit:
+        raise serializers.ValidationError({
+            'error': (
+                f"Sizda to'lanmagan muddatli to'lov buyurtmangiz mavjud (#{active_credit.id}). "
+                f"To'lov muddati: {active_credit.credit_due_date}. "
+                "Avval uni to'lang, keyin yangi buyurtma bering."
+            )
+        })
+
+
+@transaction.atomic
+def pay_credit_order(*, order, actor=None):
+    """Admin muddatli to'lov buyurtmasini to'langan deb belgilaydi."""
+    if not order.is_credit:
+        raise serializers.ValidationError({'error': "Bu muddatli to'lov buyurtmasi emas."})
+    if order.credit_paid:
+        raise serializers.ValidationError({'error': "Bu muddatli to'lov allaqachon to'langan."})
+    if order.status in Order.CANCELLATION_STATUSES:
+        raise serializers.ValidationError({'error': "Bekor qilingan buyurtmani to'lab bo'lmaydi."})
+
+    order.credit_paid = True
+    order.credit_paid_at = timezone.now()
+    order.save(update_fields=['credit_paid', 'credit_paid_at', 'updated_at'])
+
+    payment = getattr(order, 'payment', None)
+    if payment and payment.status == Payment.STATUS_PENDING:
+        payment.status = Payment.STATUS_PAID
+        payment.save(update_fields=['status', 'updated_at'])
+
+    create_order_history(
+        order,
+        to_status=order.status,
+        from_status=order.status,
+        actor_type=OrderHistory.ACTOR_ADMIN if actor else OrderHistory.ACTOR_SYSTEM,
+        actor=actor,
+        note="Muddatli to'lov qabul qilindi.",
     )
     return order
 
