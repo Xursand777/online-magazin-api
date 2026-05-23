@@ -7,15 +7,20 @@ from .views import (
     ProductSimilarListView,
     AdminCategoryViewSet, AdminHomeBannerViewSet, AdminProductViewSet,
     HomeBannerListView, AdminExchangeRateView, AdminStockReportView,
-    # Compat
+    # Compat — public
     PhoneBrandListView, PhoneModelSearchView, ProductCompatibleModelsView,
+    # Compat — admin
     AdminPhoneBrandListView, AdminCompatibilityView, AdminCompatibilityBulkSeriesView,
+    AdminPhoneBrandViewSet, AdminPhoneSeriesViewSet, AdminPhoneModelViewSet,
 )
 
 router = DefaultRouter()
-router.register(r'admin/categories', AdminCategoryViewSet, basename='admin-category')
-router.register(r'admin/products',   AdminProductViewSet,  basename='admin-product')
-router.register(r'admin/banners',    AdminHomeBannerViewSet, basename='admin-banner')
+router.register(r'admin/categories',    AdminCategoryViewSet,      basename='admin-category')
+router.register(r'admin/products',      AdminProductViewSet,       basename='admin-product')
+router.register(r'admin/banners',       AdminHomeBannerViewSet,    basename='admin-banner')
+router.register(r'admin/phones/brands', AdminPhoneBrandViewSet,    basename='admin-phone-brand')
+router.register(r'admin/phones/series', AdminPhoneSeriesViewSet,   basename='admin-phone-series')
+router.register(r'admin/phones/models', AdminPhoneModelViewSet,    basename='admin-phone-model')
 
 urlpatterns = [
     # ── Katalog ──────────────────────────────────────────────────────────────

@@ -77,7 +77,7 @@ export const adminCreateCategory = (data: FormData | object) =>
   apiClient.post('/admin/categories/', data, { headers: { 'Content-Type': 'multipart/form-data' } });
 export const adminUpdateCategory = (id: number, data: object) => apiClient.patch(`/admin/categories/${id}/`, data);
 export const adminDeleteCategory = (id: number) => apiClient.delete(`/admin/categories/${id}/`);
-export const adminGetOrders = (params?: { q?: string; status?: string; date_from?: string; date_to?: string; payment_method?: string; is_credit?: string; page?: number; page_size?: number }) => apiClient.get('/orders/admin/', { params });
+export const adminGetOrders = (params?: { q?: string; status?: string; date_from?: string; date_to?: string; payment_method?: string; is_credit?: string; payment_status?: string; page?: number; page_size?: number }) => apiClient.get('/orders/admin/', { params });
 export const adminGetDashboard = () => apiClient.get('/orders/admin/dashboard/');
 export const adminUpdateOrderStatus = (
   id: number | string,
@@ -136,4 +136,35 @@ export const adminGetUsers = (params?: {
 export const adminGetUser = (id: number) => apiClient.get(`/admin/users/${id}/`);
 export const adminToggleUserBan = (id: number) => apiClient.post(`/admin/users/${id}/toggle-ban/`);
 export const adminToggleUserActive = (id: number) => apiClient.post(`/admin/users/${id}/toggle-active/`);
+
+// PHONE COMPATIBILITY — admin CRUD
+export const adminGetPhoneBrands = () => apiClient.get('/admin/phones/brands/');
+export const adminCreatePhoneBrand = (data: { name: string; is_popular: boolean; order: number }) =>
+  apiClient.post('/admin/phones/brands/', data);
+export const adminDeletePhoneBrand = (id: number) => apiClient.delete(`/admin/phones/brands/${id}/`);
+
+export const adminCreatePhoneSeries = (data: { brand: number; name: string; order: number }) =>
+  apiClient.post('/admin/phones/series/', data);
+export const adminDeletePhoneSeries = (id: number) => apiClient.delete(`/admin/phones/series/${id}/`);
+
+export const adminCreatePhoneModel = (data: {
+  series: number; name: string; year?: number | null; is_popular: boolean; order: number;
+}) => apiClient.post('/admin/phones/models/', data);
+export const adminDeletePhoneModel = (id: number) => apiClient.delete(`/admin/phones/models/${id}/`);
+
+// PRODUCT COMPATIBILITY — moslik boshqaruvi
+export const adminGetProductCompatibility = (productId: number) =>
+  apiClient.get(`/admin/products/${productId}/compatibility/`);
+export const adminAddProductCompatibility = (
+  productId: number,
+  data: { phone_model_ids: number[]; notes: string },
+) => apiClient.post(`/admin/products/${productId}/compatibility/`, data);
+export const adminRemoveProductCompatibility = (
+  productId: number,
+  data: { phone_model_ids: number[] },
+) => apiClient.delete(`/admin/products/${productId}/compatibility/`, { data });
+export const adminBulkAddCompatibilitySeries = (
+  productId: number,
+  data: { series_id: number; notes: string },
+) => apiClient.post(`/admin/products/${productId}/compatibility/bulk-series/`, data);
 

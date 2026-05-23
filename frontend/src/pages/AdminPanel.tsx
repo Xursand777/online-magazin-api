@@ -41,6 +41,17 @@ import {
   adminToggleUserActive,
   adminGetFeedbacks,
   adminUpdateFeedback,
+  adminGetPhoneBrands,
+  adminCreatePhoneBrand,
+  adminDeletePhoneBrand,
+  adminCreatePhoneSeries,
+  adminDeletePhoneSeries,
+  adminCreatePhoneModel,
+  adminDeletePhoneModel,
+  adminGetProductCompatibility,
+  adminAddProductCompatibility,
+  adminRemoveProductCompatibility,
+  adminBulkAddCompatibilitySeries,
 } from '../api/endpoints';
 import {
   getOrderStatusBadge,
@@ -48,11 +59,11 @@ import {
   getPaymentStatusLabel,
 } from '../utils/orderStatus';
 import { toast } from '../utils/toast';
-import { printReceipt } from '../utils/receiptPrinter';
+import { printReceipt, printCreditAgreement } from '../utils/receiptPrinter';
 import ThemeToggle from '../components/ThemeToggle';
 import AdminPOS from '../components/AdminPOS';
 
-type AdminTab = 'dashboard' | 'products' | 'banners' | 'categories' | 'orders' | 'users' | 'feedback' | 'reports' | 'stock' | 'pos' | 'kassa' | 'nasiya' | 'sozlamalar';
+type AdminTab = 'dashboard' | 'products' | 'banners' | 'categories' | 'orders' | 'users' | 'feedback' | 'reports' | 'stock' | 'pos' | 'kassa' | 'nasiya' | 'sozlamalar' | 'compatibility';
 
 interface AdminCategory {
   id: number;
@@ -235,6 +246,7 @@ interface AdminOrder {
   credit_paid: boolean;
   credit_paid_at: string | null;
   credit_is_overdue: boolean;
+  can_admin_cancel?: boolean;
   payment?: { status: string; method: string; amount: string | number } | null;
   items: Array<{
     id: number;
@@ -344,6 +356,188 @@ const formatDate = (value: string) =>
     month: '2-digit',
     day: '2-digit',
   });
+
+// ─── AWAITING_PAYMENT Countdown Timer ────────────────────────────────────────
+const AWAITING_PAYMENT_TIMEOUT_MS = 30 * 60 * 1000;
+
+const AwaitingPaymentCountdown = ({ createdAt }: { createdAt: string }) => {
+  const calcRemaining = () => {
+    const created = new Date(createdAt).getTime();
+    return Math.max(0, created + AWAITING_PAYMENT_TIMEOUT_MS - Date.now());
+  };
+  const [remaining, setRemaining] = useState(calcRemaining);
+
+  useEffect(() => {
+    const timer = setInterval(() => setRemaining(calcRemaining()), 1000);
+    return () => clearInterval(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [createdAt]);
+
+  const minutes = Math.floor(remaining / 60000);
+  const seconds = Math.floor((remaining % 60000) / 1000);
+  const isExpired = remaining === 0;
+  const isUrgent = !isExpired && remaining < 5 * 60 * 1000;
+
+  return (
+    <div
+      className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-sm font-semibold transition-colors ${
+        isExpired
+          ? 'border-red-300 bg-red-50 text-red-700 dark:border-red-800/50 dark:bg-red-950/20 dark:text-red-400'
+          : isUrgent
+            ? 'animate-pulse border-orange-400 bg-orange-50 text-orange-700 dark:border-orange-800/50 dark:bg-orange-950/20 dark:text-orange-400'
+            : 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-800/40 dark:bg-amber-950/20 dark:text-amber-400'
+      }`}
+    >
+      <span className='material-symbols-outlined text-[16px] shrink-0'>
+        {isExpired ? 'timer_off' : isUrgent ? 'hourglass_bottom' : 'hourglass_top'}
+      </span>
+      {isExpired ? (
+        <span>Muddati o'tdi — tizim buyurtmani bekor qiladi.</span>
+      ) : (
+        <span>
+          To'lov uchun qoldi:{' '}
+          <strong>
+            {minutes}:{String(seconds).padStart(2, '0')}
+          </strong>
+          {isUrgent && ' — shoshiling!'}
+        </span>
+      )}
+    </div>
+  );
+};
+
+// ─── Credit Payment Confirmation Dialog ──────────────────────────────────────
+interface CreditPayConfirmDialogProps {
+  order: AdminOrder | null;
+  isPending: boolean;
+  onConfirm: () => void;
+  onCancel: () => void;
+}
+
+const CreditPayConfirmDialog = ({ order, isPending, onConfirm, onCancel }: CreditPayConfirmDialogProps) => {
+  if (!order) return null;
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const dueDate = order.credit_due_date ? new Date(order.credit_due_date) : null;
+  const isOverdue = dueDate ? dueDate < today : false;
+  const daysOverdue = dueDate
+    ? Math.floor((today.getTime() - dueDate.getTime()) / (1000 * 60 * 60 * 24))
+    : 0;
+
+  return (
+    <div className='fixed inset-0 z-[9999] flex items-center justify-center p-4'>
+      {/* Backdrop */}
+      <div
+        className='absolute inset-0 bg-black/60 backdrop-blur-sm'
+        onClick={!isPending ? onCancel : undefined}
+      />
+
+      {/* Dialog card */}
+      <div className='relative w-full max-w-md overflow-hidden rounded-2xl bg-surface shadow-2xl border border-outline-variant animate-in fade-in zoom-in-95 duration-200'>
+
+        {/* Header stripe */}
+        <div className={`px-6 pt-6 pb-4 ${isOverdue ? 'bg-red-50 dark:bg-red-950/20' : 'bg-green-50 dark:bg-green-950/20'}`}>
+          <div className='flex items-start gap-4'>
+            <div className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-full ${isOverdue ? 'bg-red-100 dark:bg-red-900/40' : 'bg-green-100 dark:bg-green-900/40'}`}>
+              <span className={`material-symbols-outlined text-[26px] ${isOverdue ? 'text-red-600' : 'text-green-600'}`}>
+                {isOverdue ? 'warning' : 'payments'}
+              </span>
+            </div>
+            <div>
+              <h3 className='text-base font-bold text-on-surface'>
+                Muddatli to'lovni tasdiqlash
+              </h3>
+              <p className='mt-0.5 text-sm text-on-surface-variant'>
+                Buyurtma <span className='font-semibold text-on-surface'>#{order.id}</span>
+              </p>
+            </div>
+          </div>
+
+          {/* Overdue warning banner */}
+          {isOverdue && (
+            <div className='mt-4 flex items-start gap-2 rounded-lg border border-red-300 bg-red-100 dark:bg-red-950/40 p-3'>
+              <span className='material-symbols-outlined shrink-0 text-[16px] text-red-600 mt-0.5'>error</span>
+              <p className='text-sm font-medium text-red-700 dark:text-red-400'>
+                To'lov muddati <strong>{daysOverdue} kun</strong> oldin o'tib ketgan!
+                Mijozning muddatli to'lov hisobiga ta'sir qilishi mumkin.
+              </p>
+            </div>
+          )}
+        </div>
+
+        {/* Details */}
+        <div className='px-6 py-4 space-y-3'>
+          <div className='rounded-xl border border-outline-variant bg-surface-container divide-y divide-outline-variant/50'>
+            {[
+              { label: 'Mijoz', value: order.receiver_name },
+              { label: 'Telefon', value: order.receiver_phone },
+              {
+                label: 'To\'lov summasi',
+                value: (
+                  <span className='font-bold text-primary text-base'>
+                    {formatMoney(order.total_price)} so'm
+                  </span>
+                ),
+              },
+              {
+                label: 'Muddat',
+                value: order.credit_days ? `${order.credit_days} kun` : '—',
+              },
+              {
+                label: 'To\'lov sanasi',
+                value: (
+                  <span className={isOverdue ? 'font-semibold text-red-600' : 'font-medium text-on-surface'}>
+                    {order.credit_due_date ?? '—'}
+                  </span>
+                ),
+              },
+            ].map(({ label, value }) => (
+              <div key={label} className='flex items-center justify-between px-4 py-2.5 text-sm'>
+                <span className='text-on-surface-variant'>{label}</span>
+                <span className='text-on-surface'>{value}</span>
+              </div>
+            ))}
+          </div>
+
+          <p className='text-xs text-on-surface-variant text-center'>
+            Bu amal qaytarib bo'lmaydi. To'lov muvaffaqiyatli qabul qilinganiga ishonch hosil qiling.
+          </p>
+        </div>
+
+        {/* Actions */}
+        <div className='flex gap-3 px-6 pb-6'>
+          <button
+            type='button'
+            onClick={onCancel}
+            disabled={isPending}
+            className='flex-1 rounded-xl border border-outline-variant bg-surface px-4 py-3 text-sm font-semibold text-on-surface transition-colors hover:bg-surface-container disabled:opacity-50'
+          >
+            Bekor qilish
+          </button>
+          <button
+            type='button'
+            onClick={onConfirm}
+            disabled={isPending}
+            className='flex flex-1 items-center justify-center gap-2 rounded-xl bg-green-600 px-4 py-3 text-sm font-semibold text-white transition-colors hover:bg-green-700 disabled:opacity-60'
+          >
+            {isPending ? (
+              <>
+                <span className='material-symbols-outlined animate-spin text-[16px]'>progress_activity</span>
+                Qayd etilmoqda...
+              </>
+            ) : (
+              <>
+                <span className='material-symbols-outlined text-[16px]'>check_circle</span>
+                To'lovni tasdiqlash
+              </>
+            )}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
 
 const COLOR_PRESETS = [
   { name: 'Qora', hex: '#111827' },
@@ -674,6 +868,7 @@ const AdminDashboard = () => {
         { key: 'products', label: 'Mahsulotlar', icon: 'inventory_2' },
         { key: 'categories', label: 'Kategoriyalar', icon: 'category' },
         { key: 'banners', label: 'Bannerlar', icon: 'view_carousel' },
+        { key: 'compatibility', label: 'Moslik matritsasi', icon: 'device_hub' },
       ],
     },
     {
@@ -692,7 +887,7 @@ const AdminDashboard = () => {
       group: 'Tizim',
       items: [{ key: 'sozlamalar', label: 'Sozlamalar', icon: 'settings' }],
     },
-  ] as const;
+  ];
 
   const activeLabel =
     NAV_GROUPS.flatMap((g) => g.items).find((i) => i.key === activeTab)?.label || '';
@@ -835,6 +1030,7 @@ const AdminDashboard = () => {
           {activeTab === 'kassa' && <KassaTab />}
           {activeTab === 'nasiya' && <NasiyaTab />}
           {activeTab === 'sozlamalar' && <SozlamalarTab />}
+          {activeTab === 'compatibility' && <CompatibilityTab />}
         </main>
       </div>
     </div>
@@ -901,26 +1097,19 @@ const DashboardTab = () => {
     );
 
   const statusLabels: Record<string, string> = {
-    PENDING: "Kutilmoqda",
+    AWAITING_PAYMENT: "To'lov kutilmoqda (karta)",
+    PENDING: "Yangi buyurtma",
     CONFIRMED: "Tasdiqlandi",
     PACKING: "Yig'ilmoqda",
     SHIPPING: "Yo'lda",
-    DELIVERED: "Yetkazildi",
+    DELIVERED: "Yetkazildi (eshikda)",
+    RECEIVED: "Xaridorga topshirildi",
     CANCELLED_BY_USER: "Foydalanuvchi bekor qildi",
     CANCELLED_BY_ADMIN: "Admin bekor qildi",
     SYSTEM_AUTO_CANCEL: "Avtomatik bekor qilindi",
   };
 
-  const statusColors: Record<string, string> = {
-    PENDING: 'bg-amber-100 text-amber-700',
-    CONFIRMED: 'bg-blue-100 text-blue-700',
-    PACKING: 'bg-purple-100 text-purple-700',
-    SHIPPING: 'bg-indigo-100 text-indigo-700',
-    DELIVERED: 'bg-green-100 text-green-700',
-    CANCELLED_BY_USER: 'bg-red-100 text-red-600',
-    CANCELLED_BY_ADMIN: 'bg-red-200 text-red-700',
-    SYSTEM_AUTO_CANCEL: 'bg-gray-100 text-gray-600',
-  };
+  const statusColors = ORDER_STATUS_COLORS;
 
   return (
     <div className='space-y-6'>
@@ -1943,14 +2132,53 @@ const BannerEditor = ({
 };
 
 
-const ADMIN_ORDER_STATUS_OPTIONS = [
-  { value: 'PENDING', label: "To'lov kutilmoqda" },
-  { value: 'CONFIRMED', label: 'Rasmiylashtirildi' },
-  { value: 'PACKING', label: "Yig'ilmoqda" },
-  { value: 'SHIPPING', label: "Yo'lda" },
-  { value: 'DELIVERED', label: 'Yetib keldi' },
-  { value: 'CANCELLED_BY_ADMIN', label: 'Admin bekor qildi' },
-];
+// Frontend mirror of backend STATUS_TRANSITIONS — admin faqat oldinga yura oladi
+const STATUS_FORWARD_TRANSITION: Record<string, string | null> = {
+  AWAITING_PAYMENT: 'CONFIRMED',
+  PENDING:          'CONFIRMED',
+  CONFIRMED:        'PACKING',
+  PACKING:          'SHIPPING',
+  SHIPPING:         'DELIVERED',
+  DELIVERED:        'RECEIVED',
+  RECEIVED:         null,
+  CANCELLED_BY_USER:   null,
+  CANCELLED_BY_ADMIN:  null,
+  SYSTEM_AUTO_CANCEL:  null,
+};
+
+const ORDER_FINAL_STATUSES = new Set([
+  'RECEIVED',
+  'CANCELLED_BY_USER',
+  'CANCELLED_BY_ADMIN',
+  'SYSTEM_AUTO_CANCEL',
+]);
+
+const ADMIN_STATUS_LABEL: Record<string, string> = {
+  AWAITING_PAYMENT:    "To'lov kutilmoqda (karta)",
+  PENDING:             "Yangi buyurtma",
+  CONFIRMED:           "Tasdiqlandi",
+  PACKING:             "Yig'ilmoqda",
+  SHIPPING:            "Yo'lda",
+  DELIVERED:           "Yetkazildi (eshikda)",
+  RECEIVED:            "Xaridorga topshirildi",
+  CANCELLED_BY_USER:   "Foydalanuvchi bekor qildi",
+  CANCELLED_BY_ADMIN:  "Admin bekor qildi",
+  SYSTEM_AUTO_CANCEL:  "Tizim avtomatik bekor qildi",
+};
+
+// Modul darajasida — DashboardTab va OrdersTab ikkalasi ham ishlatadi
+const ORDER_STATUS_COLORS: Record<string, string> = {
+  AWAITING_PAYMENT:   'bg-orange-100 text-orange-700',
+  PENDING:            'bg-amber-100 text-amber-700',
+  CONFIRMED:          'bg-blue-100 text-blue-700',
+  PACKING:            'bg-purple-100 text-purple-700',
+  SHIPPING:           'bg-indigo-100 text-indigo-700',
+  DELIVERED:          'bg-teal-100 text-teal-700',
+  RECEIVED:           'bg-emerald-100 text-emerald-700',
+  CANCELLED_BY_USER:  'bg-red-100 text-red-600',
+  CANCELLED_BY_ADMIN: 'bg-red-200 text-red-700',
+  SYSTEM_AUTO_CANCEL: 'bg-gray-100 text-gray-600',
+};
 
 const OrdersTab = () => {
   const qc = useQueryClient();
@@ -1961,6 +2189,7 @@ const OrdersTab = () => {
     date_to: '',
     payment_method: '',
     is_credit: '',
+    payment_status: '',
     page: 1,
   });
 
@@ -1974,6 +2203,7 @@ const OrdersTab = () => {
         date_to: filters.date_to || undefined,
         payment_method: filters.payment_method || undefined,
         is_credit: filters.is_credit || undefined,
+        payment_status: filters.payment_status || undefined,
         page: filters.page,
       }).then((r) => r.data),
     placeholderData: (prev) => prev,
@@ -1998,6 +2228,7 @@ const OrdersTab = () => {
       date_to: '',
       payment_method: '',
       is_credit: '',
+      payment_status: '',
       page: 1,
     });
 
@@ -2007,7 +2238,8 @@ const OrdersTab = () => {
     filters.date_from ||
     filters.date_to ||
     filters.payment_method ||
-    filters.is_credit;
+    filters.is_credit ||
+    filters.payment_status;
 
   const statusMutation = useMutation({
     mutationFn: ({ id, status, note }: { id: number; status: string; note: string }) =>
@@ -2034,11 +2266,15 @@ const OrdersTab = () => {
         qc.invalidateQueries({ queryKey: ['admin-orders'] }),
         qc.invalidateQueries({ queryKey: ['orders'] }),
       ]);
-      toast.success("Muddatli to'lov qabul qilindi.");
+      setCreditConfirmOrder(null);
+      toast.success("Muddatli to'lov muvaffaqiyatli qabul qilindi.");
     },
-    onError: (e: any) =>
-      toast.error(e?.response?.data?.error || "Muddatli to'lovni qayd etib bo'lmadi."),
+    onError: (e: any) => {
+      toast.error(e?.response?.data?.error || "Muddatli to'lovni qayd etib bo'lmadi.");
+    },
   });
+
+  const [creditConfirmOrder, setCreditConfirmOrder] = useState<AdminOrder | null>(null);
 
   const updateDraft = (
     orderId: number,
@@ -2058,11 +2294,65 @@ const OrdersTab = () => {
 
   return (
     <div className='space-y-6'>
+      {/* Credit payment confirmation dialog */}
+      <CreditPayConfirmDialog
+        order={creditConfirmOrder}
+        isPending={creditPayMutation.isPending}
+        onConfirm={() => {
+          if (creditConfirmOrder) creditPayMutation.mutate(creditConfirmOrder.id);
+        }}
+        onCancel={() => !creditPayMutation.isPending && setCreditConfirmOrder(null)}
+      />
+
       <div>
         <h2 className='font-h3 text-h3 text-on-surface'>Buyurtmalar ({totalCount})</h2>
         <p className='mt-1 text-body-sm text-on-surface-variant'>
           Buyurtma statuslari, cancellation sababi va tarix shu bo'limda boshqariladi.
         </p>
+      </div>
+
+      {/* Quick filters — tez-tez kerak bo'ladigan holatlar */}
+      <div className='flex flex-wrap items-center gap-2'>
+        <span className='text-xs font-medium text-on-surface-variant'>Tez filtr:</span>
+        <button
+          onClick={() =>
+            setFilter('payment_status', filters.payment_status === 'REFUNDED' ? '' : 'REFUNDED')
+          }
+          className={`flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-semibold transition-all ${
+            filters.payment_status === 'REFUNDED'
+              ? 'border-orange-600 bg-orange-600 text-white shadow-sm'
+              : 'border-orange-300 bg-orange-50 text-orange-700 hover:bg-orange-100 dark:border-orange-800/60 dark:bg-orange-950/20 dark:text-orange-400'
+          }`}
+        >
+          <span className='material-symbols-outlined text-[14px]'>currency_exchange</span>
+          Refund kutilayotgan
+        </button>
+        <button
+          onClick={() =>
+            setFilter('status', filters.status === 'AWAITING_PAYMENT' ? '' : 'AWAITING_PAYMENT')
+          }
+          className={`flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-semibold transition-all ${
+            filters.status === 'AWAITING_PAYMENT'
+              ? 'border-orange-500 bg-orange-500 text-white shadow-sm'
+              : 'border-outline-variant bg-surface-container text-on-surface-variant hover:border-primary hover:text-primary'
+          }`}
+        >
+          <span className='material-symbols-outlined text-[14px]'>hourglass_empty</span>
+          To'lov kutilmoqda (karta)
+        </button>
+        <button
+          onClick={() =>
+            setFilter('status', filters.status === 'DELIVERED' ? '' : 'DELIVERED')
+          }
+          className={`flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-semibold transition-all ${
+            filters.status === 'DELIVERED'
+              ? 'border-teal-600 bg-teal-600 text-white shadow-sm'
+              : 'border-outline-variant bg-surface-container text-on-surface-variant hover:border-primary hover:text-primary'
+          }`}
+        >
+          <span className='material-symbols-outlined text-[14px]'>payments</span>
+          Naqd to'lov kutilmoqda
+        </button>
       </div>
 
       {/* Filters */}
@@ -2080,10 +2370,8 @@ const OrdersTab = () => {
             className='rounded-lg border border-outline-variant bg-surface-bright px-3 py-2 outline-none focus:border-primary'
           >
             <option value=''>Barcha statuslar</option>
-            {ADMIN_ORDER_STATUS_OPTIONS.map((o) => (
-              <option key={o.value} value={o.value}>
-                {o.label}
-              </option>
+            {Object.entries(ADMIN_STATUS_LABEL).map(([val, label]) => (
+              <option key={val} value={val}>{label}</option>
             ))}
           </select>
           <select
@@ -2148,15 +2436,26 @@ const OrdersTab = () => {
       ) : (
         <div className={`space-y-4 transition-opacity ${isFetching ? 'opacity-60' : 'opacity-100'}`}>
           {orders.map((order) => {
+            const nextFwdStatus = STATUS_FORWARD_TRANSITION[order.status] ?? null;
+            const isFinalStatus = ORDER_FINAL_STATUSES.has(order.status);
+
+            // To'lov usuliga qarab admin bekor qila oladimi
+            const canAdminCancel = (() => {
+              if (isFinalStatus) return false;
+              const pm = order.payment_method;
+              const st = order.status;
+              // Karta: faqat to'lov kelmagan paytda (AWAITING_PAYMENT)
+              if (pm === 'card') return st === 'AWAITING_PAYMENT';
+              // Naqd / Muddatli: faqat PENDING va CONFIRMED (yig'ilish boshlashdan oldin)
+              return st === 'PENDING' || st === 'CONFIRMED';
+            })();
+            // Default selection: next forward status (pre-selected, ready to save)
             const draft = drafts[order.id] || {
-              status: order.status,
-              note: order.status.startsWith('CANCELLED') ? order.cancellation_reason || '' : '',
+              status: nextFwdStatus ?? order.status,
+              note: '',
             };
             const lastHistory = order.history?.[order.history.length - 1];
-            const hasDraftChanges =
-              draft.status !== order.status ||
-              draft.note !==
-                (order.status.startsWith('CANCELLED') ? order.cancellation_reason || '' : '');
+            // Changes exist when selected status differs from CURRENT order status
             return (
               <div
                 key={order.id}
@@ -2174,6 +2473,13 @@ const OrdersTab = () => {
                         >
                           {getOrderStatusLabel(order.status)}
                         </span>
+                        {/* Refund zarur badge — karta to'lovi qaytarilishi kerak */}
+                        {order.payment?.status === 'REFUNDED' && (
+                          <span className='flex items-center gap-1 rounded-full bg-orange-100 px-2.5 py-1 text-[11px] font-semibold text-orange-700 dark:bg-orange-950/30 dark:text-orange-400'>
+                            <span className='material-symbols-outlined text-[12px]'>currency_exchange</span>
+                            Refund zarur
+                          </span>
+                        )}
                         {order.is_credit && (
                           <span
                             className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${
@@ -2208,10 +2514,48 @@ const OrdersTab = () => {
                         </div>
                         <div className='rounded-xl bg-surface-container-lowest p-3'>
                           <div className='text-xs text-on-surface-variant'>To'lov</div>
-                          <div className='mt-1 font-medium text-on-surface'>
-                            {order.payment
-                              ? `${getPaymentStatusLabel(order.payment.status)} / ${order.payment.method}`
-                              : "Yo'q"}
+                          <div className='mt-1 text-sm'>
+                            {!order.payment ? (
+                              <span className='font-medium text-on-surface'>Yo'q</span>
+                            ) : order.payment.method === 'cash' ? (
+                              order.payment.status === 'PAID' ? (
+                                <span className='flex items-center gap-1 font-semibold text-emerald-600'>
+                                  <span className='material-symbols-outlined text-[14px]'>check_circle</span>
+                                  Naqd to'landi
+                                </span>
+                              ) : (
+                                <span className='flex items-center gap-1 font-medium text-amber-600'>
+                                  <span className='material-symbols-outlined text-[14px]'>payments</span>
+                                  Kuryerda olinadi
+                                </span>
+                              )
+                            ) : order.payment.method === 'card' ? (
+                              order.payment.status === 'PAID' ? (
+                                <span className='flex items-center gap-1 font-semibold text-emerald-600'>
+                                  <span className='material-symbols-outlined text-[14px]'>check_circle</span>
+                                  Karta to'landi
+                                </span>
+                              ) : order.payment.status === 'REFUNDED' ? (
+                                <span className='flex items-center gap-1 font-semibold text-orange-600'>
+                                  <span className='material-symbols-outlined text-[14px]'>currency_exchange</span>
+                                  Refund zarur!
+                                </span>
+                              ) : (
+                                <span className='flex items-center gap-1 font-medium text-orange-600'>
+                                  <span className='material-symbols-outlined text-[14px]'>hourglass_empty</span>
+                                  Karta kutilmoqda
+                                </span>
+                              )
+                            ) : order.payment.method === 'credit' ? (
+                              <span className='flex items-center gap-1 font-medium text-blue-600'>
+                                <span className='material-symbols-outlined text-[14px]'>schedule</span>
+                                Muddatli to'lov
+                              </span>
+                            ) : (
+                              <span className='font-medium text-on-surface'>
+                                {getPaymentStatusLabel(order.payment.status)}
+                              </span>
+                            )}
                           </div>
                         </div>
                       </div>
@@ -2226,6 +2570,47 @@ const OrdersTab = () => {
                     </div>
                   </div>
                 </div>
+                {/* AWAITING_PAYMENT countdown — only for card orders waiting for payment */}
+                {order.status === 'AWAITING_PAYMENT' && order.payment_method === 'card' && (
+                  <div className='mx-5 mt-1'>
+                    <AwaitingPaymentCountdown createdAt={order.created_at} />
+                  </div>
+                )}
+
+                {/* Cash payment collection alert — shown only for DELIVERED cash orders */}
+                {order.payment_method === 'cash' &&
+                  order.status === 'DELIVERED' &&
+                  order.payment?.status === 'PENDING' && (
+                    <div className='mx-5 mt-1 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-300 bg-amber-50 p-4 dark:border-amber-800/50 dark:bg-amber-950/20'>
+                      <div className='flex items-start gap-3'>
+                        <span className='material-symbols-outlined shrink-0 text-[22px] text-amber-600'>payments</span>
+                        <div>
+                          <p className='text-sm font-semibold text-amber-800 dark:text-amber-400'>
+                            Naqd to'lov kutilmoqda
+                          </p>
+                          <p className='mt-0.5 text-xs text-amber-700 dark:text-amber-500'>
+                            Kuryer <strong>{formatMoney(order.total_price)} so'm</strong> naqd pul olishini tasdiqlang.
+                          </p>
+                        </div>
+                      </div>
+                      <button
+                        type='button'
+                        disabled={statusMutation.isPending}
+                        onClick={() =>
+                          statusMutation.mutate({
+                            id: order.id,
+                            status: 'RECEIVED',
+                            note: "Naqd to'lov qabul qilindi va mahsulot xaridorga topshirildi.",
+                          })
+                        }
+                        className='flex shrink-0 items-center gap-2 rounded-lg bg-amber-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-amber-700 disabled:opacity-60'
+                      >
+                        <span className='material-symbols-outlined text-[16px]'>check_circle</span>
+                        To'lov qabul qilindi
+                      </button>
+                    </div>
+                  )}
+
                 <div className='grid gap-5 px-5 py-5 xl:grid-cols-[1.1fr_0.9fr]'>
                   <div className='space-y-4'>
                     <div className='grid gap-3 lg:grid-cols-2'>
@@ -2387,86 +2772,171 @@ const OrdersTab = () => {
                         {!order.credit_paid && (
                           <button
                             type='button'
-                            disabled={creditPayMutation.isPending}
-                            onClick={() => creditPayMutation.mutate(order.id)}
-                            className='mt-3 w-full rounded-lg bg-green-600 px-4 py-2 text-sm font-semibold text-white hover:bg-green-700 disabled:opacity-60'
+                            onClick={() => setCreditConfirmOrder(order)}
+                            className='mt-3 flex w-full items-center justify-center gap-2 rounded-lg bg-green-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-green-700'
                           >
-                            {creditPayMutation.isPending
-                              ? 'Qayd etilmoqda...'
-                              : "Muddatli to'lovni qabul qilish"}
+                            <span className='material-symbols-outlined text-[16px]'>payments</span>
+                            Muddatli to'lovni qabul qilish
                           </button>
                         )}
                       </div>
                     )}
 
-                    <div className='rounded-xl border border-outline-variant bg-surface-container p-4'>
-                      <div className='mb-4'>
-                        <h3 className='font-h3 text-lg text-on-surface'>Holatni boshqarish</h3>
-                        <p className='mt-1 text-body-sm text-on-surface-variant'>
-                          Zanjir bo'yicha yangilang. Cancellation uchun sabab yozib qoldiring.
-                        </p>
-                      </div>
-                      <div className='space-y-4'>
-                        <div>
-                          <label className='mb-1 block text-label-md font-label-md text-on-surface-variant'>
-                            Yangi status
-                          </label>
-                          <select
-                            value={draft.status}
-                            onChange={(e) =>
-                              updateDraft(
-                                order.id,
-                                'status',
-                                e.target.value,
-                                order.status,
-                                draft.note,
-                              )
-                            }
-                            className='w-full rounded-lg border border-outline-variant bg-surface-bright px-3 py-2 outline-none focus:border-primary'
-                          >
-                            {ADMIN_ORDER_STATUS_OPTIONS.map((o) => (
-                              <option key={o.value} value={o.value}>
-                                {o.label}
-                              </option>
-                            ))}
-                          </select>
+                    <div className='rounded-xl border border-outline-variant bg-surface-container p-4 space-y-4'>
+                      <h3 className='font-h3 text-lg text-on-surface'>Holatni boshqarish</h3>
+
+                      {/* ── Yakuniy holat — hech narsa o'zgarmaydi ── */}
+                      {isFinalStatus ? (
+                        <div className='flex items-center gap-3 rounded-xl border border-outline-variant bg-surface-container-low px-4 py-4'>
+                          <span className='material-symbols-outlined text-[22px] text-outline shrink-0'>lock</span>
+                          <div>
+                            <p className='text-sm font-semibold text-on-surface'>Yakuniy holat</p>
+                            <p className='text-xs text-on-surface-variant mt-0.5'>
+                              Bu buyurtma{' '}
+                              <span className={`font-medium ${
+                                order.status === 'RECEIVED' ? 'text-emerald-600'
+                                : order.status.includes('CANCEL') ? 'text-error'
+                                : 'text-on-surface'
+                              }`}>
+                                {ADMIN_STATUS_LABEL[order.status] || order.status}
+                              </span>{' '}
+                              holatida — o'zgartirib bo'lmaydi.
+                            </p>
+                          </div>
                         </div>
-                        <div>
-                          <label className='mb-1 block text-label-md font-label-md text-on-surface-variant'>
-                            Izoh / cancellation reason
-                          </label>
-                          <textarea
-                            rows={4}
-                            value={draft.note}
-                            onChange={(e) =>
-                              updateDraft(order.id, 'note', e.target.value, order.status, '')
-                            }
-                            className='w-full rounded-lg border border-outline-variant bg-surface-bright px-3 py-2 outline-none focus:border-primary'
-                            placeholder='Masalan: mahsulot tekshirildi, qadoqlash boshlandi yoki cancellation sababi.'
-                          />
-                        </div>
-                        <button
-                          type='button'
-                          disabled={statusMutation.isPending || !hasDraftChanges}
-                          onClick={() =>
-                            statusMutation.mutate({
-                              id: order.id,
-                              status: draft.status,
-                              note: draft.note.trim(),
-                            })
-                          }
-                          className='w-full rounded-lg bg-primary px-4 py-2 font-label-md text-on-primary hover:opacity-90 disabled:opacity-60'
-                        >
-                          {statusMutation.isPending ? 'Saqlanmoqda...' : 'Statusni saqlash'}
-                        </button>
+                      ) : (
+                        <>
+                          {/* ── Joriy holat ko'rsatgichi ── */}
+                          <div className='flex items-center gap-2 text-sm'>
+                            <span className='text-on-surface-variant shrink-0'>Joriy:</span>
+                            <span className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${
+                              ORDER_STATUS_COLORS[order.status] || 'bg-surface-container text-on-surface-variant'
+                            }`}>
+                              {ADMIN_STATUS_LABEL[order.status] || order.status}
+                            </span>
+                            <span className='material-symbols-outlined text-[16px] text-outline'>arrow_forward</span>
+                            {nextFwdStatus && (
+                              <span className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${
+                                ORDER_STATUS_COLORS[nextFwdStatus] || 'bg-primary-container/20 text-primary'
+                              }`}>
+                                {ADMIN_STATUS_LABEL[nextFwdStatus]}
+                              </span>
+                            )}
+                          </div>
+
+                          {/* ── Keyingi holat (faqat bir to'g'ri yo'l) ── */}
+                          {nextFwdStatus && (
+                            <div className='space-y-3'>
+                              <textarea
+                                rows={3}
+                                value={draft.note}
+                                onChange={(e) =>
+                                  updateDraft(order.id, 'note', e.target.value, order.status, '')
+                                }
+                                className='w-full rounded-lg border border-outline-variant bg-surface-bright px-3 py-2 text-sm outline-none focus:border-primary'
+                                placeholder="Izoh (ixtiyoriy): mahsulot tekshirildi, yig'ilish boshlandi..."
+                              />
+
+                              {/* Cash → RECEIVED hint */}
+                              {nextFwdStatus === 'RECEIVED' && order.payment_method === 'cash' && (
+                                <div className='flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-2.5 text-xs text-amber-800 dark:border-amber-800/40 dark:bg-amber-950/20 dark:text-amber-400'>
+                                  <span className='material-symbols-outlined shrink-0 text-[13px] mt-0.5'>info</span>
+                                  <span><strong>Eslatma:</strong> Bu amal naqd to'lovni ham <strong>To'langan</strong> deb avtomatik belgilaydi.</span>
+                                </div>
+                              )}
+
+                              <button
+                                type='button'
+                                disabled={statusMutation.isPending}
+                                onClick={() =>
+                                  statusMutation.mutate({
+                                    id: order.id,
+                                    status: nextFwdStatus,
+                                    note: draft.note.trim(),
+                                  })
+                                }
+                                className='flex w-full items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2.5 font-semibold text-sm text-on-primary transition-opacity hover:opacity-90 disabled:opacity-60'
+                              >
+                                {statusMutation.isPending ? (
+                                  <>
+                                    <span className='material-symbols-outlined animate-spin text-[16px]'>progress_activity</span>
+                                    Saqlanmoqda...
+                                  </>
+                                ) : (
+                                  <>
+                                    <span className='material-symbols-outlined text-[16px]'>arrow_forward</span>
+                                    {ADMIN_STATUS_LABEL[nextFwdStatus]} ga o'tkazish
+                                  </>
+                                )}
+                              </button>
+                            </div>
+                          )}
+
+                          {/* ── Admin bekor qilish — ajratilgan danger zone ── */}
+                          {canAdminCancel && (
+                            <details className='group rounded-xl border border-error/30 bg-error-container/10'>
+                              <summary className='flex cursor-pointer list-none items-center gap-2 px-4 py-3 text-sm font-medium text-error select-none'>
+                                <span className='material-symbols-outlined text-[16px]'>expand_more</span>
+                                Admin bekor qilish
+                              </summary>
+                              <div className='border-t border-error/20 px-4 pb-4 pt-3 space-y-3'>
+                                <textarea
+                                  rows={3}
+                                  value={draft.status === 'CANCELLED_BY_ADMIN' ? draft.note : ''}
+                                  onChange={(e) =>
+                                    setDrafts((c) => ({
+                                      ...c,
+                                      [order.id]: { status: 'CANCELLED_BY_ADMIN', note: e.target.value },
+                                    }))
+                                  }
+                                  className='w-full rounded-lg border border-error/40 bg-surface-bright px-3 py-2 text-sm outline-none focus:border-error'
+                                  placeholder='Bekor qilish sababi (majburiy)...'
+                                />
+                                <button
+                                  type='button'
+                                  disabled={
+                                    statusMutation.isPending ||
+                                    draft.status !== 'CANCELLED_BY_ADMIN' ||
+                                    !draft.note.trim()
+                                  }
+                                  onClick={() =>
+                                    statusMutation.mutate({
+                                      id: order.id,
+                                      status: 'CANCELLED_BY_ADMIN',
+                                      note: draft.note.trim(),
+                                    })
+                                  }
+                                  className='flex w-full items-center justify-center gap-2 rounded-lg bg-error px-4 py-2 text-sm font-semibold text-on-error transition-opacity hover:opacity-90 disabled:opacity-40'
+                                >
+                                  <span className='material-symbols-outlined text-[16px]'>cancel</span>
+                                  Buyurtmani bekor qilish
+                                </button>
+                              </div>
+                            </details>
+                          )}
+                        </>
+                      )}
+
+                      {/* ── Chek ── */}
+                      <div className='flex gap-2'>
                         <button
                           type='button'
                           onClick={() => printReceipt(order, loadStoreInfo().name ? loadStoreInfo() : undefined)}
-                          className='flex w-full items-center justify-center gap-2 rounded-lg border border-outline-variant px-4 py-2 text-sm font-medium text-on-surface-variant hover:border-primary hover:text-primary'
+                          className='flex flex-1 items-center justify-center gap-2 rounded-lg border border-outline-variant px-4 py-2 text-sm font-medium text-on-surface-variant hover:border-primary hover:text-primary'
                         >
                           <span className='material-symbols-outlined text-[18px]'>receipt_long</span>
-                          Chek chiqarish
+                          Chek
                         </button>
+                        {order.is_credit && (
+                          <button
+                            type='button'
+                            onClick={() => printCreditAgreement(order, loadStoreInfo().name ? loadStoreInfo() : undefined)}
+                            className='flex flex-1 items-center justify-center gap-2 rounded-lg border border-blue-300 bg-blue-50 px-4 py-2 text-sm font-medium text-blue-700 hover:border-blue-500 hover:bg-blue-100 dark:border-blue-800/50 dark:bg-blue-950/20 dark:text-blue-400'
+                          >
+                            <span className='material-symbols-outlined text-[18px]'>description</span>
+                            Nasiya cheki
+                          </button>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -4410,7 +4880,7 @@ const ReportsTab = () => {
               <tbody>
                 {filteredProducts.map((p, ri) => (
                   <tr
-                    key={`${p.id}-${p.quality}-${p.size}`}
+                    key={`p-${p.id}-${p.sku || 'nosku'}-${p.quality || 'noq'}-${p.size || 'nos'}-${p.color || 'noc'}-${p.model || 'nom'}-${ri}`}
                     className={`${ri % 2 === 0 ? 'bg-surface-container-lowest' : 'bg-surface-container/30'} hover:bg-primary/5`}
                   >
                     <td className='border border-outline-variant/40 px-3 py-2.5 text-center font-bold text-on-surface-variant'>
@@ -4603,7 +5073,6 @@ const NasiyaTab = () => {
   const params = useMemo(
     () => ({
       is_credit: 'true',
-      status: 'DELIVERED',
       page,
       page_size: PAGE_SIZE,
     }),
@@ -4620,11 +5089,14 @@ const NasiyaTab = () => {
   const payMutation = useMutation({
     mutationFn: (id: number) => adminPayCreditOrder(id),
     onSuccess: () => {
-      toast.success("To'lov muvaffaqiyatli qayd etildi!");
+      toast.success("Muddatli to'lov muvaffaqiyatli qabul qilindi!");
       qc.invalidateQueries({ queryKey: ['admin-nasiya'] });
+      setNasiyaConfirmOrder(null);
     },
-    onError: () => toast.error('Xatolik yuz berdi'),
+    onError: (e: any) => toast.error(e?.response?.data?.error || 'Xatolik yuz berdi'),
   });
+
+  const [nasiyaConfirmOrder, setNasiyaConfirmOrder] = useState<AdminOrder | null>(null);
 
   const fmt = (v: string | number) => Number(v || 0).toLocaleString('uz-UZ');
   const today = new Date();
@@ -4653,6 +5125,16 @@ const NasiyaTab = () => {
 
   return (
     <div className='space-y-6'>
+      {/* Credit payment confirmation dialog */}
+      <CreditPayConfirmDialog
+        order={nasiyaConfirmOrder}
+        isPending={payMutation.isPending}
+        onConfirm={() => {
+          if (nasiyaConfirmOrder) payMutation.mutate(nasiyaConfirmOrder.id);
+        }}
+        onCancel={() => !payMutation.isPending && setNasiyaConfirmOrder(null)}
+      />
+
       <div>
         <h2 className='font-h3 text-h3 text-on-surface'>Nasiya Buyurtmalar</h2>
         <p className='mt-1 text-body-sm text-on-surface-variant'>
@@ -4780,14 +5262,11 @@ const NasiyaTab = () => {
                     <td className='px-4 py-3'>
                       {!isPaid && (
                         <button
-                          onClick={() => {
-                            if (confirm(`#${order.id} buyurtmani to'langan deb belgilash?`))
-                              payMutation.mutate(order.id);
-                          }}
+                          onClick={() => setNasiyaConfirmOrder(order)}
                           disabled={payMutation.isPending}
                           className='flex items-center gap-1 rounded-lg bg-primary px-3 py-1.5 text-xs font-bold text-on-primary hover:opacity-90 disabled:opacity-50 transition-opacity'
                         >
-                          <span className='material-symbols-outlined text-[14px]'>check</span>
+                          <span className='material-symbols-outlined text-[14px]'>payments</span>
                           To'landi
                         </button>
                       )}
@@ -6449,6 +6928,669 @@ const BulkVariantGenerator = ({
           {preview} ta Variant Generatsiya Qilish
         </button>
       </div>
+    </div>
+  );
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// COMPATIBILITY TAB — Telefon Mos Kelish Matritsasi
+// ─────────────────────────────────────────────────────────────────────────────
+
+interface CPhoneModel {
+  id: number;
+  slug: string;
+  full_name: string;
+  brand_name: string;
+  series_name: string;
+  year: number | null;
+  is_popular: boolean;
+}
+interface CPhoneSeries {
+  id: number;
+  name: string;
+  slug: string;
+  order: number;
+  models: CPhoneModel[];
+}
+interface CPhoneBrand {
+  id: number;
+  name: string;
+  slug: string;
+  logo_url: string | null;
+  is_popular: boolean;
+  order: number;
+  series: CPhoneSeries[];
+}
+interface CCompatEntry {
+  id: number;
+  phone_model: CPhoneModel;
+  notes: string;
+}
+
+type CompatSubTab = 'models' | 'products';
+
+// ── Reusable: Brand / Series / Model tree viewer ──────────────────────────────
+const PhoneTree = ({
+  brands,
+  renderModelExtra,
+  renderSeriesExtra,
+  renderBrandExtra,
+  checkable,
+  checkedIds,
+  existingIds,
+  onToggleModel,
+}: {
+  brands: CPhoneBrand[];
+  renderModelExtra?: (m: CPhoneModel, series: CPhoneSeries) => React.ReactNode;
+  renderSeriesExtra?: (s: CPhoneSeries, brand: CPhoneBrand) => React.ReactNode;
+  renderBrandExtra?: (b: CPhoneBrand) => React.ReactNode;
+  checkable?: boolean;
+  checkedIds?: Set<number>;
+  existingIds?: Set<number>;
+  onToggleModel?: (id: number) => void;
+}) => {
+  const [openBrands, setOpenBrands] = useState<Set<number>>(new Set(brands.map((b) => b.id)));
+  const [openSeries, setOpenSeries] = useState<Set<number>>(new Set());
+
+  const toggleBrand = (id: number) =>
+    setOpenBrands((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  const toggleSeries = (id: number) =>
+    setOpenSeries((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
+
+  if (!brands.length)
+    return <p className="py-8 text-center text-sm text-on-surface-variant">Brendlar yo'q</p>;
+
+  return (
+    <div className="space-y-2">
+      {brands.map((brand) => (
+        <div key={brand.id} className="rounded-xl border border-outline-variant bg-surface-container-lowest overflow-hidden">
+          {/* Brand header */}
+          <div className="flex items-center gap-2 px-4 py-3">
+            <button onClick={() => toggleBrand(brand.id)} className="flex flex-1 items-center gap-2 text-left">
+              <span className="material-symbols-outlined text-[18px] text-primary transition-transform"
+                style={{ transform: openBrands.has(brand.id) ? 'rotate(90deg)' : 'none' }}>
+                chevron_right
+              </span>
+              <span className="font-medium text-on-surface">{brand.name}</span>
+              {brand.is_popular && (
+                <span className="rounded-full bg-primary/10 px-2 py-0.5 text-xs text-primary">Mashhur</span>
+              )}
+              <span className="ml-1 text-xs text-on-surface-variant">
+                ({brand.series.reduce((s, sr) => s + sr.models.length, 0)} model)
+              </span>
+            </button>
+            {renderBrandExtra?.(brand)}
+          </div>
+
+          {/* Series list */}
+          {openBrands.has(brand.id) && (
+            <div className="border-t border-outline-variant/50 bg-surface-container-low/30 px-4 py-2 space-y-2">
+              {brand.series.length === 0 && (
+                <p className="py-2 text-xs text-on-surface-variant">Seriyalar yo'q</p>
+              )}
+              {brand.series.map((series) => (
+                <div key={series.id}>
+                  <div className="flex items-center gap-2 py-1.5">
+                    <button onClick={() => toggleSeries(series.id)} className="flex flex-1 items-center gap-1.5 text-left">
+                      <span className="material-symbols-outlined text-[16px] text-on-surface-variant transition-transform"
+                        style={{ transform: openSeries.has(series.id) ? 'rotate(90deg)' : 'none' }}>
+                        chevron_right
+                      </span>
+                      <span className="text-sm font-medium text-on-surface">{series.name}</span>
+                      <span className="text-xs text-on-surface-variant">({series.models.length})</span>
+                    </button>
+                    {renderSeriesExtra?.(series, brand)}
+                  </div>
+                  {openSeries.has(series.id) && (
+                    <div className="ml-6 space-y-1 pb-1">
+                      {series.models.map((m) => {
+                        const isExisting = existingIds?.has(m.id);
+                        const isChecked = checkedIds?.has(m.id);
+                        return (
+                          <div key={m.id} className="flex items-center gap-2 rounded-lg px-2 py-1 hover:bg-surface-container">
+                            {checkable && (
+                              <input
+                                type="checkbox"
+                                className="h-4 w-4 accent-primary"
+                                disabled={isExisting}
+                                checked={isExisting || isChecked}
+                                onChange={() => onToggleModel?.(m.id)}
+                              />
+                            )}
+                            <span className={`flex-1 text-sm ${isExisting ? 'text-on-surface-variant line-through' : 'text-on-surface'}`}>
+                              {m.full_name}
+                              {m.is_popular && <span className="ml-1 text-xs text-primary">★</span>}
+                            </span>
+                            {isExisting && (
+                              <span className="text-xs text-secondary">qo'shilgan</span>
+                            )}
+                            {renderModelExtra?.(m, series)}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+};
+
+// ── Sub-tab 1: Phone Models Manager ──────────────────────────────────────────
+const PhoneModelsManager = () => {
+  const qc = useQueryClient();
+  const [showBrandForm, setShowBrandForm]   = useState(false);
+  const [showSeriesForm, setShowSeriesForm] = useState(false);
+  const [showModelForm, setShowModelForm]   = useState(false);
+  const [brandForm, setBrandForm]   = useState({ name: '', is_popular: false, order: 0 });
+  const [seriesForm, setSeriesForm] = useState({ brand: '', name: '', order: 0 });
+  const [modelForm, setModelForm]   = useState({ series: '', name: '', year: '', is_popular: false, order: 0 });
+  const [saving, setSaving] = useState(false);
+
+  const { data: brands = [], isLoading } = useQuery<CPhoneBrand[]>({
+    queryKey: ['admin-phone-brands'],
+    queryFn: () => adminGetPhoneBrands().then((r) => r.data?.results ?? r.data),
+  });
+
+  const invalidate = () => qc.invalidateQueries({ queryKey: ['admin-phone-brands'] });
+
+  const handleBrand = async (e: FormEvent) => {
+    e.preventDefault(); setSaving(true);
+    try {
+      await adminCreatePhoneBrand({ ...brandForm, order: Number(brandForm.order) });
+      invalidate(); setShowBrandForm(false); setBrandForm({ name: '', is_popular: false, order: 0 });
+      toast.success('Brend qo\'shildi');
+    } catch (err) { toast.error(extractErrorMessage(err)); }
+    finally { setSaving(false); }
+  };
+  const handleSeries = async (e: FormEvent) => {
+    e.preventDefault(); setSaving(true);
+    try {
+      await adminCreatePhoneSeries({ brand: Number(seriesForm.brand), name: seriesForm.name, order: Number(seriesForm.order) });
+      invalidate(); setShowSeriesForm(false); setSeriesForm({ brand: '', name: '', order: 0 });
+      toast.success('Seriya qo\'shildi');
+    } catch (err) { toast.error(extractErrorMessage(err)); }
+    finally { setSaving(false); }
+  };
+  const handleModel = async (e: FormEvent) => {
+    e.preventDefault(); setSaving(true);
+    try {
+      await adminCreatePhoneModel({
+        series: Number(modelForm.series),
+        name: modelForm.name,
+        year: modelForm.year ? Number(modelForm.year) : null,
+        is_popular: modelForm.is_popular,
+        order: Number(modelForm.order),
+      });
+      invalidate(); setShowModelForm(false); setModelForm({ series: '', name: '', year: '', is_popular: false, order: 0 });
+      toast.success('Model qo\'shildi');
+    } catch (err) { toast.error(extractErrorMessage(err)); }
+    finally { setSaving(false); }
+  };
+  const deleteBrand = async (id: number, name: string) => {
+    if (!confirm(`"${name}" brendini o'chirishni tasdiqlaysizmi? Barcha seriya va modellari ham o'chadi.`)) return;
+    try { await adminDeletePhoneBrand(id); invalidate(); toast.success('Brend o\'chirildi'); }
+    catch (err) { toast.error(extractErrorMessage(err)); }
+  };
+  const deleteSeries = async (id: number, name: string) => {
+    if (!confirm(`"${name}" seriyasini o'chirishni tasdiqlaysizmi?`)) return;
+    try { await adminDeletePhoneSeries(id); invalidate(); toast.success('Seriya o\'chirildi'); }
+    catch (err) { toast.error(extractErrorMessage(err)); }
+  };
+  const deleteModel = async (id: number, name: string) => {
+    if (!confirm(`"${name}" modelini o'chirishni tasdiqlaysizmi?`)) return;
+    try { await adminDeletePhoneModel(id); invalidate(); toast.success('Model o\'chirildi'); }
+    catch (err) { toast.error(extractErrorMessage(err)); }
+  };
+
+  const allSeries = brands.flatMap((b) => b.series.map((s) => ({ ...s, brandName: b.name })));
+
+  if (isLoading) return <div className="py-16 text-center text-on-surface-variant">Yuklanmoqda…</div>;
+
+  return (
+    <div className="space-y-4">
+      {/* Toolbar */}
+      <div className="flex flex-wrap gap-2">
+        <button onClick={() => setShowBrandForm(true)}
+          className="flex items-center gap-1.5 rounded-xl bg-primary px-4 py-2 text-sm font-medium text-on-primary shadow-sm hover:bg-primary/90">
+          <span className="material-symbols-outlined text-[18px]">add</span>
+          Brend qo'shish
+        </button>
+        <button onClick={() => setShowSeriesForm(true)}
+          className="flex items-center gap-1.5 rounded-xl border border-outline bg-surface px-4 py-2 text-sm font-medium text-on-surface hover:bg-surface-container">
+          <span className="material-symbols-outlined text-[18px]">add</span>
+          Seriya qo'shish
+        </button>
+        <button onClick={() => setShowModelForm(true)}
+          className="flex items-center gap-1.5 rounded-xl border border-outline bg-surface px-4 py-2 text-sm font-medium text-on-surface hover:bg-surface-container">
+          <span className="material-symbols-outlined text-[18px]">smartphone</span>
+          Model qo'shish
+        </button>
+      </div>
+
+      {/* Brand Tree */}
+      <PhoneTree
+        brands={brands}
+        renderBrandExtra={(b) => (
+          <button onClick={() => deleteBrand(b.id, b.name)}
+            className="rounded-lg p-1.5 text-error hover:bg-error/10" title="O'chirish">
+            <span className="material-symbols-outlined text-[18px]">delete</span>
+          </button>
+        )}
+        renderSeriesExtra={(s) => (
+          <button onClick={() => deleteSeries(s.id, s.name)}
+            className="rounded-lg p-1.5 text-error hover:bg-error/10" title="O'chirish">
+            <span className="material-symbols-outlined text-[16px]">delete</span>
+          </button>
+        )}
+        renderModelExtra={(m) => (
+          <button onClick={() => deleteModel(m.id, m.full_name)}
+            className="rounded-lg p-1 text-error hover:bg-error/10" title="O'chirish">
+            <span className="material-symbols-outlined text-[15px]">close</span>
+          </button>
+        )}
+      />
+
+      {/* ── Brand Form Modal ── */}
+      {showBrandForm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-sm rounded-2xl bg-surface p-6 shadow-xl">
+            <h3 className="mb-4 font-semibold text-on-surface">Yangi brend</h3>
+            <form onSubmit={handleBrand} className="space-y-3">
+              <input required placeholder="Brend nomi (Apple, Samsung…)" value={brandForm.name}
+                onChange={(e) => setBrandForm({ ...brandForm, name: e.target.value })}
+                className="w-full rounded-xl border border-outline bg-surface-container px-3 py-2 text-sm text-on-surface outline-none focus:border-primary" />
+              <div className="flex items-center gap-2">
+                <input type="checkbox" id="bp" checked={brandForm.is_popular}
+                  onChange={(e) => setBrandForm({ ...brandForm, is_popular: e.target.checked })} />
+                <label htmlFor="bp" className="text-sm text-on-surface">Mashhur brend</label>
+              </div>
+              <input type="number" placeholder="Tartib (0, 1, 2…)" value={brandForm.order}
+                onChange={(e) => setBrandForm({ ...brandForm, order: Number(e.target.value) })}
+                className="w-full rounded-xl border border-outline bg-surface-container px-3 py-2 text-sm text-on-surface outline-none focus:border-primary" />
+              <div className="flex gap-2 pt-1">
+                <button type="button" onClick={() => setShowBrandForm(false)}
+                  className="flex-1 rounded-xl border border-outline py-2 text-sm text-on-surface hover:bg-surface-container">
+                  Bekor
+                </button>
+                <button type="submit" disabled={saving}
+                  className="flex-1 rounded-xl bg-primary py-2 text-sm font-medium text-on-primary hover:bg-primary/90 disabled:opacity-50">
+                  {saving ? 'Saqlanmoqda…' : 'Qo\'shish'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ── Series Form Modal ── */}
+      {showSeriesForm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-sm rounded-2xl bg-surface p-6 shadow-xl">
+            <h3 className="mb-4 font-semibold text-on-surface">Yangi seriya</h3>
+            <form onSubmit={handleSeries} className="space-y-3">
+              <select required value={seriesForm.brand}
+                onChange={(e) => setSeriesForm({ ...seriesForm, brand: e.target.value })}
+                className="w-full rounded-xl border border-outline bg-surface-container px-3 py-2 text-sm text-on-surface outline-none focus:border-primary">
+                <option value="">Brendni tanlang</option>
+                {brands.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
+              </select>
+              <input required placeholder="Seriya nomi (iPhone 15, Galaxy S24…)" value={seriesForm.name}
+                onChange={(e) => setSeriesForm({ ...seriesForm, name: e.target.value })}
+                className="w-full rounded-xl border border-outline bg-surface-container px-3 py-2 text-sm text-on-surface outline-none focus:border-primary" />
+              <input type="number" placeholder="Tartib" value={seriesForm.order}
+                onChange={(e) => setSeriesForm({ ...seriesForm, order: Number(e.target.value) })}
+                className="w-full rounded-xl border border-outline bg-surface-container px-3 py-2 text-sm text-on-surface outline-none focus:border-primary" />
+              <div className="flex gap-2 pt-1">
+                <button type="button" onClick={() => setShowSeriesForm(false)}
+                  className="flex-1 rounded-xl border border-outline py-2 text-sm text-on-surface hover:bg-surface-container">
+                  Bekor
+                </button>
+                <button type="submit" disabled={saving}
+                  className="flex-1 rounded-xl bg-primary py-2 text-sm font-medium text-on-primary hover:bg-primary/90 disabled:opacity-50">
+                  {saving ? 'Saqlanmoqda…' : 'Qo\'shish'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ── Model Form Modal ── */}
+      {showModelForm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-sm rounded-2xl bg-surface p-6 shadow-xl">
+            <h3 className="mb-4 font-semibold text-on-surface">Yangi model</h3>
+            <form onSubmit={handleModel} className="space-y-3">
+              <select required value={modelForm.series}
+                onChange={(e) => setModelForm({ ...modelForm, series: e.target.value })}
+                className="w-full rounded-xl border border-outline bg-surface-container px-3 py-2 text-sm text-on-surface outline-none focus:border-primary">
+                <option value="">Seriyani tanlang</option>
+                {allSeries.map((s) => (
+                  <option key={s.id} value={s.id}>{s.brandName} — {s.name}</option>
+                ))}
+              </select>
+              <input placeholder="Variant nomi (Pro, Pro Max, Ultra, bo'sh=standart)" value={modelForm.name}
+                onChange={(e) => setModelForm({ ...modelForm, name: e.target.value })}
+                className="w-full rounded-xl border border-outline bg-surface-container px-3 py-2 text-sm text-on-surface outline-none focus:border-primary" />
+              <input type="number" placeholder="Chiqarilgan yil (2023, 2024…)" value={modelForm.year}
+                onChange={(e) => setModelForm({ ...modelForm, year: e.target.value })}
+                className="w-full rounded-xl border border-outline bg-surface-container px-3 py-2 text-sm text-on-surface outline-none focus:border-primary" />
+              <div className="flex items-center gap-2">
+                <input type="checkbox" id="mp" checked={modelForm.is_popular}
+                  onChange={(e) => setModelForm({ ...modelForm, is_popular: e.target.checked })} />
+                <label htmlFor="mp" className="text-sm text-on-surface">Mashhur model (★)</label>
+              </div>
+              <div className="flex gap-2 pt-1">
+                <button type="button" onClick={() => setShowModelForm(false)}
+                  className="flex-1 rounded-xl border border-outline py-2 text-sm text-on-surface hover:bg-surface-container">
+                  Bekor
+                </button>
+                <button type="submit" disabled={saving}
+                  className="flex-1 rounded-xl bg-primary py-2 text-sm font-medium text-on-primary hover:bg-primary/90 disabled:opacity-50">
+                  {saving ? 'Saqlanmoqda…' : 'Qo\'shish'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+// ── Sub-tab 2: Product Compatibility Manager ──────────────────────────────────
+const ProductCompatibilityManager = () => {
+  const [productSearch, setProductSearch] = useState('');
+  const [selectedProduct, setSelectedProduct] = useState<AdminProduct | null>(null);
+  const [checkedIds, setCheckedIds] = useState<Set<number>>(new Set());
+  const [notes, setNotes] = useState('');
+  const [bulkSeriesId, setBulkSeriesId] = useState('');
+  const [bulkNotes, setBulkNotes] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  // Product search
+  const { data: productData } = useQuery({
+    queryKey: ['admin-products-compat-search', productSearch],
+    queryFn: () =>
+      adminGetProducts({ q: productSearch, page_size: 12 }).then((r) => r.data),
+    enabled: productSearch.length >= 1,
+  });
+  const productResults: AdminProduct[] = productData?.results ?? [];
+
+  // Phone brands
+  const { data: brands = [] } = useQuery<CPhoneBrand[]>({
+    queryKey: ['admin-phone-brands'],
+    queryFn: () => adminGetPhoneBrands().then((r) => r.data?.results ?? r.data),
+  });
+  const allSeries = brands.flatMap((b) => b.series.map((s) => ({ ...s, brandName: b.name })));
+
+  // Current compatibility for selected product
+  const { data: compatList = [], refetch: refetchCompat } = useQuery<CCompatEntry[]>({
+    queryKey: ['admin-product-compat', selectedProduct?.id],
+    queryFn: () =>
+      adminGetProductCompatibility(selectedProduct!.id).then((r) => r.data),
+    enabled: !!selectedProduct,
+  });
+  const existingIds = useMemo(() => new Set(compatList.map((c) => c.phone_model.id)), [compatList]);
+
+  const resetSelection = () => { setCheckedIds(new Set()); setNotes(''); };
+
+  const toggleModel = (id: number) =>
+    setCheckedIds((prev) => {
+      const n = new Set(prev);
+      n.has(id) ? n.delete(id) : n.add(id);
+      return n;
+    });
+
+  const handleAdd = async () => {
+    if (!selectedProduct || checkedIds.size === 0) return;
+    setSaving(true);
+    try {
+      const res = await adminAddProductCompatibility(selectedProduct.id, {
+        phone_model_ids: [...checkedIds],
+        notes,
+      });
+      toast.success(`${res.data.added} ta model qo'shildi`);
+      resetSelection();
+      refetchCompat();
+    } catch (err) { toast.error(extractErrorMessage(err)); }
+    finally { setSaving(false); }
+  };
+
+  const handleBulkSeries = async () => {
+    if (!selectedProduct || !bulkSeriesId) return;
+    setSaving(true);
+    try {
+      const res = await adminBulkAddCompatibilitySeries(selectedProduct.id, {
+        series_id: Number(bulkSeriesId),
+        notes: bulkNotes,
+      });
+      toast.success(`${res.data.added} ta model qo'shildi (${res.data.series})`);
+      setBulkSeriesId(''); setBulkNotes('');
+      refetchCompat();
+    } catch (err) { toast.error(extractErrorMessage(err)); }
+    finally { setSaving(false); }
+  };
+
+  const handleRemove = async (entry: CCompatEntry) => {
+    if (!selectedProduct) return;
+    try {
+      await adminRemoveProductCompatibility(selectedProduct.id, {
+        phone_model_ids: [entry.phone_model.id],
+      });
+      toast.success(`${entry.phone_model.full_name} o'chirildi`);
+      refetchCompat();
+    } catch (err) { toast.error(extractErrorMessage(err)); }
+  };
+
+  return (
+    <div className="grid gap-6 lg:grid-cols-2">
+      {/* ── Left: Product selector ── */}
+      <div className="space-y-4">
+        <div>
+          <label className="mb-1.5 block text-sm font-medium text-on-surface">
+            Mahsulot tanlang
+          </label>
+          <input
+            placeholder="Mahsulot nomi bo'yicha qidiring…"
+            value={productSearch}
+            onChange={(e) => { setProductSearch(e.target.value); setSelectedProduct(null); resetSelection(); }}
+            className="w-full rounded-xl border border-outline bg-surface-container px-3 py-2.5 text-sm text-on-surface outline-none focus:border-primary"
+          />
+        </div>
+
+        {/* Search results */}
+        {!selectedProduct && productResults.length > 0 && (
+          <div className="rounded-xl border border-outline-variant bg-surface-container-lowest divide-y divide-outline-variant/40 max-h-72 overflow-y-auto">
+            {productResults.map((p) => (
+              <button key={p.id} onClick={() => { setSelectedProduct(p); setProductSearch(p.name); resetSelection(); }}
+                className="flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-surface-container">
+                {p.main_image && (
+                  <img src={p.main_image} alt="" className="h-10 w-10 rounded-lg object-cover flex-shrink-0" />
+                )}
+                <div className="flex-1 min-w-0">
+                  <p className="truncate text-sm font-medium text-on-surface">{p.name}</p>
+                  <p className="text-xs text-on-surface-variant">{p.price?.toLocaleString()} so'm</p>
+                </div>
+              </button>
+            ))}
+          </div>
+        )}
+
+        {/* Selected product info */}
+        {selectedProduct && (
+          <div className="rounded-xl border border-primary/30 bg-primary/5 p-4">
+            <div className="flex items-start gap-3">
+              {selectedProduct.main_image && (
+                <img src={selectedProduct.main_image} alt="" className="h-14 w-14 rounded-xl object-cover flex-shrink-0" />
+              )}
+              <div className="flex-1">
+                <p className="font-medium text-on-surface">{selectedProduct.name}</p>
+                <p className="text-sm text-on-surface-variant">ID: {selectedProduct.id}</p>
+              </div>
+              <button onClick={() => { setSelectedProduct(null); setProductSearch(''); resetSelection(); }}
+                className="rounded-lg p-1 hover:bg-error/10 text-on-surface-variant hover:text-error">
+                <span className="material-symbols-outlined text-[18px]">close</span>
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Current compatible models */}
+        {selectedProduct && (
+          <div>
+            <div className="mb-2 flex items-center justify-between">
+              <h4 className="text-sm font-medium text-on-surface">
+                Hozirgi mosliklar
+                <span className="ml-2 rounded-full bg-secondary/10 px-2 py-0.5 text-xs text-secondary">
+                  {compatList.length}
+                </span>
+              </h4>
+            </div>
+            {compatList.length === 0 ? (
+              <p className="rounded-xl border border-dashed border-outline-variant py-6 text-center text-sm text-on-surface-variant">
+                Hech qanday moslik belgilanmagan
+              </p>
+            ) : (
+              <div className="flex flex-wrap gap-2">
+                {compatList.map((c) => (
+                  <span key={c.id}
+                    className="flex items-center gap-1.5 rounded-full border border-outline-variant bg-surface px-3 py-1 text-xs text-on-surface">
+                    {c.phone_model.full_name}
+                    {c.notes && <span className="text-on-surface-variant">· {c.notes}</span>}
+                    <button onClick={() => handleRemove(c)}
+                      className="ml-0.5 text-error hover:text-error/70" title="O'chirish">
+                      <span className="material-symbols-outlined text-[13px]">close</span>
+                    </button>
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Bulk add by series */}
+        {selectedProduct && (
+          <div className="rounded-xl border border-outline-variant bg-surface-container-lowest p-4 space-y-3">
+            <h4 className="text-sm font-medium text-on-surface flex items-center gap-2">
+              <span className="material-symbols-outlined text-[18px] text-primary">bolt</span>
+              Seriya bo'yicha barchasini qo'shish
+            </h4>
+            <select value={bulkSeriesId} onChange={(e) => setBulkSeriesId(e.target.value)}
+              className="w-full rounded-xl border border-outline bg-surface px-3 py-2 text-sm text-on-surface outline-none focus:border-primary">
+              <option value="">Seriyani tanlang…</option>
+              {allSeries.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.brandName} — {s.name} ({s.models.length} model)
+                </option>
+              ))}
+            </select>
+            <input placeholder="Izoh (ixtiyoriy): 'Asl ekran', 'A tipli'…" value={bulkNotes}
+              onChange={(e) => setBulkNotes(e.target.value)}
+              className="w-full rounded-xl border border-outline bg-surface px-3 py-2 text-sm text-on-surface outline-none focus:border-primary" />
+            <button onClick={handleBulkSeries} disabled={!bulkSeriesId || saving}
+              className="w-full rounded-xl bg-secondary py-2.5 text-sm font-medium text-on-secondary hover:bg-secondary/90 disabled:opacity-40">
+              {saving ? 'Qo\'shilmoqda…' : 'Seriyani barchasini qo\'shish'}
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* ── Right: Model checkboxes ── */}
+      <div className="space-y-4">
+        {!selectedProduct ? (
+          <div className="flex h-64 items-center justify-center rounded-2xl border-2 border-dashed border-outline-variant">
+            <div className="text-center">
+              <span className="material-symbols-outlined mb-2 text-4xl text-on-surface-variant/40">
+                phonelink
+              </span>
+              <p className="text-sm text-on-surface-variant">
+                Mahsulot tanlang, keyin<br />mos telefonlarni belgilang
+              </p>
+            </div>
+          </div>
+        ) : (
+          <>
+            <div className="flex items-center justify-between">
+              <h4 className="text-sm font-medium text-on-surface">
+                Moslik qo'shish
+                {checkedIds.size > 0 && (
+                  <span className="ml-2 rounded-full bg-primary/10 px-2 py-0.5 text-xs text-primary">
+                    {checkedIds.size} tanlandi
+                  </span>
+                )}
+              </h4>
+              {checkedIds.size > 0 && (
+                <button onClick={resetSelection} className="text-xs text-on-surface-variant hover:text-on-surface">
+                  Bekor
+                </button>
+              )}
+            </div>
+
+            <PhoneTree
+              brands={brands}
+              checkable
+              checkedIds={checkedIds}
+              existingIds={existingIds}
+              onToggleModel={toggleModel}
+            />
+
+            {checkedIds.size > 0 && (
+              <div className="sticky bottom-0 rounded-2xl border border-outline-variant bg-surface p-4 shadow-lg space-y-3">
+                <input placeholder="Izoh (ixtiyoriy): 'Faqat eSIM versiyasi'…" value={notes}
+                  onChange={(e) => setNotes(e.target.value)}
+                  className="w-full rounded-xl border border-outline bg-surface-container px-3 py-2 text-sm text-on-surface outline-none focus:border-primary" />
+                <button onClick={handleAdd} disabled={saving}
+                  className="w-full rounded-xl bg-primary py-2.5 text-sm font-medium text-on-primary shadow-sm hover:bg-primary/90 disabled:opacity-50">
+                  {saving ? 'Saqlanmoqda…' : `${checkedIds.size} ta modelga moslik qo'shish`}
+                </button>
+              </div>
+            )}
+          </>
+        )}
+      </div>
+    </div>
+  );
+};
+
+// ── Main CompatibilityTab ─────────────────────────────────────────────────────
+const CompatibilityTab = () => {
+  const [subTab, setSubTab] = useState<CompatSubTab>('models');
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h2 className="font-h3 text-h3 text-on-surface">Moslik Matritsasi</h2>
+        <p className="mt-1 text-sm text-on-surface-variant">
+          Telefon modellarini boshqaring va mahsulotlarga mos keladigan qurilmalarni belgilang.
+        </p>
+      </div>
+
+      {/* Sub-tabs */}
+      <div className="flex gap-1 rounded-xl bg-surface-container-low p-1 w-fit">
+        {([
+          { key: 'models',   label: 'Telefon modellari', icon: 'smartphone' },
+          { key: 'products', label: 'Mahsulot mosliqlari', icon: 'link' },
+        ] as { key: CompatSubTab; label: string; icon: string }[]).map(({ key, label, icon }) => (
+          <button key={key} onClick={() => setSubTab(key)}
+            className={`flex items-center gap-1.5 rounded-lg px-4 py-2 text-sm font-medium transition-all ${
+              subTab === key
+                ? 'bg-surface text-on-surface shadow-sm'
+                : 'text-on-surface-variant hover:text-on-surface'
+            }`}>
+            <span className="material-symbols-outlined text-[16px]">{icon}</span>
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {subTab === 'models'   && <PhoneModelsManager />}
+      {subTab === 'products' && <ProductCompatibilityManager />}
     </div>
   );
 };

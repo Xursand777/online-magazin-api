@@ -707,3 +707,29 @@ class ProductCompatibilityReadSerializer(serializers.ModelSerializer):
     class Meta:
         model = ProductCompatibility
         fields = ('id', 'phone_model', 'notes')
+
+
+class AdminPhoneBrandWriteSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = PhoneBrand
+        fields = ('id', 'name', 'is_popular', 'order')
+
+
+class AdminPhoneSeriesWriteSerializer(serializers.ModelSerializer):
+    brand_name = serializers.CharField(source='brand.name', read_only=True)
+
+    class Meta:
+        model = PhoneSeries
+        fields = ('id', 'brand', 'brand_name', 'name', 'order')
+
+
+class AdminPhoneModelWriteSerializer(serializers.ModelSerializer):
+    full_name   = serializers.CharField(read_only=True)
+    series_name = serializers.SerializerMethodField()
+
+    class Meta:
+        model = PhoneModel
+        fields = ('id', 'series', 'series_name', 'name', 'full_name', 'year', 'is_popular', 'order')
+
+    def get_series_name(self, obj):
+        return str(obj.series)

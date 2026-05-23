@@ -700,3 +700,49 @@ class AdminCompatibilityBulkSeriesView(views.APIView):
             'added': len(created),
             'already_existed': len(existing),
         }, status=status.HTTP_201_CREATED)
+
+
+# ── Admin ViewSets: PhoneBrand / PhoneSeries / PhoneModel ─────────────────────
+
+from .serializers import (
+    AdminPhoneBrandWriteSerializer,
+    AdminPhoneSeriesWriteSerializer,
+    AdminPhoneModelWriteSerializer,
+)
+
+
+class AdminPhoneBrandViewSet(viewsets.ModelViewSet):
+    """CRUD — Telefon brendlari."""
+    permission_classes = (IsAdminUser,)
+    queryset = (
+        PhoneBrand.objects
+        .prefetch_related('series__models')
+        .order_by('order', 'name')
+    )
+
+    def get_serializer_class(self):
+        if self.action in ('list', 'retrieve'):
+            return PhoneBrandSerializer
+        return AdminPhoneBrandWriteSerializer
+
+
+class AdminPhoneSeriesViewSet(viewsets.ModelViewSet):
+    """CRUD — Telefon seriyalari."""
+    permission_classes = (IsAdminUser,)
+    serializer_class = AdminPhoneSeriesWriteSerializer
+    queryset = (
+        PhoneSeries.objects
+        .select_related('brand')
+        .order_by('brand__order', 'order', 'name')
+    )
+
+
+class AdminPhoneModelViewSet(viewsets.ModelViewSet):
+    """CRUD — Aniq telefon modellari."""
+    permission_classes = (IsAdminUser,)
+    serializer_class = AdminPhoneModelWriteSerializer
+    queryset = (
+        PhoneModel.objects
+        .select_related('series__brand')
+        .order_by('series__brand__order', 'series__order', 'order', 'name')
+    )
