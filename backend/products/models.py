@@ -1,3 +1,4 @@
+import re
 from django.db import models
 from django.core.exceptions import ValidationError
 from django.utils.text import slugify
@@ -21,8 +22,283 @@ class GlobalSetting(models.Model):
             return Decimal('12800')
 
 
+# ─── Smart Translation Engine ─────────────────────────────────────────────────
+#
+# How major e-commerce platforms handle multilingual product data:
+#
+#   Amazon / AliExpress / Ozon use translation glossaries + protected-term
+#   substitution so that brand names, model codes, and technical specs are
+#   NEVER sent to the translation engine.  "iPhone" stays "iPhone" in every
+#   language; only the descriptive native-language words are translated.
+#
+# Our implementation uses three layers of protection:
+#
+#   Layer 1 – BRAND REGISTRY  : a frozen set of known brand names and
+#             English model-suffix words (Pro, Max, Note, Ultra …) that are
+#             matched as whole words (case-insensitive).
+#
+#   Layer 2 – SPEC PATTERNS   : regex for alphanumeric model codes
+#             (RS90F65D1FWT), storage sizes (128 GB), power ratings (165 W),
+#             resolutions (4K), etc.
+#
+#   Layer 3 – "FULLY PROTECTED" GATE  : after masking all protected spans,
+#             if no alphabetic character remains the entire string is a brand
+#             / model label — we return '' and let the serialiser fall back to
+#             the original value.  No translation artefacts, ever.
+#
+# For strings that DO contain translatable words (e.g. "Smartfon Apple iPhone
+# 16 128 GB Qora") we use a **segment-based** strategy: the protected spans
+# are extracted, the non-protected gaps are sent to Google Translate in a
+# single batch, and the result is stitched back together.  The translator
+# never sees "Apple", "iPhone", "Note", "Pro", "128 GB" — it cannot corrupt
+# them.
+
+# ── Brand / model-suffix registry ─────────────────────────────────────────────
+_BRANDS: frozenset = frozenset({
+    # Apple
+    'apple', 'iphone', 'ipad', 'ipod', 'airpods', 'imac', 'macbook',
+    # Samsung
+    'samsung', 'galaxy', 'qled', 'neo',
+    # Xiaomi / POCO
+    'xiaomi', 'redmi', 'poco', 'miui',
+    # Huawei / Honor
+    'huawei', 'honor',
+    # Consumer electronics
+    'lg', 'sony', 'panasonic', 'philips', 'bosch', 'siemens', 'beko',
+    'electrolux', 'artel', 'haier', 'hisense', 'vestel', 'gorenje',
+    # Audio
+    'marshall', 'logitech', 'beats', 'jbl', 'bose', 'sennheiser',
+    # Audio model lines — "Major", "Minor" etc. are Marshall product lines,
+    # not English words to be translated
+    'major', 'minor',
+    # Computing
+    'dell', 'hp', 'lenovo', 'asus', 'acer', 'toshiba', 'msi', 'razer',
+    # Chips
+    'intel', 'amd', 'nvidia', 'qualcomm', 'snapdragon',
+    # Mobile
+    'realme', 'oppo', 'vivo', 'oneplus', 'motorola', 'nokia', 'google', 'pixel',
+    # Cameras
+    'nikon', 'canon', 'fujifilm', 'gopro',
+    # English model-suffix words (change meaning or become nonsense when translated)
+    'pro', 'max', 'ultra', 'plus', 'lite', 'mini', 'note', 'air',
+    'edge', 'prime', 'se', 'fe', 'go',
+    # Display / connectivity / computing acronyms that must never be transliterated
+    'oled', 'amoled', 'ips', 'led', 'usb', 'nfc', '5g', '4g', 'lte',
+    'tv', 'ai', 'pc', 'cpu', 'gpu', 'ram', 'ssd', 'hdd', 'hdmi',
+    'side-by-side',
+    # English color / finish words used in product names (not Uzbek — Uzbek
+    # uses "qora", "oq", "ko'k", etc.).  When an admin enters the English
+    # word, it is part of the model name and must not be translated.
+    'black', 'white', 'blue', 'red', 'green', 'gold', 'silver',
+    'gray', 'grey', 'pink', 'purple', 'orange', 'yellow', 'brown',
+    'titanium', 'graphite', 'graphit', 'desert', 'midnight',
+    'starlight', 'natural', 'storm', 'phantom', 'cosmic',
+    'ocean', 'lavender', 'alpine', 'pine',
+    # Samsung / Hisense product-line proper nouns (not translated on their sites)
+    'vision', 'fusion',
+    # Roman numerals used as model generation markers ("Marshall Major V")
+    'v', 'ii', 'iii', 'iv', 'vi', 'vii', 'viii', 'ix', 'xi', 'xii',
+    # Single-letter product-tier designators: Samsung Galaxy A/S/M/Z/F/X,
+    # Xiaomi TV A/S/X, Realme C/V, etc.  In Uzbek, single standalone letters
+    # are not used as words, so word-boundary matching is safe here.
+    'a', 's', 'x', 'z', 'f',
+})
+
+# Alphanumeric model codes and unit-bearing technical specs
+# Covers formats like: RS90F65D1FWT  GC-B459SECL  65UT80006LA  128GB  4K  165W
+_SPEC_RE = re.compile(
+    r'\b('
+    # Hyphenated model codes: GC-B459SECL, QE55-QN70F, etc.
+    r'[A-Z]{1,6}-[A-Z]{1,6}\d{1,10}[A-Z0-9+\-]*'
+    # Plain model codes starting with letters: RS90F65D1FWT, A56, S25, X9d
+    r'|[A-Z]{1,6}\d{1,10}[A-Z0-9+\-]*'
+    # Plain model codes starting with digits: 65UT80006LA, 4K, 8K
+    r'|\d{1,6}[A-Z]{1,6}[A-Z0-9+\-]*'
+    # Technical specs with SI units: 128 GB, 5000 mAh, 165 W, 48 MP
+    r'|\d+\s*(?:GB|TB|MB|GHz|MHz|mAh|Wh|W|Hz|MP|mm|cm|K)\b'
+    r')',
+    re.IGNORECASE,
+)
+
+# Brand regex built from the registry (longest match first → greedy precedence)
+_BRAND_RE = re.compile(
+    r'\b(' + '|'.join(re.escape(w) for w in sorted(_BRANDS, key=len, reverse=True)) + r')\b',
+    re.IGNORECASE,
+)
+
+# Separator used to batch multiple translatable chunks in one API call.
+# U+2042 ASTERISM — astronomically unlikely to appear in product text.
+_SEP = '\n⁂\n'
+
+
+def _protected_spans(text: str) -> list:
+    """Return sorted, merged (start, end) spans covering every protected term."""
+    raw = [(m.start(), m.end()) for m in _BRAND_RE.finditer(text)]
+    raw += [(m.start(), m.end()) for m in _SPEC_RE.finditer(text)]
+    raw.sort()
+    merged = []
+    for s, e in raw:
+        if merged and s <= merged[-1][1]:
+            merged[-1][1] = max(merged[-1][1], e)
+        else:
+            merged.append([s, e])
+    return [(s, e) for s, e in merged]
+
+
+def _is_fully_protected(text: str, spans: list) -> bool:
+    """
+    True when every non-numeric, non-punctuation character in `text` falls
+    inside a protected span — i.e. the string is a pure brand / model label
+    and there is literally nothing left to translate.
+    """
+    prev = 0
+    for s, e in spans:
+        gap = text[prev:s]
+        if re.search(r'[^\W\d_]', gap, re.UNICODE):   # any real letter in gap?
+            return False
+        prev = e
+    return not re.search(r'[^\W\d_]', text[prev:], re.UNICODE)
+
+
+def _raw_translate(text: str, target_lang: str) -> str:
+    """Single Google Translate call.  source='auto' handles mixed-language input."""
+    if not text.strip():
+        return ''
+    try:
+        from deep_translator import GoogleTranslator
+        result = GoogleTranslator(source='auto', target=target_lang).translate(text)
+        return (result or '').strip()
+    except Exception:
+        return ''
+
+
+def _translate_text(text: str, target_lang: str) -> str:
+    """
+    Translate `text` (Uzbek / mixed) to `target_lang` with full brand and
+    model-number protection.
+
+    Returns '' when:
+      • text is empty / whitespace
+      • the entire text is brand names / model codes / specs (nothing to translate)
+      • the translation call fails or returns nothing
+
+    An empty return value tells the caller to keep the original field as the
+    fallback — the serialiser will serve it to all languages unchanged, which
+    is exactly correct for strings like "iPhone 17 Pro Max".
+
+    Algorithm (segment-based, no placeholder artefacts):
+      1. Locate all protected spans.
+      2. Gate: if no translatable characters remain → return ''.
+      3. Collect the non-protected text chunks (the "gaps").
+      4. Join gaps with _SEP and translate them in ONE API call.
+      5. Split the translated result on _SEP and stitch the pieces back
+         together with the original protected spans in their original positions.
+      6. Fallback: if _SEP was mangled by the translator, retry using the
+         opaque-placeholder approach (⟨N0⟩ Unicode angle-bracket tokens).
+    """
+    if not text or not text.strip():
+        return ''
+
+    spans = _protected_spans(text)
+
+    # ── Gate ──────────────────────────────────────────────────────────────────
+    if _is_fully_protected(text, spans):
+        return ''          # e.g. "iPhone 17 Pro Max" or "Xiaomi Redmi Note 15"
+
+    # ── No protected terms at all ─────────────────────────────────────────────
+    if not spans:
+        return _raw_translate(text, target_lang)
+
+    # ── Segment-based translation ─────────────────────────────────────────────
+    # Build a segment list.  Crucially, leading/trailing whitespace in every
+    # gap is separated out as its own 'protect' node so that stripping the
+    # translated content never swallows the spaces around brand names.
+    # e.g. "Sovutgich SAMSUNG …"  →  [translate:"Sovutgich"] [protect:" "]
+    #                                  [protect:"SAMSUNG"] …
+    # Reconstruction then yields "Холодильник SAMSUNG …" (space intact).
+
+    def _push_gap(buf: list, gap: str) -> None:
+        stripped = gap.strip()
+        if not stripped:
+            if gap:
+                buf.append({'kind': 'protect', 'text': gap})
+            return
+        lws = gap[: len(gap) - len(gap.lstrip())]
+        rws = gap[len(gap.rstrip()) :]
+        if lws:
+            buf.append({'kind': 'protect',   'text': lws})
+        buf.append({'kind': 'translate', 'text': stripped})
+        if rws:
+            buf.append({'kind': 'protect',   'text': rws})
+
+    segments: list = []
+    prev = 0
+    for s, e in spans:
+        _push_gap(segments, text[prev:s])
+        segments.append({'kind': 'protect', 'text': text[s:e]})
+        prev = e
+    _push_gap(segments, text[prev:])
+
+    to_translate = [seg['text'] for seg in segments if seg['kind'] == 'translate']
+    if not to_translate:
+        return ''
+
+    # One API call for all translatable chunks
+    batch_out = _raw_translate(_SEP.join(to_translate), target_lang)
+    if not batch_out:
+        return ''
+
+    translated_chunks = batch_out.split('⁂')
+
+    if len(translated_chunks) != len(to_translate):
+        # Separator was consumed/mangled — fall back to placeholder approach
+        return _translate_with_placeholders(text, spans, target_lang)
+
+    translated_chunks = [c.strip('\n') for c in translated_chunks]
+
+    result, t_idx = [], 0
+    for seg in segments:
+        if seg['kind'] == 'protect':
+            result.append(seg['text'])
+        else:
+            result.append(translated_chunks[t_idx])
+            t_idx += 1
+
+    return ''.join(result).strip()
+
+
+def _translate_with_placeholders(text: str, spans: list, target_lang: str) -> str:
+    """
+    Fallback path used when the batch separator is corrupted by the translator.
+    Replaces each protected span with ⟨Ni⟩ (U+27E8/U+27E9 angle brackets —
+    mathematical symbols that translation engines universally preserve), then
+    restores the originals after translation.
+    """
+    placeholders: dict = {}
+    parts: list = []
+    prev = 0
+    for i, (s, e) in enumerate(spans):
+        parts.append(text[prev:s])
+        token = f'⟨N{i}⟩'
+        placeholders[token] = text[s:e]
+        parts.append(token)
+        prev = e
+    parts.append(text[prev:])
+
+    translated = _raw_translate(''.join(parts), target_lang)
+    if not translated:
+        return ''
+
+    for token, original in placeholders.items():
+        translated = translated.replace(token, original)
+
+    return translated.strip()
+
+
 class Category(models.Model):
     name = models.CharField(max_length=255)
+    name_ru = models.CharField(max_length=255, blank=True, default='')
+    name_en = models.CharField(max_length=255, blank=True, default='')
     slug = models.SlugField(max_length=255, unique=True, blank=True)
     parent = models.ForeignKey('self', on_delete=models.SET_NULL, null=True, blank=True, related_name='children')
     image = models.ImageField(upload_to='categories/', null=True, blank=True)
@@ -33,6 +309,10 @@ class Category(models.Model):
     def save(self, *args, **kwargs):
         if not self.slug:
             self.slug = slugify(self.name)
+        if self.name and not self.name_ru:
+            self.name_ru = _translate_text(self.name, 'ru')
+        if self.name and not self.name_en:
+            self.name_en = _translate_text(self.name, 'en')
         super().save(*args, **kwargs)
 
     class Meta:
@@ -50,8 +330,12 @@ class Category(models.Model):
 class Product(models.Model):
     category = models.ForeignKey(Category, on_delete=models.SET_NULL, null=True, blank=True, related_name='products')
     name = models.CharField(max_length=255)
+    name_ru = models.CharField(max_length=255, blank=True, default='')
+    name_en = models.CharField(max_length=255, blank=True, default='')
     slug = models.SlugField(max_length=255, unique=True, blank=True)
     description = models.TextField(blank=True, default='')
+    description_ru = models.TextField(blank=True, default='')
+    description_en = models.TextField(blank=True, default='')
     price = models.DecimalField(max_digits=12, decimal_places=2)
     price_usd = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
     discount_price = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
@@ -92,7 +376,16 @@ class Product(models.Model):
             self.price = (self.price_usd * rate).quantize(Decimal('1'))
             if self.discount_price_usd:
                 self.discount_price = (self.discount_price_usd * rate).quantize(Decimal('1'))
-        
+
+        if self.name and not self.name_ru:
+            self.name_ru = _translate_text(self.name, 'ru')
+        if self.name and not self.name_en:
+            self.name_en = _translate_text(self.name, 'en')
+        if self.description and not self.description_ru:
+            self.description_ru = _translate_text(self.description, 'ru')
+        if self.description and not self.description_en:
+            self.description_en = _translate_text(self.description, 'en')
+
         super().save(*args, **kwargs)
 
     def __str__(self):
@@ -166,6 +459,126 @@ class ProductVariantImage(models.Model):
 
     def __str__(self):
         return f"Image for {self.variant}"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# COMPAT — Telefon Mos Kelish Matritsasi
+# ─────────────────────────────────────────────────────────────────────────────
+
+class PhoneBrand(models.Model):
+    """Telefon brandi: Apple, Samsung, Xiaomi, Huawei..."""
+    name     = models.CharField(max_length=100, unique=True)
+    slug     = models.SlugField(max_length=100, unique=True, blank=True)
+    logo     = models.ImageField(upload_to='brands/logos/', null=True, blank=True)
+    is_popular = models.BooleanField(default=False)
+    order    = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        ordering = ['order', 'name']
+        verbose_name = 'Telefon brandi'
+        verbose_name_plural = 'Telefon brendlari'
+
+    def save(self, *args, **kwargs):
+        if not self.slug:
+            self.slug = slugify(self.name)
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return self.name
+
+
+class PhoneSeries(models.Model):
+    """
+    Telefon seriyasi: iPhone 15, Galaxy S24, Redmi Note 13...
+    Bir brand ichida bir nechta seriya bo'lishi mumkin.
+    """
+    brand = models.ForeignKey(PhoneBrand, on_delete=models.CASCADE, related_name='series')
+    name  = models.CharField(max_length=100)
+    slug  = models.SlugField(max_length=220, unique=True, blank=True)
+    order = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        ordering = ['order', 'name']
+        verbose_name = 'Telefon seriyasi'
+        verbose_name_plural = 'Telefon seriyalari'
+        unique_together = ('brand', 'name')
+
+    def save(self, *args, **kwargs):
+        if not self.slug:
+            self.slug = slugify(f"{self.brand.name}-{self.name}")
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f"{self.brand.name} {self.name}"
+
+
+class PhoneModel(models.Model):
+    """
+    Aniq telefon modeli: iPhone 15 Pro, iPhone 15 Pro Max, Galaxy S24 Ultra...
+    Moslik matritsasining eng past darajasi.
+    """
+    series = models.ForeignKey(PhoneSeries, on_delete=models.CASCADE, related_name='models')
+    name   = models.CharField(
+        max_length=100,
+        help_text="Variant nomi: 'Pro', 'Pro Max', 'Ultra', 'Plus', yoki bo'sh (standart)"
+    )
+    slug       = models.SlugField(max_length=300, unique=True, blank=True)
+    year       = models.PositiveSmallIntegerField(null=True, blank=True, help_text="Chiqarilgan yil")
+    is_popular = models.BooleanField(default=False)
+    order      = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        ordering = ['order', 'name']
+        verbose_name = 'Telefon modeli'
+        verbose_name_plural = 'Telefon modellari'
+        unique_together = ('series', 'name')
+
+    @property
+    def full_name(self) -> str:
+        parts = [self.series.brand.name, self.series.name]
+        if self.name:
+            parts.append(self.name)
+        return ' '.join(parts)
+
+    def save(self, *args, **kwargs):
+        if not self.slug:
+            base = slugify(f"{self.series.brand.name}-{self.series.name}-{self.name}")
+            slug, n = base, 1
+            while PhoneModel.objects.filter(slug=slug).exclude(pk=self.pk).exists():
+                slug = f"{base}-{n}"
+                n += 1
+            self.slug = slug
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return self.full_name
+
+
+class ProductCompatibility(models.Model):
+    """
+    Mahsulot ↔ Telefon modeli mos kelish bog'lanishi.
+    notes: ixtiyoriy izoh ('Faqat eSIM versiyasi', 'A2342 uchun' kabi).
+    """
+    product     = models.ForeignKey(Product,    on_delete=models.CASCADE, related_name='compatibility')
+    phone_model = models.ForeignKey(PhoneModel, on_delete=models.CASCADE, related_name='compatible_products')
+    notes       = models.CharField(
+        max_length=255, blank=True,
+        help_text="Ixtiyoriy izoh: 'Faqat eSIM versiyasi', 'A2342 model uchun'"
+    )
+
+    class Meta:
+        unique_together = ('product', 'phone_model')
+        ordering = [
+            'phone_model__series__brand__order',
+            'phone_model__series__order',
+            'phone_model__order',
+            'phone_model__name',
+        ]
+        verbose_name = 'Moslik'
+        verbose_name_plural = 'Moslik matritsasi'
+
+    def __str__(self):
+        return f"{self.product.name}  ←→  {self.phone_model.full_name}"
 
 
 class HomeBanner(models.Model):

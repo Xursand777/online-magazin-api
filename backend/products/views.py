@@ -14,12 +14,18 @@ from recommendations.services import (
     record_product_event,
     record_search_event,
 )
+from django.shortcuts import get_object_or_404
 from .serializers import (
     CategorySerializer, ProductListSerializer, ProductDetailSerializer, ProductSearchSerializer,
-    AdminCategorySerializer, AdminHomeBannerSerializer, AdminProductSerializer, HomeBannerSerializer
+    AdminCategorySerializer, AdminHomeBannerSerializer, AdminProductSerializer, HomeBannerSerializer,
+    PhoneBrandSerializer,
+    CompatibilityWriteSerializer, CompatibilityBulkSeriesSerializer, ProductCompatibilityReadSerializer,
 )
 from .services import build_similar_products
-from .models import Category, HomeBanner, Product, GlobalSetting, ProductVariant
+from .models import (
+    Category, HomeBanner, Product, GlobalSetting, ProductVariant,
+    PhoneBrand, PhoneSeries, PhoneModel, ProductCompatibility,
+)
 from decimal import Decimal
 
 
@@ -99,7 +105,12 @@ class ProductListView(generics.ListAPIView):
         popular = self.request.query_params.get('popular')
         if popular == 'true':
             qs = qs.filter(is_popular=True)
-            
+
+        # Moslik filtri: ?compatible_with=iphone-15-pro
+        compatible_with = self.request.query_params.get('compatible_with')
+        if compatible_with:
+            qs = qs.filter(compatibility__phone_model__slug=compatible_with).distinct()
+
         return qs
 
 class ProductSearchView(generics.ListAPIView):
@@ -475,3 +486,217 @@ class AdminStockReportView(views.APIView):
             },
             'items': items,
         })
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# COMPAT VIEWS — Telefon Mos Kelish Matritsasi
+# ─────────────────────────────────────────────────────────────────────────────
+
+class PhoneBrandListView(generics.ListAPIView):
+    """
+    GET /api/phones/
+    Barcha brendlar + seriyalar + modellari (frontend selector uchun).
+    Foydalanuvchi o'z telefonini tanlash uchun ishlatadi.
+    """
+    serializer_class = PhoneBrandSerializer
+    permission_classes = (AllowAny,)
+
+    def get_queryset(self):
+        qs = (
+            PhoneBrand.objects
+            .prefetch_related('series__models')
+            .order_by('order', 'name')
+        )
+        popular_only = self.request.query_params.get('popular')
+        if popular_only == 'true':
+            qs = qs.filter(is_popular=True)
+        return qs
+
+
+class PhoneModelSearchView(views.APIView):
+    """
+    GET /api/phones/search/?q=iphone+15
+    Model nomini qidirish (autocomplete uchun).
+    """
+    permission_classes = (AllowAny,)
+
+    def get(self, request):
+        q = (request.query_params.get('q') or '').strip()
+        if len(q) < 2:
+            return Response([])
+        from .serializers import PhoneModelMiniSerializer
+        models = (
+            PhoneModel.objects
+            .select_related('series__brand')
+            .filter(
+                Q(series__brand__name__icontains=q)
+                | Q(series__name__icontains=q)
+                | Q(name__icontains=q)
+            )
+            .order_by('-is_popular', 'series__brand__order', 'series__order', 'order')[:20]
+        )
+        return Response(PhoneModelMiniSerializer(models, many=True).data)
+
+
+class ProductCompatibleModelsView(views.APIView):
+    """
+    GET /api/products/{pk}/compatible-models/
+    Mahsulotga mos keluvchi barcha telefon modellari — brend bo'yicha guruhlanib.
+    Frontend mahsulot sahifasida "Mos keladi: ..." qatorini ko'rsatish uchun.
+    """
+    permission_classes = (AllowAny,)
+
+    def get(self, request, pk):
+        product = get_object_or_404(Product, pk=pk, is_active=True)
+        compat = (
+            product.compatibility
+            .select_related('phone_model__series__brand')
+            .order_by(
+                'phone_model__series__brand__order',
+                'phone_model__series__order',
+                'phone_model__order',
+            )
+        )
+        brands: dict = {}
+        for c in compat:
+            m = c.phone_model
+            key = m.series.brand.slug
+            if key not in brands:
+                brands[key] = {
+                    'brand': m.series.brand.name,
+                    'brand_slug': key,
+                    'models': [],
+                }
+            brands[key]['models'].append({
+                'id': m.id,
+                'slug': m.slug,
+                'full_name': m.full_name,
+                'notes': c.notes,
+            })
+        return Response({
+            'product_id': product.id,
+            'compatible_count': compat.count(),
+            'by_brand': list(brands.values()),
+        })
+
+
+# ── Admin: Moslik boshqaruvi ──────────────────────────────────────────────────
+
+class AdminPhoneBrandListView(generics.ListAPIView):
+    """
+    GET /api/admin/phones/brands/
+    Admin panel uchun: barcha brendlar (moslik qo'shishda dropdown).
+    """
+    serializer_class = PhoneBrandSerializer
+    permission_classes = (IsAdminUser,)
+    queryset = (
+        PhoneBrand.objects
+        .prefetch_related('series__models')
+        .order_by('order', 'name')
+    )
+
+
+class AdminCompatibilityView(views.APIView):
+    """
+    GET    /api/admin/products/{pk}/compatibility/  → mosliklar ro'yxati
+    POST   /api/admin/products/{pk}/compatibility/  → model ID'lar qo'shish
+    DELETE /api/admin/products/{pk}/compatibility/  → model ID'lar o'chirish
+    """
+    permission_classes = (IsAdminUser,)
+
+    def get(self, request, pk):
+        product = get_object_or_404(Product, pk=pk)
+        compat = (
+            product.compatibility
+            .select_related('phone_model__series__brand')
+        )
+        return Response(ProductCompatibilityReadSerializer(compat, many=True).data)
+
+    def post(self, request, pk):
+        product = get_object_or_404(Product, pk=pk)
+        s = CompatibilityWriteSerializer(data=request.data)
+        s.is_valid(raise_exception=True)
+
+        model_ids = s.validated_data['phone_model_ids']
+        notes     = s.validated_data['notes']
+
+        # Mavjud bo'lmaganlarini topamiz
+        existing = set(
+            product.compatibility
+            .filter(phone_model_id__in=model_ids)
+            .values_list('phone_model_id', flat=True)
+        )
+        new_ids = [mid for mid in model_ids if mid not in existing]
+
+        # Kiritilgan ID'lar haqiqatan mavjudligini tekshiramiz
+        valid_models = PhoneModel.objects.filter(id__in=new_ids)
+        valid_ids = set(valid_models.values_list('id', flat=True))
+        invalid_ids = [mid for mid in new_ids if mid not in valid_ids]
+        if invalid_ids:
+            return Response(
+                {'detail': f"Topilmadi: PhoneModel ID'lar {invalid_ids}"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        created = ProductCompatibility.objects.bulk_create([
+            ProductCompatibility(product=product, phone_model_id=mid, notes=notes)
+            for mid in new_ids
+        ])
+        return Response(
+            {'added': len(created), 'already_existed': len(existing)},
+            status=status.HTTP_201_CREATED,
+        )
+
+    def delete(self, request, pk):
+        product = get_object_or_404(Product, pk=pk)
+        s = CompatibilityWriteSerializer(data=request.data)
+        s.is_valid(raise_exception=True)
+        deleted, _ = (
+            product.compatibility
+            .filter(phone_model_id__in=s.validated_data['phone_model_ids'])
+            .delete()
+        )
+        return Response({'deleted': deleted})
+
+
+class AdminCompatibilityBulkSeriesView(views.APIView):
+    """
+    POST /api/admin/products/{pk}/compatibility/bulk-series/
+    Bir butun seriyani (masalan, "iPhone 15 Series" barcha modellari)
+    bir marta bosish bilan mahsulotga qo'shadi.
+    Zapchast ko'p modelga mos kelganda vaqtni tejaydi.
+    """
+    permission_classes = (IsAdminUser,)
+
+    def post(self, request, pk):
+        product = get_object_or_404(Product, pk=pk)
+        s = CompatibilityBulkSeriesSerializer(data=request.data)
+        s.is_valid(raise_exception=True)
+
+        series = get_object_or_404(PhoneSeries, pk=s.validated_data['series_id'])
+        notes  = s.validated_data['notes']
+
+        all_model_ids = list(series.models.values_list('id', flat=True))
+        if not all_model_ids:
+            return Response(
+                {'detail': f"'{series}' seriyasida hech qanday model yo'q."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        existing = set(
+            product.compatibility
+            .filter(phone_model_id__in=all_model_ids)
+            .values_list('phone_model_id', flat=True)
+        )
+        new_ids = [mid for mid in all_model_ids if mid not in existing]
+
+        created = ProductCompatibility.objects.bulk_create([
+            ProductCompatibility(product=product, phone_model_id=mid, notes=notes)
+            for mid in new_ids
+        ])
+        return Response({
+            'series': str(series),
+            'total_models': len(all_model_ids),
+            'added': len(created),
+            'already_existed': len(existing),
+        }, status=status.HTTP_201_CREATED)

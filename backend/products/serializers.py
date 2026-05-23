@@ -6,7 +6,10 @@ from typing import Optional
 
 from django.utils.text import slugify
 from rest_framework import serializers
-from .models import Category, HomeBanner, Product, ProductImage, ProductVariant, ProductVariantImage
+from .models import (
+    Category, HomeBanner, Product, ProductImage, ProductVariant, ProductVariantImage,
+    PhoneBrand, PhoneSeries, PhoneModel, ProductCompatibility,
+)
 
 _CDN = os.getenv('CDN_PROVIDER', 'local')
 
@@ -154,16 +157,49 @@ class ProductDetailSerializer(serializers.ModelSerializer):
     category = CategorySerializer(read_only=True)
     name = serializers.SerializerMethodField()
     description = serializers.SerializerMethodField()
+    compatible_models = serializers.SerializerMethodField()
 
     class Meta:
         model = Product
-        fields = ('id', 'name', 'slug', 'description', 'price', 'discount_price', 'stock', 'is_discount', 'is_new', 'is_popular', 'category', 'images', 'variants')
+        fields = (
+            'id', 'name', 'slug', 'description',
+            'price', 'discount_price', 'stock',
+            'is_discount', 'is_new', 'is_popular',
+            'category', 'images', 'variants',
+            'compatible_models',
+        )
 
     def get_name(self, obj):
         return localized(obj, 'name', get_lang(self.context))
 
     def get_description(self, obj):
         return localized(obj, 'description', get_lang(self.context))
+
+    def get_compatible_models(self, obj):
+        compat = (
+            obj.compatibility
+            .select_related('phone_model__series__brand')
+            .all()
+        )
+        if not compat.exists():
+            return []
+        brands: dict = {}
+        for c in compat:
+            m = c.phone_model
+            key = m.series.brand.slug
+            if key not in brands:
+                brands[key] = {
+                    'brand': m.series.brand.name,
+                    'brand_slug': key,
+                    'models': [],
+                }
+            brands[key]['models'].append({
+                'id': m.id,
+                'slug': m.slug,
+                'full_name': m.full_name,
+                'notes': c.notes,
+            })
+        return list(brands.values())
 
 
 def _cloudinary_transform(url: str, width: Optional[int] = None) -> str:
@@ -611,3 +647,63 @@ class AdminProductSerializer(serializers.ModelSerializer):
         if variants_data is not serializers.empty:
             self._sync_variants(product, variants_data)
         return product
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# COMPAT SERIALIZERS — Telefon Mos Kelish Matritsasi
+# ─────────────────────────────────────────────────────────────────────────────
+
+class PhoneModelMiniSerializer(serializers.ModelSerializer):
+    """Kichik ko'rinish: faqat identifikatsiya uchun (dropdown, badge)."""
+    full_name  = serializers.CharField(read_only=True)
+    brand_name = serializers.CharField(source='series.brand.name', read_only=True)
+    series_name = serializers.CharField(source='series.name', read_only=True)
+
+    class Meta:
+        model = PhoneModel
+        fields = ('id', 'slug', 'full_name', 'brand_name', 'series_name', 'year', 'is_popular')
+
+
+class PhoneSeriesSerializer(serializers.ModelSerializer):
+    models = PhoneModelMiniSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = PhoneSeries
+        fields = ('id', 'name', 'slug', 'order', 'models')
+
+
+class PhoneBrandSerializer(serializers.ModelSerializer):
+    series   = PhoneSeriesSerializer(many=True, read_only=True)
+    logo_url = serializers.SerializerMethodField()
+
+    class Meta:
+        model = PhoneBrand
+        fields = ('id', 'name', 'slug', 'logo_url', 'is_popular', 'order', 'series')
+
+    def get_logo_url(self, obj):
+        return absolute_media_url(self.context.get('request'), obj.logo)
+
+
+class CompatibilityWriteSerializer(serializers.Serializer):
+    """Admin uchun: mahsulotga moslik qo'shish/o'chirish."""
+    phone_model_ids = serializers.ListField(
+        child=serializers.IntegerField(min_value=1),
+        min_length=1,
+        help_text="Qo'shiladigan PhoneModel ID'lar ro'yxati",
+    )
+    notes = serializers.CharField(max_length=255, required=False, allow_blank=True, default='')
+
+
+class CompatibilityBulkSeriesSerializer(serializers.Serializer):
+    """Admin uchun: butun bir seriyani bir vaqtda qo'shish."""
+    series_id = serializers.IntegerField(min_value=1)
+    notes     = serializers.CharField(max_length=255, required=False, allow_blank=True, default='')
+
+
+class ProductCompatibilityReadSerializer(serializers.ModelSerializer):
+    """Bitta moslik yozuvi (admin ro'yxati uchun)."""
+    phone_model = PhoneModelMiniSerializer(read_only=True)
+
+    class Meta:
+        model = ProductCompatibility
+        fields = ('id', 'phone_model', 'notes')
