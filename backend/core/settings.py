@@ -58,6 +58,8 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
 
     # Third-party
+    'cloudinary_storage',   # CDN storage backend (DEFAULT_FILE_STORAGE o'zgarishidan oldin bo'lishi shart)
+    'cloudinary',           # Cloudinary Python SDK
     'corsheaders',
     'rest_framework',
     'rest_framework_simplejwt',
@@ -146,6 +148,46 @@ MEDIA_URL = '/media/'
 MEDIA_ROOT = BASE_DIR / 'media'
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+# ─────────────────────────────────────────────────────────────────────────────
+# CDN — Rasm va Fayl Xizmati
+# ─────────────────────────────────────────────────────────────────────────────
+# CDN_PROVIDER qiymatlari:
+#   'local'      — serverning o'z diski (default, development)
+#   'cloudinary' — Cloudinary CDN (production uchun tavsiya etiladi)
+#
+# Cloudinary bepul reja: 25GB saqlash + 25GB o'tkazish/oy
+# Hisob oching: https://cloudinary.com/users/register/free
+
+CDN_PROVIDER = os.getenv('CDN_PROVIDER', 'local')
+
+if CDN_PROVIDER == 'cloudinary':
+    _cloud_name   = os.getenv('CLOUDINARY_CLOUD_NAME', '')
+    _api_key      = os.getenv('CLOUDINARY_API_KEY', '')
+    _api_secret   = os.getenv('CLOUDINARY_API_SECRET', '')
+
+    if not all([_cloud_name, _api_key, _api_secret]):
+        raise RuntimeError(
+            "[CDN] CDN_PROVIDER=cloudinary lekin sozlamalar to'liq emas!\n"
+            "  CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET\n"
+            "  muhit o'zgaruvchilarini o'rnating."
+        )
+
+    CLOUDINARY_STORAGE = {
+        'CLOUD_NAME': _cloud_name,
+        'API_KEY':    _api_key,
+        'API_SECRET': _api_secret,
+        # Fayllar `bozor/` papkasiga yuklanadi (Cloudinary Media Library'da tartibli ko'rinadi)
+        'MEDIA_TAG':  'bozor',
+        # Yuklangan fayllarni avtomatik optimallashtirish
+        'MAGIC_FILE_PATH': 'cloudinary_storage/magic',
+    }
+
+    # Django barcha ImageField va FileField'larni Cloudinary'ga saqlaydi
+    DEFAULT_FILE_STORAGE = 'cloudinary_storage.storage.MediaCloudinaryStorage'
+
+    # Cloudinary'dan static fayllar (kerak bo'lsa yoqish mumkin)
+    # STATICFILES_STORAGE = 'cloudinary_storage.storage.StaticHashedCloudinaryStorage'
 
 # ─────────────────────────────────────────────────────────────────────────────
 # CORS — Cross-Origin Resource Sharing

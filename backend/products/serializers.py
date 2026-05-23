@@ -1,17 +1,39 @@
 import json
+import os
 import re
 from decimal import Decimal
+from typing import Optional
 
 from django.utils.text import slugify
 from rest_framework import serializers
 from .models import Category, HomeBanner, Product, ProductImage, ProductVariant, ProductVariantImage
 
+_CDN = os.getenv('CDN_PROVIDER', 'local')
+
 
 HEX_COLOR_RE = re.compile(r'^#[0-9a-fA-F]{6}$')
+
+
+def get_lang(context):
+    request = context.get('request')
+    if request:
+        lang = request.GET.get('lang') or request.headers.get('Accept-Language', 'uz')[:2]
+        if lang in ('ru', 'en', 'uz'):
+            return lang
+    return 'uz'
+
+
+def localized(obj, field, lang):
+    if lang == 'uz':
+        return getattr(obj, field, '') or ''
+    translated = getattr(obj, f'{field}_{lang}', '') or ''
+    return translated or getattr(obj, field, '') or ''
+
 
 class CategorySerializer(serializers.ModelSerializer):
     children = serializers.SerializerMethodField()
     is_catalog = serializers.SerializerMethodField()
+    name = serializers.SerializerMethodField()
 
     class Meta:
         model = Category
@@ -20,9 +42,10 @@ class CategorySerializer(serializers.ModelSerializer):
     def get_is_catalog(self, obj):
         return obj.parent is None
 
+    def get_name(self, obj):
+        return localized(obj, 'name', get_lang(self.context))
 
     def get_children(self, obj):
-        # We recursively get subcategories. For large trees, use caching.
         qs = obj.children.filter(is_active=True)
         if qs.exists():
             return CategorySerializer(qs, many=True, context=self.context).data
@@ -83,20 +106,23 @@ class AdminProductVariantSerializer(ProductVariantSerializer):
 
 class ProductListSerializer(serializers.ModelSerializer):
     main_image = serializers.SerializerMethodField()
+    name = serializers.SerializerMethodField()
 
     class Meta:
         model = Product
         fields = ('id', 'name', 'slug', 'price', 'discount_price', 'stock', 'is_discount', 'is_new', 'is_popular', 'main_image')
 
+    def get_name(self, obj):
+        return localized(obj, 'name', get_lang(self.context))
+
     def get_main_image(self, obj):
         img = obj.images.filter(is_main=True).first() or obj.images.first()
-        if img:
-            return self.context['request'].build_absolute_uri(img.image.url) if self.context.get('request') else img.image.url
-        return None
+        return absolute_media_url(self.context.get('request'), img.image, width=800) if img else None
 
 class ProductSearchSerializer(serializers.ModelSerializer):
     main_image = serializers.SerializerMethodField()
     category_name = serializers.SerializerMethodField()
+    name = serializers.SerializerMethodField()
 
     class Meta:
         model = Product
@@ -110,30 +136,69 @@ class ProductSearchSerializer(serializers.ModelSerializer):
             'main_image',
         )
 
+    def get_name(self, obj):
+        return localized(obj, 'name', get_lang(self.context))
+
     def get_main_image(self, obj):
         img = obj.images.filter(is_main=True).first() or obj.images.first()
-        if img:
-            request = self.context.get('request')
-            return request.build_absolute_uri(img.image.url) if request else img.image.url
-        return None
+        return absolute_media_url(self.context.get('request'), img.image, width=800) if img else None
 
     def get_category_name(self, obj):
-        return str(obj.category) if obj.category else None
+        if not obj.category:
+            return None
+        return localized(obj.category, 'name', get_lang(self.context))
 
 class ProductDetailSerializer(serializers.ModelSerializer):
     images = ProductImageSerializer(many=True, read_only=True)
     variants = ProductVariantSerializer(many=True, read_only=True)
     category = CategorySerializer(read_only=True)
+    name = serializers.SerializerMethodField()
+    description = serializers.SerializerMethodField()
 
     class Meta:
         model = Product
         fields = ('id', 'name', 'slug', 'description', 'price', 'discount_price', 'stock', 'is_discount', 'is_new', 'is_popular', 'category', 'images', 'variants')
 
+    def get_name(self, obj):
+        return localized(obj, 'name', get_lang(self.context))
 
-def absolute_media_url(request, file_field):
+    def get_description(self, obj):
+        return localized(obj, 'description', get_lang(self.context))
+
+
+def _cloudinary_transform(url: str, width: Optional[int] = None) -> str:
+    """
+    Cloudinary URL'ga f_auto (WebP/AVIF), q_auto:good va ixtiyoriy kenglik qo'shadi.
+    Misol:  .../upload/f_auto,q_auto:good,w_800,c_limit/products/img.jpg
+    """
+    if '/upload/' not in url:
+        return url
+    base, path = url.split('/upload/', 1)
+    # Agar transformatsiya allaqachon qo'shilgan bo'lsa, qayta qo'shmaymiz
+    if path.startswith('f_auto'):
+        return url
+    parts = ['f_auto', 'q_auto:good']
+    if width:
+        parts.append(f'w_{width},c_limit')
+    return f'{base}/upload/{",".join(parts)}/{path}'
+
+
+def absolute_media_url(request, file_field, *, width: Optional[int] = None):
+    """
+    Media faylning to'liq URL'ini qaytaradi.
+
+    - Local disk  → request.build_absolute_uri() orqali to'ldiradi
+    - Cloudinary  → CDN URL + f_auto/q_auto transformatsiya
+    - Boshqa CDN  → URL'ni o'zgartirmasdan qaytaradi
+    """
     if not file_field:
         return None
-    return request.build_absolute_uri(file_field.url) if request else file_field.url
+    url = file_field.url
+    if url.startswith(('http://', 'https://')):
+        if _CDN == 'cloudinary' and 'cloudinary.com' in url:
+            return _cloudinary_transform(url, width=width)
+        return url
+    return request.build_absolute_uri(url) if request else url
 
 
 def product_main_image(product):
@@ -358,10 +423,7 @@ class AdminProductSerializer(serializers.ModelSerializer):
 
     def get_main_image(self, obj):
         img = obj.images.filter(is_main=True).first() or obj.images.first()
-        if img:
-            request = self.context.get('request')
-            return request.build_absolute_uri(img.image.url) if request else img.image.url
-        return None
+        return absolute_media_url(self.context.get('request'), img.image, width=800) if img else None
 
     def get_category_name(self, obj):
         return obj.category.name if obj.category_id else None

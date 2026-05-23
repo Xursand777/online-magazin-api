@@ -1,6 +1,7 @@
 import re
 
 from django.db.models import Case, IntegerField, Q, Sum, Value, When
+from .serializers import absolute_media_url
 from django.utils import timezone
 from rest_framework import generics, views, status, viewsets
 from rest_framework.pagination import PageNumberPagination
@@ -391,7 +392,7 @@ class AdminStockReportView(views.APIView):
                 'stock': p.stock,
                 'sku': p.slug,
                 'price': float(p.price),
-                'image': request.build_absolute_uri(main_img.image.url) if main_img else None,
+                'image': absolute_media_url(request, main_img.image, width=400) if main_img else None,
                 'status': 'critical' if p.stock < 5 else 'low'
             })
 
@@ -421,7 +422,7 @@ class AdminStockReportView(views.APIView):
                 'stock': v.stock,
                 'sku': v.sku or f"{v.product.slug}-v{v.id}",
                 'price': float(v.discount_price or v.price or v.product.discount_price or v.product.price),
-                'image': request.build_absolute_uri(v.image.url) if v.image else (request.build_absolute_uri(main_img.image.url) if main_img else None),
+                'image': absolute_media_url(request, v.image, width=400) if v.image else absolute_media_url(request, main_img.image, width=400) if main_img else None,
                 'status': 'critical' if v.stock < 5 else 'low'
             })
 
