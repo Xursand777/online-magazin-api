@@ -434,28 +434,6 @@ class AdminReportView(views.APIView):
         cancelled_count = cancelled_qs.count()
         pending_count = qs.filter(status=Order.STATUS_PENDING).count()
 
-        # Calculate total cost price for delivered orders using variant cost overrides when present.
-        from orders.models import OrderItem
-        delivered_items = list(
-            OrderItem.objects.filter(order__in=delivered_qs).select_related('product', 'variant')
-        )
-        total_cost = sum(
-            (item.variant.cost_price if item.variant and item.variant.cost_price is not None else item.product.cost_price or 0) * item.quantity
-            for item in delivered_items
-        )
-
-        summary = {
-            'total_revenue': float(total_revenue),
-            'total_discount': float(total_discount),
-            'total_cost': float(total_cost),
-            'avg_order_value': float(avg_order),
-            'total_orders': total_orders,
-            'delivered_orders': delivered_count,
-            'cancelled_orders': cancelled_count,
-            'pending_orders': pending_count,
-            'net_profit': float(total_revenue) - float(total_cost),
-        }
-
         # --- Vaqt bo'yicha timeline (faqat delivered) ---
         trunc_fn = {'daily': TruncDay, 'monthly': TruncMonth, 'yearly': TruncYear}.get(period, TruncDay)
         timeline_qs = (
@@ -533,27 +511,56 @@ class AdminReportView(views.APIView):
             p['sold_price'] = p['total_revenue'] / p['quantity_sold'] if p['quantity_sold'] > 0 else 0
             p['net_profit'] = p['total_revenue'] - p['total_cost']
 
-        # --- Cheklar (Savdo) statistikasi ---
-        # Barcha yetkazilgan (sotilgan) buyurtmalar haqida batafsil ma'lumot
-        orders_list = []
-        for order in delivered_qs:
-            order_items = []
-            for item in order.items.all():
-                variant = item.variant
-                product = item.product
-                
-                # Asl narx (Chegirmasiz)
-                original_price = float(variant.price if variant and variant.price is not None else (product.price if product else 0))
-                # Sotilgan narx (Chegirmali)
-                sold_price = float(item.price_snapshot)
-                
-                # Chegirma hisob-kitobi
-                discount_amount = max(0, original_price - sold_price) * item.quantity
-                discount_percent = 0.0
-                if original_price > 0 and sold_price < original_price:
-                    discount_percent = ((original_price - sold_price) / original_price) * 100
+        # ─── Cheklar (Savdo) statistikasi + total_cost — bitta prefetched skan ────
+        #
+        # Eski muammo (ikkita alohida DB operatsiyasi):
+        #   1) delivered_items = list(OrderItem.filter(order__in=delivered_qs)...)
+        #      → delivered_qs subquery + barcha items yuk
+        #   2) for order in delivered_qs: order.items.all()
+        #      → delivered_qs yana evaluate + har bir order.items N+1 xavfi
+        #
+        # Yechim (bitta iteratsiya):
+        #   prefetch_related('items__product', 'items__variant') →
+        #   Django 1 ORDER query + 3 PREFETCH query ishlaydi, jami 4 query.
+        #   order.items.all() prefetch cache'dan o'qiladi → 0 extra query.
+        #   total_cost ham shu iteratsiyada hisoblanadi → alohida scan yo'q.
+        # ─────────────────────────────────────────────────────────────────────────
+        from decimal import Decimal as _D
 
-                # Full name construction
+        total_cost = _D('0')
+        orders_list = []
+
+        for order in (
+            delivered_qs
+            .prefetch_related('items__product', 'items__variant')
+            .order_by('-created_at')
+        ):
+            order_items = []
+            for item in order.items.all():       # ← prefetch cache, 0 extra query
+                variant = item.variant           # ← prefetch cache
+                product = item.product           # ← prefetch cache
+
+                # total_cost — avval alohida delivered_items scan edi
+                item_cost = _D(str(
+                    variant.cost_price
+                    if variant and variant.cost_price is not None
+                    else (product.cost_price or 0)
+                ))
+                total_cost += item_cost * item.quantity
+
+                # narx ma'lumotlari
+                original_price = float(
+                    variant.price if variant and variant.price is not None
+                    else (product.price if product else 0)
+                )
+                sold_price = float(item.price_snapshot)
+                discount_amount = max(0, original_price - sold_price) * item.quantity
+                discount_percent = (
+                    ((original_price - sold_price) / original_price) * 100
+                    if original_price > 0 and sold_price < original_price
+                    else 0.0
+                )
+
                 full_name = product.name if product else 'Unknown'
                 if variant:
                     attrs = []
@@ -583,6 +590,19 @@ class AdminReportView(views.APIView):
                 'total_discount': float(order.discount_price),
                 'items': order_items,
             })
+
+        # summary: total_cost endi prefetched iteratsiyadan keyin aniq ma'lum
+        summary = {
+            'total_revenue': float(total_revenue),
+            'total_discount': float(total_discount),
+            'total_cost': float(total_cost),
+            'avg_order_value': float(avg_order),
+            'total_orders': total_orders,
+            'delivered_orders': delivered_count,
+            'cancelled_orders': cancelled_count,
+            'pending_orders': pending_count,
+            'net_profit': float(total_revenue) - float(total_cost),
+        }
 
         return Response({
             'summary': summary,
@@ -785,36 +805,51 @@ class KassaWithdrawView(views.APIView):
     permission_classes = (IsAuthenticated, CanAccessKassa)
 
     def post(self, request, *args, **kwargs):
-        amount = request.data.get('amount')
-        reason = request.data.get('reason')
-        
-        if not amount or float(amount) <= 0:
-            return Response({'error': "Noto'g'ri summa kiritildi."}, status=status.HTTP_400_BAD_REQUEST)
-        
-        if not reason:
-            return Response({'error': "Maqsad/izoh kiritilishi shart."}, status=status.HTTP_400_BAD_REQUEST)
-            
-        amount = float(amount)
-        
-        # Qoldiqni tekshiramiz
+        from decimal import Decimal, InvalidOperation
         from django.db.models import Sum
         from orders.models import Order, Withdrawal
-        
-        delivered_qs = Order.objects.filter(status__in=[Order.STATUS_DELIVERED, Order.STATUS_RECEIVED])
-        total_income = delivered_qs.aggregate(total=Sum('total_price'))['total'] or 0
-        withdrawals_qs = Withdrawal.objects.all()
-        total_expense = withdrawals_qs.aggregate(total=Sum('amount'))['total'] or 0
-        balance = float(total_income) - float(total_expense)
-        
+
+        # ── Summa validatsiyasi — DECIMAL, hech qachon float ──────────────────
+        # float(1_234_567.89) → 1234567.8900000001  (moliyaviy xato!)
+        # Decimal(str('1234567.89')) → 1234567.89   (aniq!)
+        amount_raw = request.data.get('amount')
+        reason     = request.data.get('reason')
+
+        try:
+            amount = Decimal(str(amount_raw)).quantize(Decimal('0.01'))
+        except (InvalidOperation, TypeError, ValueError):
+            return Response(
+                {'error': "Summa to'g'ri musbat raqam bo'lishi kerak (masalan: 150000.00)."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if amount <= 0:
+            return Response(
+                {'error': "Summa musbat son bo'lishi kerak."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if not reason:
+            return Response(
+                {'error': "Maqsad/izoh kiritilishi shart."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # ── Qoldiqni Decimal arifmetikasi bilan tekshiramiz ───────────────────
+        _zero = Decimal('0')
+        delivered_qs   = Order.objects.filter(status__in=[Order.STATUS_DELIVERED, Order.STATUS_RECEIVED])
+        total_income   = delivered_qs.aggregate(total=Sum('total_price'))['total'] or _zero
+        total_expense  = Withdrawal.objects.aggregate(total=Sum('amount'))['total'] or _zero
+        balance        = total_income - total_expense   # Decimal - Decimal = Decimal ✅
+
         if amount > balance:
-            return Response({'error': f"Kassada yetarli mablag' yo'q. Qoldiq: {balance} so'm."}, status=status.HTTP_400_BAD_REQUEST)
-            
-        w = Withdrawal.objects.create(
-            amount=amount,
-            reason=reason,
-            admin=request.user
-        )
-        
+            return Response(
+                {'error': f"Kassada yetarli mablag' yo'q. Qoldiq: {balance:.2f} so'm."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        w = Withdrawal.objects.create(amount=amount, reason=reason, admin=request.user)
+
         return Response({
             'message': "Pul muvaffaqiyatli yechildi",
             'withdrawal': {
@@ -823,7 +858,7 @@ class KassaWithdrawView(views.APIView):
                 'reason': w.reason,
                 'created_at': w.created_at.isoformat(),
                 'admin_name': w.admin.get_full_name() if w.admin else "Noma'lum",
-            }
+            },
         })
 
 
