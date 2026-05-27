@@ -153,24 +153,90 @@
     font-variation-settings: 'FILL' 1;
   }
 }
-
 @layer components {
   #toast-root.bozor-toast-root {
-    top: max(16px, env(safe-area-inset-top));
-    right: 16px;
-    left: 16px;
-    z-index: 45;
-    width: auto;
-    align-items: stretch;
+    position: fixed !important;
+    bottom: 88px !important;
+    top: auto !important;
+    right: 16px !important;
+    left: 16px !important;
+    z-index: 999999 !important;
+    width: auto !important;
+    display: flex !important;
+    flex-direction: column-reverse !important;
+    gap: 8px !important;
+    pointer-events: none !important;
+    align-items: stretch !important;
   }
 
   @screen md {
     #toast-root.bozor-toast-root {
-      top: calc(64px + 16px);
-      right: 24px;
-      left: auto;
-      width: min(360px, calc(100vw - 48px));
-      align-items: flex-end;
+      bottom: 24px !important;
+      top: auto !important;
+      right: 24px !important;
+      left: auto !important;
+      width: min(360px, calc(100vw - 48px)) !important;
+      align-items: flex-end !important;
     }
+  }
+
+  .bozor-toast {
+    background: rgba(15, 23, 42, 0.96) !important;
+    border: 1px solid rgba(255, 255, 255, 0.1) !important;
+    color: #ffffff !important;
+    padding: 12px 18px !important;
+    border-radius: 12px !important;
+    font-family: system-ui, -apple-system, sans-serif !important;
+    font-size: 14px !important;
+    font-weight: 500 !important;
+    display: flex !important;
+    align-items: center !important;
+    gap: 10px !important;
+    box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.35), 0 10px 10px -5px rgba(0, 0, 0, 0.25) !important;
+    backdrop-filter: blur(16px) !important;
+    -webkit-backdrop-filter: blur(16px) !important;
+    pointer-events: all !important;
+    box-sizing: border-box !important;
+    white-space: normal !important;
+    width: fit-content !important;
+    min-width: 260px !important;
+    max-width: min(360px, calc(100vw - 32px)) !important;
+    transition: transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1), opacity 0.3s ease !important;
+    opacity: 0 !important;
+    transform: translateY(150%) !important;
+  }
+
+  @screen md {
+    .bozor-toast {
+      transform: translateX(120%) !important;
+    }
+  }
+
+  .bozor-toast.toast-show {
+    opacity: 1 !important;
+    transform: translate(0) !important;
+  }
+
+  .bozor-toast.toast-success {
+    border-left: 4px solid #10b981 !important;
+  }
+
+  .bozor-toast.toast-error {
+    border-left: 4px solid #ef4444 !important;
+  }
+
+  .bozor-toast.toast-info {
+    border-left: 4px solid #3b82f6 !important;
+  }
+}
+
+@layer utilities {
+  /* Scrollbar hidden — cross browser */
+  .scrollbar-hide {
+    -ms-overflow-style: none;  /* IE 11 */
+    scrollbar-width: none;     /* Firefox */
+  }
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;             /* Chrome, Safari, Edge */
   }
 }

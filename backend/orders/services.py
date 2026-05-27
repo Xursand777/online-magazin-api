@@ -12,13 +12,22 @@ from rest_framework import serializers
 from .models import Order, OrderHistory, OrderItem, Payment
 
 
+# ────────────────────────────────────────────────────────────────────────────
+#  3 ta to'lov turiga mos holat zanjiri:
+#
+#  NAQD PUL:  PENDING → CONFIRMED → PACKING → SHIPPING → DELIVERED → RECEIVED
+#  KARTA:     AWAITING_PAYMENT → CONFIRMED → PACKING → SHIPPING → DELIVERED → RECEIVED
+#  MUDDATLI:  PENDING → CONFIRMED → PACKING → SHIPPING → DELIVERED → RECEIVED
+# ────────────────────────────────────────────────────────────────────────────
 STATUS_TRANSITIONS = {
-    Order.STATUS_PENDING: {Order.STATUS_CONFIRMED},
-    Order.STATUS_CONFIRMED: {Order.STATUS_PACKING},
-    Order.STATUS_PACKING: {Order.STATUS_SHIPPING},
-    Order.STATUS_SHIPPING: {Order.STATUS_DELIVERED},
-    Order.STATUS_DELIVERED: set(),
-    Order.STATUS_CANCELLED_BY_USER: set(),
+    Order.STATUS_AWAITING_PAYMENT: {Order.STATUS_CONFIRMED},  # karta to'lovi tasdiqlandi
+    Order.STATUS_PENDING:          {Order.STATUS_CONFIRMED},  # naqd / kredit: admin tasdiqladi
+    Order.STATUS_CONFIRMED:        {Order.STATUS_PACKING},
+    Order.STATUS_PACKING:          {Order.STATUS_SHIPPING},
+    Order.STATUS_SHIPPING:         {Order.STATUS_DELIVERED},
+    Order.STATUS_DELIVERED:        {Order.STATUS_RECEIVED},   # kuryer → xaridor qo'liga
+    Order.STATUS_RECEIVED:         set(),                     # yakuniy holat
+    Order.STATUS_CANCELLED_BY_USER:  set(),
     Order.STATUS_CANCELLED_BY_ADMIN: set(),
     Order.STATUS_SYSTEM_AUTO_CANCEL: set(),
 }
@@ -33,6 +42,207 @@ def get_line_price(product, variant=None):
     if product.is_discount and product.discount_price:
         return product.discount_price
     return product.price
+
+
+# ────────────────────────────────────────────────────────────────────────────
+#  USTA (master) faollikka asoslangan dinamik chegirma — POG'ONALI (LEVEL) model
+#
+#  SuperAdmin xohlagan "bazaviy foiz"ni kiritadi (3%, 4%, 5%, 10% — farqi yo'q).
+#  Chegirma shu foizga PROPORSIONAL, 5 pog'onali (LEVEL 0..4):
+#      LEVEL 4 → bazaviy × 4/4 (to'liq) │ LEVEL 3 → ×3/4 │ LEVEL 2 → ×2/4
+#      LEVEL 1 → bazaviy × 1/4          │ LEVEL 0 → 0% (oddiy mijoz narxi)
+#
+#  ▸ PASAYISH (decay) — VAQTGA bog'liq, ERKIN (tez):
+#    Oxirgi xariddan qancha ko'p kun o'tsa, "yangilik shifti" (recency ceiling)
+#    shuncha pastga tushadi va daraja shu shiftgacha darhol pasayadi:
+#        0–1 kun → shift 4 │ 2 kun → 3 │ 3–4 kun → 2 │ 5–6 kun → 1 │ ≥7 kun → 0
+#
+#  ▸ KO'TARILISH (recovery) — XARIDGA bog'liq, SEKIN (insof bilan):
+#    Har bir haqiqiy xarid darajani FAQAT +1 pog'onaga ko'taradi (4 dan oshmaydi).
+#    Ya'ni sustlikdan keyin chegirma bir zumda qaytmaydi — usta uni qayta
+#    "ishlab" oladi: har kungi xarid bilan asta-sekin yuqori pog'onaga chiqadi.
+#
+#  ▸ SODIQLIK YUMSHOQ QO'NISHI (comeback floor) — adolat uchun:
+#    Yaqinda faol bo'lgan usta hafta/10 kun tanaffusdan keyin qaytganda 0 ga
+#    keskin tushmaydi — avvalgi darajasining YARMIDAN qaytadi (≤14 kun), so'ng
+#    choragidan (15–28 kun), 28 kundan keyin esa noldan. Bu floor recency
+#    pasayishi bilan max() orqali birlashtiriladi → monoton (ko'proq kutish
+#    foyda bermaydi).
+#
+#  Misol (base=5%, to'liq edi, ~10 kun tanaffus, so'ng har kuni xarid):
+#    qaytish kuni:  2.5%(½) → 3.75%(¾) → 5%(to'liq)   (2 kunda to'liq)
+#
+#  Hammasi xaridlar tarixidan REAL VAQTDA hisoblanadi — saqlanadigan "daraja"
+#  maydoni yoki cron kerak emas; bekor qilingan buyurtma avtomatik chiqarib
+#  tashlanadi (level qayta hisoblanadi → adolatli, o'zi tuzatiladi).
+#
+#  Yangi usta (hali xarid qilmagan) — to'liq darajadan boshlaydi (xush kelibsiz).
+# ────────────────────────────────────────────────────────────────────────────
+
+_MASTER_MAX_LEVEL = 4
+_MASTER_WELCOME_LEVEL = 4            # SuperAdmin ishongan — to'liqdan boshlaydi
+_MASTER_HISTORY_LOOKBACK = 40        # so'nggi shuncha xarid simulyatsiya qilinadi
+_MASTER_SOFT_HALF_DAYS = 14         # shu kungacha tanaffus → avvalgi darajaning yarmi
+_MASTER_SOFT_QUARTER_DAYS = 28      # shu kungacha → choragi; keyin 0 (noldan)
+_MASTER_SOFT_MIN_LEVEL = 3          # faqat ≥¾ (sodiq) bo'lganlar yumshoq qo'nadi
+
+
+def _master_recency_ceiling(gap_days: int) -> int:
+    """Oxirgi xariddan o'tgan kunlarga qarab ruxsat etilgan eng yuqori daraja."""
+    if gap_days <= 1:
+        return 4   # har kuni
+    if gap_days == 2:
+        return 3   # 2 kunda bir
+    if gap_days <= 4:
+        return 2   # 3–4 kunda bir
+    if gap_days <= 6:
+        return 1   # 5–6 kun (sustlashish)
+    return 0       # haftalik+ → recency shifti 0
+
+
+def _master_soft_floor(prior_level: int, gap_days: int) -> int:
+    """
+    Sodiqlik "yumshoq qo'nishi": yaqinda HAQIQATAN sodiq (≥¾ darajaga chiqqan)
+    usta tanaffusdan qaytganda 0 ga keskin tushmaydi — avvalgi darajasining bir
+    qismini saqlab qoladi:
+        tanaffus ≤ 14 kun  → avvalgi darajaning YARMI (//2)   ← hafta/10 kun shu yerda
+        15–28 kun          → CHORAGI (//4)
+        ≥29 kun            → 0 (butunlay sovub ketgan — noldan tiklanadi)
+    Daraja <¾ bo'lgan tasodifiy xaridorlar yumshoq qo'nmaydi (oddiy pasayadi →
+    haftalik buyurtmachi baribir 0% ga tushadi). Floor recency pasayishi bilan
+    max() orqali birlashtiriladi (monoton).
+    """
+    if prior_level < _MASTER_SOFT_MIN_LEVEL:
+        return 0
+    if gap_days <= _MASTER_SOFT_HALF_DAYS:
+        return prior_level // 2
+    if gap_days <= _MASTER_SOFT_QUARTER_DAYS:
+        return prior_level // 4
+    return 0
+
+
+def _master_standing_from(prior_level: int, gap_days: int) -> int:
+    """
+    Berilgan oldingi daraja va tanaffusga ko'ra AMALDAGI daraja.
+    Recency pasayishi (erkin) va sodiqlik floori (yumshoq qo'nish) — qaysi
+    YUQORI bo'lsa. max() monotonlikni saqlaydi (ko'proq tanaffus → kamroq daraja),
+    shuning uchun "ataylab kutib turish" foydali bo'lmaydi.
+    """
+    decayed = min(prior_level, _master_recency_ceiling(gap_days))
+    return max(decayed, _master_soft_floor(prior_level, gap_days))
+
+
+def _master_purchase_times(user):
+    """Ustaning so'nggi haqiqiy (bekor qilinmagan, to'lov kutilmayotgan) xaridlari — eskidan yangiga."""
+    qs = (
+        Order.objects
+        .filter(user=user)
+        .exclude(status__in=Order.CANCELLATION_STATUSES)
+        .exclude(status=Order.STATUS_AWAITING_PAYMENT)
+        .order_by('-created_at')
+        .values_list('created_at', flat=True)[:_MASTER_HISTORY_LOOKBACK]
+    )
+    return list(reversed(list(qs)))
+
+
+def _master_level_after(times) -> int:
+    """
+    Xaridlar ketma-ketligini "simulyatsiya" qilib, OXIRGI xariddan keyingi
+    darajani qaytaradi. Har bir xaridda: avval shu paytdagi daraja hisoblanadi
+    (recency pasayishi yoki sodiqlik floori), so'ng xarid uni +1 ko'taradi
+    (sekin tiklanish). Daraja ≤4 ga saturatsiya bo'lgani uchun 40 ta xarid
+    oynasi joriy darajani aniq beradi.
+    """
+    if not times:
+        return _MASTER_WELCOME_LEVEL
+    level = _MASTER_WELCOME_LEVEL
+    prev = None
+    for t in times:
+        if prev is None:
+            standing = _MASTER_WELCOME_LEVEL          # birinchi xarid — xush kelibsiz
+        else:
+            gap = (t - prev).days
+            standing = _master_standing_from(level, gap)
+        level = min(standing + 1, _MASTER_MAX_LEVEL)  # sekin ko'tarilish (+1)
+        prev = t
+    return level
+
+
+def _master_standing_level(user) -> int:
+    """Joriy AMALDAGI daraja (0..4): oxirgi xariddan keyingi daraja, hozirgi tanaffusga qarab."""
+    times = _master_purchase_times(user)
+    if not times:
+        return _MASTER_WELCOME_LEVEL                  # yangi usta — to'liq
+    level_after = _master_level_after(times)
+    gap_now = (timezone.now() - times[-1]).days
+    return max(0, _master_standing_from(level_after, gap_now))
+
+
+def effective_master_percent(user) -> Decimal:
+    """
+    Joriy foydalanuvchi uchun AMALDAGI usta chegirma foizi.
+    = bazaviy foiz (admin kiritgan) × (joriy daraja / 4).
+    Usta bo'lmasa, autentifikatsiya qilinmagan bo'lsa yoki daraja 0 bo'lsa — 0.
+    """
+    from products.models import GlobalSetting
+
+    if user is None or not getattr(user, 'is_authenticated', False):
+        return Decimal('0')
+    if not getattr(user, 'is_master', False):
+        return Decimal('0')
+
+    base = GlobalSetting.get_master_discount_percent()
+    if base <= 0:
+        return Decimal('0')
+
+    level = _master_standing_level(user)
+    if level <= 0:
+        return Decimal('0')
+
+    return (base * Decimal(level) / Decimal(_MASTER_MAX_LEVEL)).quantize(Decimal('0.01'))
+
+
+def apply_master_discount(price, percent: Decimal) -> Decimal:
+    """Narxga usta chegirma foizini qo'llaydi (butun so'mga yaxlitlanadi)."""
+    p = Decimal(str(price))
+    if percent and percent > 0:
+        return (p * (Decimal('100') - percent) / Decimal('100')).quantize(Decimal('1'))
+    return p
+
+
+def master_status(user) -> dict:
+    """UI uchun ustaning joriy holati: bazaviy/amaldagi foiz, daraja, faollik."""
+    from products.models import GlobalSetting
+
+    is_master = bool(user and getattr(user, 'is_authenticated', False) and getattr(user, 'is_master', False))
+    base = GlobalSetting.get_master_discount_percent()
+
+    if not is_master:
+        return {
+            'is_master': False,
+            'base_percent': float(base),
+            'effective_percent': 0.0,
+            'level': 0,
+            'max_level': _MASTER_MAX_LEVEL,
+            'days_since_last_purchase': None,
+            'last_purchase_at': None,
+        }
+
+    times = _master_purchase_times(user)
+    last = times[-1] if times else None
+    level = _master_standing_level(user)
+    eff = effective_master_percent(user)
+    gap = (timezone.now() - last).days if last else None
+
+    return {
+        'is_master': True,
+        'base_percent': float(base),
+        'effective_percent': float(eff),
+        'level': level,
+        'max_level': _MASTER_MAX_LEVEL,
+        'days_since_last_purchase': gap,
+        'last_purchase_at': last.isoformat() if last else None,
+    }
 
 
 def _available_stock(product, variant=None):
@@ -115,13 +325,27 @@ def create_order_with_items(
     if is_credit:
         credit_due_date = timezone.now().date() + datetime.timedelta(days=credit_days)
 
+    # Karta buyurtmalari AWAITING_PAYMENT dan boshlanadi (to'lov kutilmoqda)
+    # Naqd va muddatli buyurtmalar PENDING dan boshlanadi (admin tasdiqlaydi)
+    initial_status = (
+        Order.STATUS_AWAITING_PAYMENT
+        if payment_method == Order.PAYMENT_METHOD_CARD
+        else Order.STATUS_PENDING
+    )
+
+    # MUHIM: usta chegirmasini buyurtma YARATILISHIDAN OLDIN hisoblaymiz —
+    # aks holda yangi buyurtma "oxirgi xarid" (0 kun) bo'lib darajani buzadi.
+    # Ustaning "kirib kelgandagi" holatiga ko'ra narx beriladi; bu xarid esa
+    # darajani keyingi safar uchun +1 ko'taradi (sekin ko'tarilish).
+    master_pct = effective_master_percent(user)
+
     order = Order.objects.create(
         user=user,
         receiver_name=receiver_name,
         receiver_phone=receiver_phone,
         delivery_address=delivery_address,
         payment_method=payment_method,
-        status=Order.STATUS_PENDING,
+        status=initial_status,
         is_credit=is_credit,
         credit_days=credit_days if is_credit else None,
         credit_due_date=credit_due_date,
@@ -135,7 +359,7 @@ def create_order_with_items(
         quantity = int(item.get('quantity', 1))
         ensure_stock_available(product, quantity, variant)
         reserve_inventory(product, quantity, variant)
-        price = Decimal(str(get_line_price(product, variant)))
+        price = apply_master_discount(get_line_price(product, variant), master_pct)
         OrderItem.objects.create(
             order=order,
             product=product,
@@ -155,12 +379,16 @@ def create_order_with_items(
         amount=total_price,
     )
 
+    notes = {
+        Order.STATUS_AWAITING_PAYMENT: "Buyurtma yaratildi. Karta to'lovi kutilmoqda.",
+        Order.STATUS_PENDING:          "Buyurtma yaratildi.",
+    }
     create_order_history(
         order,
-        to_status=Order.STATUS_PENDING,
+        to_status=initial_status,
         actor_type=OrderHistory.ACTOR_USER if user else OrderHistory.ACTOR_SYSTEM,
         actor=user,
-        note="Buyurtma yaratildi.",
+        note=notes[initial_status],
     )
     return order
 
@@ -170,28 +398,49 @@ def cancel_order(*, order, cancelled_status, actor_type, actor=None, reason=''):
     if order.status in Order.CANCELLATION_STATUSES:
         return order
 
-    if order.status == Order.STATUS_DELIVERED:
-        raise serializers.ValidationError({'error': "Yetkazilgan buyurtmani bekor qilib bo'lmaydi."})
+    # RECEIVED — xaridor qo'liga olgan, bekor qilib bo'lmaydi (hech kim uchun)
+    if order.status == Order.STATUS_RECEIVED:
+        raise serializers.ValidationError({'error': "Xaridorga topshirilgan buyurtmani bekor qilib bo'lmaydi."})
 
     if cancelled_status not in Order.CANCELLATION_STATUSES:
         raise serializers.ValidationError({'error': "Noto'g'ri bekor qilish statusi."})
 
-    # Foydalanuvchi tomonidan bekor qilishda qat'iy holat tekshiruvi
+    # Foydalanuvchi faqat PENDING, CONFIRMED, AWAITING_PAYMENT ni bekor qila oladi
     if actor_type == OrderHistory.ACTOR_USER:
         if order.status not in Order.CANCELLABLE_STATUSES:
             raise serializers.ValidationError({
                 'error': (
                     f"Buyurtmani '{order.status}' holatida bekor qilib bo'lmaydi. "
-                    "Faqat kutilmoqda yoki rasmiylashtirilgan buyurtmalarni bekor qilish mumkin."
+                    "Faqat yangi yoki tasdiqlangan buyurtmalarni bekor qilish mumkin."
                 )
             })
 
-    # Admin uchun ham chegaralar
+    # Admin bekor qilishi — to'lov usuliga qarab qat'iy cheklov
     if actor_type == OrderHistory.ACTOR_ADMIN:
         if order.status not in Order.ADMIN_CANCELLABLE_STATUSES:
             raise serializers.ValidationError({
-                'error': "Yetkazilgan yoki allaqachon bekor qilingan buyurtmani bekor qilib bo'lmaydi."
+                'error': "Xaridorga topshirilgan yoki allaqachon bekor qilingan buyurtmani bekor qilib bo'lmaydi."
             })
+
+        # KARTA: to'lov amalga oshirilgandan keyin (CONFIRMED+) bekor qilib bo'lmaydi
+        if order.payment_method == Order.PAYMENT_METHOD_CARD:
+            if order.status != Order.STATUS_AWAITING_PAYMENT:
+                raise serializers.ValidationError({
+                    'error': (
+                        "Karta to'lovi amalga oshirilgan buyurtmani bekor qilib bo'lmaydi. "
+                        "To'lovni qaytarish (refund) uchun mijoz bilan alohida bog'laning."
+                    )
+                })
+
+        # NAQD va MUDDATLI: faqat PENDING va CONFIRMED da bekor qilish mumkin
+        elif order.payment_method in (Order.PAYMENT_METHOD_CASH, Order.PAYMENT_METHOD_CREDIT):
+            if order.status not in {Order.STATUS_PENDING, Order.STATUS_CONFIRMED}:
+                raise serializers.ValidationError({
+                    'error': (
+                        f"'{Order.STATUS_PACKING}' boshlangandan keyin buyurtmani bekor qilib bo'lmaydi. "
+                        "Tovarlar yig'ilish yoki yo'lda bo'lishi mumkin — kuryer bilan bog'laning."
+                    )
+                })
 
     previous_status = order.status
     for item in order.items.select_related('product', 'variant'):
@@ -246,10 +495,17 @@ def transition_order_status(*, order, new_status, actor_type, actor=None, note='
 
     payment = getattr(order, 'payment', None)
     if payment:
-        if new_status == Order.STATUS_CONFIRMED and payment.method == Order.PAYMENT_METHOD_CARD and payment.status == Payment.STATUS_PENDING:
+        # KARTA: AWAITING_PAYMENT → CONFIRMED = to'lov qabul qilindi
+        if (new_status == Order.STATUS_CONFIRMED
+                and payment.method == Order.PAYMENT_METHOD_CARD
+                and payment.status == Payment.STATUS_PENDING):
             payment.status = Payment.STATUS_PAID
             payment.save(update_fields=['status', 'updated_at'])
-        elif new_status == Order.STATUS_DELIVERED and payment.method == Order.PAYMENT_METHOD_CASH and payment.status == Payment.STATUS_PENDING:
+
+        # NAQD: RECEIVED = kuryer naqd pulni xaridordan oldi
+        elif (new_status == Order.STATUS_RECEIVED
+                and payment.method == Order.PAYMENT_METHOD_CASH
+                and payment.status == Payment.STATUS_PENDING):
             payment.status = Payment.STATUS_PAID
             payment.save(update_fields=['status', 'updated_at'])
 
@@ -382,12 +638,13 @@ def pay_credit_order(*, order, actor=None):
 
 
 def auto_cancel_expired_orders(minutes=30):
+    """Karta buyurtmalari: 30 daqiqa ichida to'lov bo'lmasa avtomatik bekor qilinadi."""
     threshold = timezone.now() - timedelta(minutes=minutes)
     expired_orders = (
         Order.objects.select_related('payment')
         .prefetch_related('items__product', 'items__variant')
         .filter(
-            status=Order.STATUS_PENDING,
+            status=Order.STATUS_AWAITING_PAYMENT,   # Karta: to'lov kutilmoqda
             payment_method=Order.PAYMENT_METHOD_CARD,
             payment__status=Payment.STATUS_PENDING,
             created_at__lte=threshold,

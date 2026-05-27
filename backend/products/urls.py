@@ -4,13 +4,13 @@ from .views import (
     CategoryListView, ProductListView, ProductDetailView, MainPageView,
     ProductDiscountListView, ProductNewListView, ProductPopularListView,
     ProductRecommendedListView, CategoryProductListView, ProductSearchView,
-    ProductSimilarListView,
+    ProductSimilarListView, RecentlyViewedView,
     AdminCategoryViewSet, AdminHomeBannerViewSet, AdminProductViewSet,
     HomeBannerListView, AdminExchangeRateView, AdminStockReportView,
     # Compat — public
     PhoneBrandListView, PhoneModelSearchView, ProductCompatibleModelsView,
     # Compat — admin
-    AdminPhoneBrandListView, AdminCompatibilityView, AdminCompatibilityBulkSeriesView,
+    AdminCompatibilityView, AdminCompatibilityBulkSeriesView,
     AdminPhoneBrandViewSet, AdminPhoneSeriesViewSet, AdminPhoneModelViewSet,
 )
 
@@ -39,6 +39,8 @@ urlpatterns = [
     path('products/<int:pk>/',     ProductDetailView.as_view(),       name='product_detail'),
     path('products/<int:pk>/similar/', ProductSimilarListView.as_view(), name='product_similar_list'),
 
+    path('recently-viewed/', RecentlyViewedView.as_view(), name='recently_viewed'),
+
     path('banners/', HomeBannerListView.as_view(), name='home_banner_list'),
     path('main/',    MainPageView.as_view(),        name='main_page'),
 
@@ -55,8 +57,7 @@ urlpatterns = [
     # ── Moslik Matritsasi (admin) ─────────────────────────────────────────────
     # GET/POST/DELETE /api/admin/products/{pk}/compatibility/
     # POST            /api/admin/products/{pk}/compatibility/bulk-series/
-    # GET             /api/admin/phones/brands/
-    path('admin/phones/brands/', AdminPhoneBrandListView.as_view(), name='admin_phone_brand_list'),
+    # Brendlar CRUD   → router: admin/phones/brands/ (AdminPhoneBrandViewSet)
     path('admin/products/<int:pk>/compatibility/',
          AdminCompatibilityView.as_view(), name='admin_product_compatibility'),
     path('admin/products/<int:pk>/compatibility/bulk-series/',

@@ -19,6 +19,7 @@ export const refreshToken = (refresh: string) =>
 // PROFILE
 export const getProfile = () => apiClient.get('/profile/');
 export const updateProfile = (data: FormData | object) => apiClient.patch('/profile/', data);
+export const getMasterStatus = () => apiClient.get('/master/status/');
 
 // PRODUCTS
 export const getProducts = (params?: object) => apiClient.get('/products/', { params });
@@ -26,12 +27,18 @@ export const getProductDetail = (id: number | string) => apiClient.get(`/product
 export const getSimilarProducts = (id: number | string) => apiClient.get(`/products/${id}/similar/`);
 export const searchProducts = (q: string, track = false) =>
   apiClient.get('/search/products/', { params: { q, track } });
-export const getDiscountProducts = () => apiClient.get('/products/discounts/');
-export const getNewProducts = () => apiClient.get('/products/new/');
-export const getPopularProducts = () => apiClient.get('/products/popular/');
+export const getDiscountProducts = (params?: { page?: number; page_size?: number }) =>
+  apiClient.get('/products/discounts/', { params });
+export const getNewProducts = (params?: { page?: number; page_size?: number }) =>
+  apiClient.get('/products/new/', { params });
+export const getPopularProducts = (params?: { page?: number; page_size?: number }) =>
+  apiClient.get('/products/popular/', { params });
 export const getRecommendedProducts = () => apiClient.get('/products/recommended/');
 export const getMainPage = () => apiClient.get('/main/');
 export const getHomeBanners = () => apiClient.get('/banners/');
+export const getRecentlyViewed = (params?: { exclude?: number }) =>
+  apiClient.get('/recently-viewed/', { params });
+export const clearRecentlyViewed = () => apiClient.delete('/recently-viewed/');
 
 // CATEGORIES
 export const getCategories = () => apiClient.get('/categories/');
@@ -167,4 +174,24 @@ export const adminBulkAddCompatibilitySeries = (
   productId: number,
   data: { series_id: number; notes: string },
 ) => apiClient.post(`/admin/products/${productId}/compatibility/bulk-series/`, data);
+
+// STAFF / ROL BOSHQARUVI (faqat Super Admin)
+export const adminGetStaff = (params?: { q?: string }) =>
+  apiClient.get('/admin/staff/', { params });
+export const adminAssignRole = (data: { phone: string; role: string }) =>
+  apiClient.post('/admin/staff/assign-role/', data);
+export const adminFireStaff = (id: number) =>
+  apiClient.delete(`/admin/staff/${id}/fire/`);
+
+// Masters (Ustalar)
+export const adminGetMasters = (params?: { q?: string }) =>
+  apiClient.get('/admin/masters/', { params });
+export const adminAssignMaster = (data: { phone: string }) =>
+  apiClient.post('/admin/masters/assign/', data);
+export const adminRemoveMaster = (id: number) =>
+  apiClient.delete(`/admin/masters/${id}/remove/`);
+export const adminGetMasterDiscount = () =>
+  apiClient.get('/admin/masters/discount/');
+export const adminSetMasterDiscount = (percent: number) =>
+  apiClient.post('/admin/masters/discount/', { percent });
 

@@ -10,6 +10,8 @@ import Profile from './pages/Profile';
 import Auth from './pages/Auth';
 import AdminPanel from './pages/AdminPanel';
 import SectionProducts from './pages/SectionProducts';
+import Favorites from './pages/Favorites';
+import SearchPage from './pages/SearchPage';
 import { useCartStore } from './store/cartStore';
 import { applyThemeMode, useThemeStore } from './store/themeStore';
 
@@ -52,6 +54,8 @@ function App() {
           <Route path="checkout" element={<Checkout />} />
           <Route path="profile" element={<Profile />} />
           <Route path="auth" element={<Auth />} />
+          <Route path="favorites" element={<Favorites />} />
+          <Route path="search" element={<SearchPage />} />
         </Route>
       </Routes>
     </BrowserRouter>

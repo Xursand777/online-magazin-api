@@ -1,4 +1,4 @@
-import {
+import React, {
   Fragment,
   useEffect,
   useState,
@@ -52,7 +52,16 @@ import {
   adminAddProductCompatibility,
   adminRemoveProductCompatibility,
   adminBulkAddCompatibilitySeries,
+  adminGetStaff,
+  adminAssignRole,
+  adminFireStaff,
+  adminGetMasters,
+  adminAssignMaster,
+  adminRemoveMaster,
+  adminGetMasterDiscount,
+  adminSetMasterDiscount,
 } from '../api/endpoints';
+import { ROLE_LABELS, ROLE_COLORS, type StaffRole } from '../store/authStore';
 import {
   getOrderStatusBadge,
   getOrderStatusLabel,
@@ -63,7 +72,38 @@ import { printReceipt, printCreditAgreement } from '../utils/receiptPrinter';
 import ThemeToggle from '../components/ThemeToggle';
 import AdminPOS from '../components/AdminPOS';
 
-type AdminTab = 'dashboard' | 'products' | 'banners' | 'categories' | 'orders' | 'users' | 'feedback' | 'reports' | 'stock' | 'pos' | 'kassa' | 'nasiya' | 'sozlamalar' | 'compatibility';
+type AdminTab = 'dashboard' | 'products' | 'banners' | 'categories' | 'orders' | 'users' | 'feedback' | 'reports' | 'stock' | 'pos' | 'kassa' | 'nasiya' | 'sozlamalar' | 'compatibility' | 'staff' | 'masters';
+
+// Har bir tab qaysi rollar uchun ko'rinadi
+const TAB_ROLES: Partial<Record<AdminTab, StaffRole[]>> = {
+  // isSuperUser (is_superuser=True) har qanday tabni ko'ra oladi
+  dashboard:     ['admin'],
+  pos:           ['admin', 'seller'],
+  orders:        ['admin', 'seller', 'courier'],
+  users:         ['admin'],
+  feedback:      ['admin'],
+  products:      ['admin'],
+  categories:    ['admin'],
+  banners:       ['admin'],
+  compatibility: ['admin'],
+  kassa:         ['admin'],          // faqat Admin + SuperAdmin
+  nasiya:        ['admin'],
+  reports:       ['admin'],
+  stock:         ['admin', 'seller'],  // Sotuvchi ombor ko'ra oladi
+  sozlamalar:    ['admin'],
+  staff:         [],                 // faqat isSuperUser (is_superuser=True)
+  masters:       [],                 // faqat isSuperUser (is_superuser=True)
+};
+
+function canSeeTab(tab: AdminTab, role?: StaffRole | null, isSuperAdmin?: boolean): boolean {
+  if (isSuperAdmin) return true;
+  if (!role) return false;
+  const allowed = TAB_ROLES[tab];
+  if (!allowed) return true;
+  return allowed.includes(role);
+}
+
+const _notNull = <T,>(x: T | null | undefined): x is T => x != null;
 
 interface AdminCategory {
   id: number;
@@ -764,8 +804,24 @@ const AdminPanel = () => {
   return <AdminDashboard />;
 };
 
+const _ALL_TABS: AdminTab[] = [
+  'dashboard', 'pos', 'orders', 'users', 'feedback',
+  'products', 'categories', 'banners', 'compatibility',
+  'kassa', 'nasiya', 'reports', 'stock', 'sozlamalar', 'staff', 'masters',
+];
+
 const AdminDashboard = () => {
-  const [activeTab, setActiveTab] = useState<AdminTab>('dashboard');
+  const { logout, user } = useAuthStore();
+  const resetCart = useCartStore((s) => s.resetCart);
+  const navigate = useNavigate();
+  const qc = useQueryClient();
+
+  const userRole    = user?.role as StaffRole | undefined;
+  const isSuperUser = !!(user?.is_admin && !userRole);
+
+  const [activeTab, setActiveTab] = useState<AdminTab>(() =>
+    _ALL_TABS.find(t => canSeeTab(t, userRole, isSuperUser)) ?? 'orders'
+  );
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [productFilters, setProductFilters] = useState({
     q: '',
@@ -775,10 +831,6 @@ const AdminDashboard = () => {
     page: 1,
     page_size: 20,
   });
-  const { logout, user } = useAuthStore();
-  const resetCart = useCartStore((s) => s.resetCart);
-  const navigate = useNavigate();
-  const qc = useQueryClient();
 
   const { data: productsData, isLoading: productsLoading } = useQuery({
     queryKey: ['admin-products', productFilters],
@@ -848,46 +900,54 @@ const AdminDashboard = () => {
     navigate('/auth');
   };
 
+  type NavItem = { key: AdminTab; label: string; icon: string };
+  const _tab = (key: AdminTab, label: string, icon: string): NavItem | null =>
+    canSeeTab(key, userRole, isSuperUser) ? { key, label, icon } : null;
+
   const NAV_GROUPS = [
     {
       group: 'Asosiy',
-      items: [{ key: 'dashboard', label: 'Dashboard', icon: 'dashboard' }],
+      items: [_tab('dashboard', 'Dashboard', 'dashboard')].filter(_notNull),
     },
     {
       group: 'Savdo',
       items: [
-        { key: 'pos', label: "Do'kon (POS)", icon: 'point_of_sale' },
-        { key: 'orders', label: 'Buyurtmalar', icon: 'local_shipping' },
-        { key: 'users', label: 'Foydalanuvchilar', icon: 'people' },
-        { key: 'feedback', label: 'Fikrlar', icon: 'forum' },
-      ],
+        _tab('pos',      "Do'kon (POS)",     'point_of_sale'),
+        _tab('orders',   'Buyurtmalar',      'local_shipping'),
+        _tab('users',    'Foydalanuvchilar', 'people'),
+        _tab('feedback', 'Fikrlar',          'forum'),
+      ].filter(_notNull),
     },
     {
       group: 'Katalog',
       items: [
-        { key: 'products', label: 'Mahsulotlar', icon: 'inventory_2' },
-        { key: 'categories', label: 'Kategoriyalar', icon: 'category' },
-        { key: 'banners', label: 'Bannerlar', icon: 'view_carousel' },
-        { key: 'compatibility', label: 'Moslik matritsasi', icon: 'device_hub' },
-      ],
+        _tab('products',     'Mahsulotlar',      'inventory_2'),
+        _tab('categories',   'Kategoriyalar',    'category'),
+        _tab('banners',      'Bannerlar',         'view_carousel'),
+        _tab('compatibility','Moslik matritsasi', 'device_hub'),
+      ].filter(_notNull),
     },
     {
       group: 'Moliya',
       items: [
-        { key: 'kassa', label: 'Kassa', icon: 'account_balance_wallet' },
-        { key: 'nasiya', label: 'Nasiya', icon: 'calendar_month' },
-        { key: 'reports', label: 'Hisobotlar', icon: 'bar_chart' },
-      ],
+        _tab('kassa',   'Kassa',       'account_balance_wallet'),
+        _tab('nasiya',  'Nasiya',      'calendar_month'),
+        _tab('reports', 'Hisobotlar',  'bar_chart'),
+      ].filter(_notNull),
     },
     {
       group: 'Ombor',
-      items: [{ key: 'stock', label: 'Ombor', icon: 'warehouse' }],
+      items: [_tab('stock', 'Ombor', 'warehouse')].filter(_notNull),
     },
     {
       group: 'Tizim',
-      items: [{ key: 'sozlamalar', label: 'Sozlamalar', icon: 'settings' }],
+      items: [
+        _tab('sozlamalar', 'Sozlamalar',    'settings'),
+        _tab('staff',      'Xodimlar',      'manage_accounts'),
+        _tab('masters',    'Ustalar',       'construction'),
+      ].filter(_notNull),
     },
-  ];
+  ].filter(g => g.items.length > 0) as { group: string; items: NavItem[] }[];
 
   const activeLabel =
     NAV_GROUPS.flatMap((g) => g.items).find((i) => i.key === activeTab)?.label || '';
@@ -949,9 +1009,17 @@ const AdminDashboard = () => {
         {/* User footer */}
         <div className='border-t border-outline-variant p-4'>
           <p className='truncate text-sm font-semibold text-on-surface'>{user?.phone}</p>
-          <p className='mb-3 text-xs text-on-surface-variant'>
-            {user?.is_admin ? 'Superadmin' : 'Staff'}
-          </p>
+          <div className='mb-3 mt-1'>
+            {userRole ? (
+              <span className={`inline-block rounded-full px-2 py-0.5 text-[11px] font-semibold ${ROLE_COLORS[userRole] || ''}`}>
+                {ROLE_LABELS[userRole] || userRole}
+              </span>
+            ) : (
+              <span className='inline-block rounded-full bg-error/15 text-error border border-error/20 px-2 py-0.5 text-[11px] font-semibold'>
+                Super Admin
+              </span>
+            )}
+          </div>
           <div className='flex gap-2'>
             <button
               onClick={() => navigate('/')}
@@ -1031,6 +1099,8 @@ const AdminDashboard = () => {
           {activeTab === 'nasiya' && <NasiyaTab />}
           {activeTab === 'sozlamalar' && <SozlamalarTab />}
           {activeTab === 'compatibility' && <CompatibilityTab />}
+          {activeTab === 'staff' && <StaffTab />}
+          {activeTab === 'masters' && <MastersTab />}
         </main>
       </div>
     </div>
@@ -2649,7 +2719,7 @@ const OrdersTab = () => {
                                 <div className='text-xs text-on-surface-variant'>
                                   {item.quantity} dona
                                   {item.variant_details
-                                    ? ` • ${[item.variant_details.color, item.variant_details.quality, item.variant_details.model, item.variant_details.size].filter(Boolean).join(' / ')}`
+                                    ? ` • ${[item.variant_details.color, item.variant_details.quality, item.variant_details.model, item.variant_details.size].filter(_notNull).join(' / ')}`
                                     : ''}
                                 </div>
                               </div>
@@ -7591,6 +7661,540 @@ const CompatibilityTab = () => {
 
       {subTab === 'models'   && <PhoneModelsManager />}
       {subTab === 'products' && <ProductCompatibilityManager />}
+    </div>
+  );
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// StaffTab — Xodimlar boshqaruvi (faqat Super Admin)
+// ─────────────────────────────────────────────────────────────────────────────
+
+interface StaffMember {
+  id: number;
+  phone: string;
+  first_name: string;
+  last_name: string;
+  role: StaffRole;
+  role_display: string;
+  is_active: boolean;
+  date_joined: string;
+}
+
+const ROLES_LIST: { value: StaffRole | ''; label: string }[] = [
+  { value: 'admin',   label: 'Admin' },
+  { value: 'seller',  label: 'Sotuvchi' },
+  { value: 'courier', label: 'Kuryer' },
+  { value: '',        label: '— Rolni olib tashlash —' },
+];
+
+const StaffTab = () => {
+  const qc = useQueryClient();
+  const [phone, setPhone] = useState('');
+  const [selectedRole, setSelectedRole] = useState<'admin' | 'seller' | 'courier' | ''>('admin');
+  const [fireTarget, setFireTarget] = useState<StaffMember | null>(null);
+
+  const { data: staffList = [], isLoading } = useQuery<StaffMember[]>({
+    queryKey: ['admin-staff'],
+    queryFn: () => adminGetStaff().then(r => r.data.results ?? r.data),
+  });
+
+  const assignMut = useMutation({
+    mutationFn: (data: { phone: string; role: string }) => adminAssignRole(data),
+    onSuccess: (res) => {
+      const d = res.data;
+      const label = d.new_role ? (ROLE_LABELS[d.new_role] || d.new_role) : 'Rol olib tashlandi';
+      toast.success(`${d.phone} → ${label}`);
+      setPhone('');
+      qc.invalidateQueries({ queryKey: ['admin-staff'] });
+    },
+    onError: (err: any) => {
+      toast.error(err?.response?.data?.detail || 'Xato yuz berdi');
+    },
+  });
+
+  const fireMut = useMutation({
+    mutationFn: (id: number) => adminFireStaff(id),
+    onSuccess: (res) => {
+      toast.success(res.data.detail || 'Xodim ishdan bo\'shatildi');
+      setFireTarget(null);
+      qc.invalidateQueries({ queryKey: ['admin-staff'] });
+    },
+    onError: (err: any) => {
+      toast.error(err?.response?.data?.detail || 'Xato yuz berdi');
+      setFireTarget(null);
+    },
+  });
+
+  const handleAssign = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!phone.trim()) { toast.error("Telefon raqam kiriting"); return; }
+    assignMut.mutate({ phone: phone.trim(), role: selectedRole });
+  };
+
+  return (
+    <div className='flex flex-col gap-xl'>
+      <div>
+        <h2 className='text-h2 font-h2 text-on-surface'>Xodimlar boshqaruvi</h2>
+        <p className='text-body-sm text-on-surface-variant mt-1'>
+          Foydalanuvchilarga rol bering yoki rolni olib tashlang.
+        </p>
+      </div>
+
+      {/* Rol berish formasi */}
+      <div className='bg-surface-container-lowest rounded-2xl border border-outline-variant p-6'>
+        <h3 className='text-label-lg font-semibold text-on-surface mb-4'>Rol berish / o'zgartirish</h3>
+        <form onSubmit={handleAssign} className='flex flex-col sm:flex-row gap-3'>
+          <input
+            value={phone}
+            onChange={e => setPhone(e.target.value)}
+            placeholder='+998901234567'
+            className='flex-1 rounded-xl border border-outline-variant bg-surface-container px-4 py-2.5 text-sm text-on-surface placeholder:text-on-surface-variant/50 focus:border-primary focus:outline-none'
+          />
+          <select
+            value={selectedRole}
+            onChange={e => setSelectedRole(e.target.value as 'admin' | 'seller' | 'courier' | '')}
+            className='rounded-xl border border-outline-variant bg-surface-container px-4 py-2.5 text-sm text-on-surface focus:border-primary focus:outline-none'
+          >
+            {ROLES_LIST.map(r => (
+              <option key={r.value} value={r.value}>{r.label}</option>
+            ))}
+          </select>
+          <button
+            type='submit'
+            disabled={assignMut.isPending}
+            className='rounded-xl bg-primary px-6 py-2.5 text-sm font-semibold text-on-primary hover:opacity-90 disabled:opacity-50'
+          >
+            {assignMut.isPending ? 'Saqlanmoqda...' : 'Saqlash'}
+          </button>
+        </form>
+      </div>
+
+      {/* Xodimlar ro'yxati */}
+      <div className='bg-surface-container-lowest rounded-2xl border border-outline-variant overflow-hidden'>
+        <div className='px-6 py-4 border-b border-outline-variant flex items-center justify-between'>
+          <h3 className='text-label-lg font-semibold text-on-surface'>
+            Joriy xodimlar
+          </h3>
+          <span className='text-body-sm text-on-surface-variant'>{staffList.length} ta xodim</span>
+        </div>
+
+        {isLoading ? (
+          <div className='p-6 flex flex-col gap-3'>
+            {[1,2,3].map(i => <div key={i} className='h-14 bg-surface-container rounded-xl animate-pulse' />)}
+          </div>
+        ) : staffList.length === 0 ? (
+          <div className='p-10 text-center text-on-surface-variant text-body-sm'>
+            Hali xodim yo'q. Yuqoridagi forma orqali rol bering.
+          </div>
+        ) : (
+          <div className='divide-y divide-outline-variant'>
+            {staffList.map(member => (
+              <div key={member.id} className='flex items-center justify-between px-6 py-4 hover:bg-surface-container/50'>
+                <div className='flex items-center gap-3'>
+                  <div className='w-10 h-10 rounded-full bg-surface-container flex items-center justify-center'>
+                    <span className='material-symbols-outlined text-[20px] text-on-surface-variant'>person</span>
+                  </div>
+                  <div>
+                    <p className='text-sm font-semibold text-on-surface'>
+                      {member.first_name || member.last_name
+                        ? `${member.first_name} ${member.last_name}`.trim()
+                        : member.phone}
+                    </p>
+                    <p className='text-xs text-on-surface-variant'>{member.phone}</p>
+                  </div>
+                </div>
+                <div className='flex items-center gap-3'>
+                  <span className={`rounded-full px-3 py-1 text-xs font-semibold ${ROLE_COLORS[member.role] || 'bg-surface-container text-on-surface-variant'}`}>
+                    {ROLE_LABELS[member.role] || member.role_display}
+                  </span>
+                  <button
+                    onClick={() => setFireTarget(member)}
+                    className='flex items-center gap-1 rounded-lg border border-error/30 bg-error/10 px-3 py-1.5 text-xs font-semibold text-error hover:bg-error/20 transition-colors'
+                    title="Ishdan bo'shatish"
+                  >
+                    <span className='material-symbols-outlined text-[14px]'>person_off</span>
+                    Bo'shatish
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Ishdan bo'shatish confirmation dialog */}
+      {fireTarget && (
+        <div className='fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4'>
+          <div className='bg-surface rounded-3xl border border-outline-variant p-6 max-w-sm w-full shadow-2xl'>
+            <div className='flex items-center gap-3 mb-4'>
+              <div className='w-12 h-12 rounded-full bg-error/15 flex items-center justify-center flex-shrink-0'>
+                <span className='material-symbols-outlined text-error text-[24px]'>warning</span>
+              </div>
+              <div>
+                <h3 className='text-label-lg font-bold text-on-surface'>Ishdan bo'shatish</h3>
+                <p className='text-xs text-on-surface-variant mt-0.5'>Bu amalni ortga qaytarib bo'lmaydi</p>
+              </div>
+            </div>
+
+            <p className='text-body-md text-on-surface mb-1'>
+              <span className='font-semibold'>{fireTarget.phone}</span> ni ishdan bo'shatmoqchimisiz?
+            </p>
+            <p className='text-body-sm text-on-surface-variant mb-6'>
+              Xodim <span className={`font-semibold px-2 py-0.5 rounded-full text-xs ${ROLE_COLORS[fireTarget.role]}`}>
+                {ROLE_LABELS[fireTarget.role]}
+              </span> rolidan mahrum bo'ladi va barcha aktiv tokenlari darhol bekor qilinadi.
+            </p>
+
+            <div className='flex gap-3'>
+              <button
+                onClick={() => setFireTarget(null)}
+                disabled={fireMut.isPending}
+                className='flex-1 rounded-xl border border-outline-variant bg-surface-container px-4 py-2.5 text-sm font-semibold text-on-surface hover:bg-surface-container-high disabled:opacity-50'
+              >
+                Bekor qilish
+              </button>
+              <button
+                onClick={() => fireMut.mutate(fireTarget.id)}
+                disabled={fireMut.isPending}
+                className='flex-1 rounded-xl bg-error px-4 py-2.5 text-sm font-semibold text-on-error hover:opacity-90 disabled:opacity-50 flex items-center justify-center gap-2'
+              >
+                {fireMut.isPending
+                  ? <><span className='w-4 h-4 border-2 border-on-error/30 border-t-on-error rounded-full animate-spin' /> Bo'shatilmoqda...</>
+                  : <><span className='material-symbols-outlined text-[16px]'>person_off</span> Ha, bo'shatish</>
+                }
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Rol izohlari */}
+      <div className='grid grid-cols-1 sm:grid-cols-3 gap-3'>
+        {/* Super Admin — tayinlab bo'lmaydi, ma'lumot sifatida ko'rsatiladi */}
+        <div className={`rounded-xl p-4 border ${ROLE_COLORS['super_admin']} opacity-60`}>
+          <div className='flex items-center gap-2 mb-1'>
+            <p className='text-sm font-bold'>Super Admin</p>
+            <span className='text-[10px] bg-error/20 text-error rounded-full px-2 py-0.5'>Tayinlab bo'lmaydi</span>
+          </div>
+          <p className='text-xs opacity-70'>Barcha huquqlar. Tizim yaratuvchisi. Faqat 1 dona bo'ladi.</p>
+        </div>
+        <div className={`rounded-xl p-4 border ${ROLE_COLORS['admin'] || ''}`}>
+          <p className='text-sm font-bold mb-1'>Admin</p>
+          <p className='text-xs opacity-70'>Mahsulot, kategoriya, buyurtma, kassa, hisobot, banner, moslik.</p>
+        </div>
+        <div className={`rounded-xl p-4 border ${ROLE_COLORS['seller'] || ''}`}>
+          <p className='text-sm font-bold mb-1'>Sotuvchi</p>
+          <p className='text-xs opacity-70'>POS savdo, buyurtma tasdiqlash, ombor ko'rish.</p>
+        </div>
+        <div className={`rounded-xl p-4 border ${ROLE_COLORS['courier'] || ''}`}>
+          <p className='text-sm font-bold mb-1'>Kuryer</p>
+          <p className='text-xs opacity-70'>Buyurtmalarni ko'rish va yetkazib berildi deb belgilash.</p>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// MastersTab — Ustalar boshqaruvi (faqat Super Admin)
+// ─────────────────────────────────────────────────────────────────────────────
+
+interface MasterUser {
+  id: number;
+  phone: string;
+  first_name: string;
+  last_name: string;
+  full_name: string;
+  is_master: boolean;
+  is_active: boolean;
+  date_joined: string;
+}
+
+const MastersTab = () => {
+  const qc = useQueryClient();
+  const [phone, setPhone] = useState('');
+  const [removeTarget, setRemoveTarget] = useState<MasterUser | null>(null);
+  const [discountInput, setDiscountInput] = useState('');
+
+  const { data: masterList = [], isLoading } = useQuery<MasterUser[]>({
+    queryKey: ['admin-masters'],
+    queryFn: () => adminGetMasters().then(r => r.data.results ?? r.data),
+  });
+
+  const { data: discountPct = 5 } = useQuery<number>({
+    queryKey: ['admin-master-discount'],
+    queryFn: () => adminGetMasterDiscount().then(r => r.data.percent),
+  });
+
+  // Saqlangan foiz o'zgarsa, input maydonini sinxronlaymiz (faqat foydalanuvchi
+  // hali tahrir qilmagan bo'lsa).
+  useEffect(() => {
+    setDiscountInput(String(discountPct));
+  }, [discountPct]);
+
+  const assignMut = useMutation({
+    mutationFn: (data: { phone: string }) => adminAssignMaster(data),
+    onSuccess: (res) => {
+      toast.success(res.data.detail || 'Usta qo\'shildi');
+      setPhone('');
+      qc.invalidateQueries({ queryKey: ['admin-masters'] });
+    },
+    onError: (err: any) => {
+      toast.error(err?.response?.data?.detail || 'Xato yuz berdi');
+    },
+  });
+
+  const removeMut = useMutation({
+    mutationFn: (id: number) => adminRemoveMaster(id),
+    onSuccess: (res) => {
+      toast.success(res.data.detail || 'Usta olib tashlandi');
+      setRemoveTarget(null);
+      qc.invalidateQueries({ queryKey: ['admin-masters'] });
+    },
+    onError: (err: any) => {
+      toast.error(err?.response?.data?.detail || 'Xato yuz berdi');
+      setRemoveTarget(null);
+    },
+  });
+
+  const discountMut = useMutation({
+    mutationFn: (percent: number) => adminSetMasterDiscount(percent),
+    onSuccess: (res) => {
+      toast.success(res.data.detail || 'Chegirma foizi saqlandi');
+      qc.invalidateQueries({ queryKey: ['admin-master-discount'] });
+    },
+    onError: (err: any) => {
+      toast.error(err?.response?.data?.detail || 'Xato yuz berdi');
+    },
+  });
+
+  const handleAssign = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!phone.trim()) { toast.error('Telefon raqam kiriting'); return; }
+    assignMut.mutate({ phone: phone.trim() });
+  };
+
+  const handleSaveDiscount = (e: React.FormEvent) => {
+    e.preventDefault();
+    const pct = Number(discountInput);
+    if (Number.isNaN(pct) || pct < 0 || pct > 90) {
+      toast.error("Foiz 0 va 90 oralig'ida bo'lishi kerak");
+      return;
+    }
+    discountMut.mutate(pct);
+  };
+
+  const dirty = String(discountPct) !== discountInput.trim();
+
+  // Foizni chiroyli ko'rsatish: 4 → "4", 3.75 → "3.75", 2.5 → "2.5"
+  const fmtPct = (n: number) => String(Math.round(n * 100) / 100);
+
+  return (
+    <div className='flex flex-col gap-xl'>
+      <div>
+        <h2 className='text-h2 font-h2 text-on-surface'>Ustalar boshqaruvi</h2>
+        <p className='text-body-sm text-on-surface-variant mt-1'>
+          Ustalar <span className='font-semibold text-primary'>{discountPct}% gacha chegirma</span> oladi
+          (chegirmadagi mahsulotlardan ham). Foiz ustaning xarid faolligiga qarab dinamik o'zgaradi.
+        </p>
+      </div>
+
+      {/* Chegirma foizini sozlash */}
+      <div className='bg-surface-container-lowest rounded-2xl border border-outline-variant p-6'>
+        <div className='flex items-center gap-2 mb-1'>
+          <span className='material-symbols-outlined text-primary text-[20px]'>percent</span>
+          <h3 className='text-label-lg font-semibold text-on-surface'>Chegirma foizi</h3>
+        </div>
+        <p className='text-body-sm text-on-surface-variant mb-4'>
+          Bu foiz barcha ustalarga qo'llaniladi. O'zgartirilsa, darhol kuchga kiradi.
+        </p>
+        <form onSubmit={handleSaveDiscount} className='flex flex-col sm:flex-row gap-3 sm:items-center'>
+          <div className='relative flex-1 max-w-[200px]'>
+            <input
+              type='number'
+              min={0}
+              max={90}
+              step='0.1'
+              value={discountInput}
+              onChange={e => setDiscountInput(e.target.value)}
+              className='w-full rounded-xl border border-outline-variant bg-surface-container px-4 py-2.5 pr-10 text-sm text-on-surface focus:border-primary focus:outline-none'
+            />
+            <span className='absolute right-4 top-1/2 -translate-y-1/2 text-on-surface-variant text-sm font-semibold'>%</span>
+          </div>
+          <button
+            type='submit'
+            disabled={discountMut.isPending || !dirty}
+            className='rounded-xl bg-primary px-6 py-2.5 text-sm font-semibold text-on-primary hover:opacity-90 disabled:opacity-50 flex items-center gap-2 w-fit'
+          >
+            {discountMut.isPending
+              ? <><span className='w-4 h-4 border-2 border-on-primary/30 border-t-on-primary rounded-full animate-spin' /> Saqlanmoqda...</>
+              : <><span className='material-symbols-outlined text-[16px]'>save</span> Saqlash</>
+            }
+          </button>
+        </form>
+      </div>
+
+      {/* Usta qo'shish */}
+      <div className='bg-surface-container-lowest rounded-2xl border border-outline-variant p-6'>
+        <h3 className='text-label-lg font-semibold text-on-surface mb-4'>Usta qo'shish</h3>
+        <form onSubmit={handleAssign} className='flex flex-col sm:flex-row gap-3'>
+          <input
+            value={phone}
+            onChange={e => setPhone(e.target.value)}
+            placeholder='+998901234567'
+            className='flex-1 rounded-xl border border-outline-variant bg-surface-container px-4 py-2.5 text-sm text-on-surface placeholder:text-on-surface-variant/50 focus:border-primary focus:outline-none'
+          />
+          <button
+            type='submit'
+            disabled={assignMut.isPending}
+            className='rounded-xl bg-primary px-6 py-2.5 text-sm font-semibold text-on-primary hover:opacity-90 disabled:opacity-50 flex items-center gap-2'
+          >
+            {assignMut.isPending
+              ? <><span className='w-4 h-4 border-2 border-on-primary/30 border-t-on-primary rounded-full animate-spin' /> Qo'shilmoqda...</>
+              : <><span className='material-symbols-outlined text-[16px]'>construction</span> Usta qilish</>
+            }
+          </button>
+        </form>
+      </div>
+
+      {/* Faollikka asoslangan chegirma izohi */}
+      <div className='bg-primary/8 rounded-2xl border border-primary/20 p-5'>
+        <div className='flex items-start gap-4 mb-4'>
+          <div className='w-10 h-10 rounded-full bg-primary/15 flex items-center justify-center flex-shrink-0'>
+            <span className='material-symbols-outlined text-primary text-[20px]'>insights</span>
+          </div>
+          <div>
+            <p className='text-sm font-semibold text-on-surface mb-1'>Faollikka asoslangan chegirma (4 pog'onali)</p>
+            <p className='text-xs text-on-surface-variant leading-relaxed'>
+              Bazaviy foiz ({fmtPct(discountPct)}%) ustaning xarid faolligiga qarab dinamik o'zgaradi —
+              qaysi foiz kiritsangiz ham (3%, 4%, 5%...) shunga proporsional moslashadi.
+              Quyidagi jadval <span className='font-medium text-on-surface'>"shift"</span> (eng yuqori
+              erishish mumkin bo'lgan daraja)ni ko'rsatadi.
+            </p>
+          </div>
+        </div>
+        <div className='grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs'>
+          {[
+            ['Har kuni (0–1 kun)', `${fmtPct(discountPct)}%`, '100%'],
+            ['2 kunda bir', `${fmtPct(discountPct * 0.75)}%`, '¾'],
+            ['3–4 kunda bir', `${fmtPct(discountPct * 0.5)}%`, '½'],
+            ['5–6 kun sust', `${fmtPct(discountPct * 0.25)}%`, '¼'],
+            ['Haftada bir / 10 kun', "oddiy narx", '0'],
+            ['Yangi usta', `${fmtPct(discountPct)}%`, 'xush kelibsiz'],
+          ].map(([label, val, ratio]) => (
+            <div key={label} className='flex items-center justify-between gap-2 bg-surface-container-lowest/60 rounded-lg px-3 py-2 border border-outline-variant/40'>
+              <span className='text-on-surface-variant'>{label}</span>
+              <span className='flex items-center gap-1.5'>
+                <span className='text-[10px] text-on-surface-variant/70'>{ratio}</span>
+                <span className='font-semibold text-on-surface'>{val}</span>
+              </span>
+            </div>
+          ))}
+        </div>
+        {/* Adolatli tiklanish + yumshoq qo'nish */}
+        <div className='mt-3 flex items-start gap-2 text-xs text-on-surface-variant bg-surface-container-lowest/60 rounded-lg px-3 py-2.5 border border-outline-variant/40'>
+          <span className='material-symbols-outlined text-[16px] text-primary mt-px'>trending_up</span>
+          <p className='leading-relaxed'>
+            <span className='font-medium text-on-surface'>Adolatli tiklanish:</span> sustlikda chegirma
+            tez pasayadi, lekin <span className='font-medium text-on-surface'>bir zumda qaytmaydi</span> —
+            har kungi xarid darajani bittadan ko'taradi.
+            <br />
+            <span className='font-medium text-on-surface'>Yumshoq qo'nish:</span> ilgari sodiq bo'lgan usta
+            hafta/10 kun tanaffusdan keyin <span className='font-medium text-on-surface'>0 ga emas, avvalgi darajasining yarmidan</span> qaytadi
+            (≤14 kun → ½, 15–28 kun → ¼, keyin noldan). Masalan to'liq {fmtPct(discountPct)}% edi →
+            qaytishda {fmtPct(discountPct / 2)}% → {fmtPct(discountPct * 0.75)}% → {fmtPct(discountPct)}% (2 kunda to'liq).
+            Tasodifiy (¾ darajaga chiqmagan) xaridor esa oddiy 0% dan tiklanadi.
+          </p>
+        </div>
+      </div>
+
+      {/* Ustalar ro'yxati */}
+      <div className='bg-surface-container-lowest rounded-2xl border border-outline-variant overflow-hidden'>
+        <div className='px-6 py-4 border-b border-outline-variant flex items-center justify-between'>
+          <h3 className='text-label-lg font-semibold text-on-surface'>Joriy ustalar</h3>
+          <span className='text-body-sm text-on-surface-variant'>{masterList.length} ta usta</span>
+        </div>
+
+        {isLoading ? (
+          <div className='p-6 flex flex-col gap-3'>
+            {[1, 2, 3].map(i => <div key={i} className='h-14 bg-surface-container rounded-xl animate-pulse' />)}
+          </div>
+        ) : masterList.length === 0 ? (
+          <div className='p-10 text-center text-on-surface-variant text-body-sm'>
+            Hali usta yo'q. Yuqoridagi forma orqali qo'shing.
+          </div>
+        ) : (
+          <div className='divide-y divide-outline-variant'>
+            {masterList.map(master => (
+              <div key={master.id} className='flex items-center justify-between px-6 py-4 hover:bg-surface-container/50'>
+                <div className='flex items-center gap-3'>
+                  <div className='w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center'>
+                    <span className='material-symbols-outlined text-[20px] text-primary'>construction</span>
+                  </div>
+                  <div>
+                    <p className='text-sm font-semibold text-on-surface'>
+                      {master.full_name !== master.phone ? master.full_name : master.phone}
+                    </p>
+                    <p className='text-xs text-on-surface-variant'>{master.phone}</p>
+                  </div>
+                </div>
+                <div className='flex items-center gap-3'>
+                  <span className='rounded-full px-3 py-1 text-xs font-semibold bg-primary/15 text-primary border border-primary/20'>
+                    {discountPct}% chegirma
+                  </span>
+                  <button
+                    onClick={() => setRemoveTarget(master)}
+                    className='flex items-center gap-1 rounded-lg border border-error/30 bg-error/10 px-3 py-1.5 text-xs font-semibold text-error hover:bg-error/20 transition-colors'
+                    title="Ustadan olib tashlash"
+                  >
+                    <span className='material-symbols-outlined text-[14px]'>person_off</span>
+                    Olib tashlash
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Olib tashlash confirmation dialog */}
+      {removeTarget && (
+        <div className='fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4'>
+          <div className='bg-surface rounded-3xl border border-outline-variant p-6 max-w-sm w-full shadow-2xl'>
+            <div className='flex items-center gap-3 mb-4'>
+              <div className='w-12 h-12 rounded-full bg-error/15 flex items-center justify-center flex-shrink-0'>
+                <span className='material-symbols-outlined text-error text-[24px]'>warning</span>
+              </div>
+              <div>
+                <h3 className='text-label-lg font-bold text-on-surface'>Ustadan olib tashlash</h3>
+                <p className='text-xs text-on-surface-variant mt-0.5'>Chegirma huquqi bekor qilinadi</p>
+              </div>
+            </div>
+            <p className='text-body-md text-on-surface mb-6'>
+              <span className='font-semibold'>{removeTarget.phone}</span> ni usta ro'yxatidan olib tashlaysizmi?
+              Keyingi xaridlarida <span className='font-semibold'>{discountPct}%</span> chegirma qo'llanilmaydi.
+            </p>
+            <div className='flex gap-3'>
+              <button
+                onClick={() => setRemoveTarget(null)}
+                disabled={removeMut.isPending}
+                className='flex-1 rounded-xl border border-outline-variant bg-surface-container px-4 py-2.5 text-sm font-semibold text-on-surface hover:bg-surface-container-high disabled:opacity-50'
+              >
+                Bekor qilish
+              </button>
+              <button
+                onClick={() => removeMut.mutate(removeTarget.id)}
+                disabled={removeMut.isPending}
+                className='flex-1 rounded-xl bg-error px-4 py-2.5 text-sm font-semibold text-on-error hover:opacity-90 disabled:opacity-50 flex items-center justify-center gap-2'
+              >
+                {removeMut.isPending
+                  ? <><span className='w-4 h-4 border-2 border-on-error/30 border-t-on-error rounded-full animate-spin' /> Olib tashlanmoqda...</>
+                  : <><span className='material-symbols-outlined text-[16px]'>person_off</span> Ha, olib tashlash</>
+                }
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

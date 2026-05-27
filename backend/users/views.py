@@ -1,92 +1,149 @@
-import random
+import secrets
 from django.conf import settings
 from django.db.models import Count, Sum, Q
 from rest_framework import generics, status, views
 from rest_framework.pagination import PageNumberPagination
 from rest_framework.response import Response
 from rest_framework.permissions import AllowAny, IsAuthenticated
+from rest_framework.throttling import ScopedRateThrottle
 from rest_framework_simplejwt.tokens import RefreshToken
 from django.contrib.auth import get_user_model
 from django.core.cache import cache
 
 from .models import UserProfile, Address, Feedback
+from .permissions import IsSuperAdmin, IsAdminOrAbove
 from .serializers import (
     RegisterSerializer, LoginRequestSerializer, VerifyOTPSerializer, PasswordLoginSerializer,
-    UserProfileSerializer, AddressSerializer, FeedbackSerializer
+    UserProfileSerializer, AddressSerializer, FeedbackSerializer,
+    StaffUserSerializer, AssignRoleSerializer,
+    MasterUserSerializer, AssignMasterSerializer,
 )
 from cart.views import merge_cart
 from recommendations.services import merge_guest_profile_into_user
 from .utils import find_user_by_phone
 
 User = get_user_model()
+
+# Faqat DEVELOPMENT uchun qulay sobit kod. Production'da (DEBUG=False) bu kod
+# HECH QACHON qabul qilinmaydi — haqiqiy tasodifiy OTP generatsiya qilinadi.
 FAKE_OTP_CODE = "121212"
 
-def generate_otp():
-    return str(random.randint(100000, 999999))
+# OTP sozlamalari
+OTP_TTL_SECONDS = 300          # Kod amal qilish muddati: 5 daqiqa
+OTP_SEND_COOLDOWN = 60         # Bitta raqamga ketma-ket yuborish oralig'i: 60s
+OTP_MAX_ATTEMPTS = 5           # Bitta kod uchun maksimal tekshirish urinishi
+
+
+def generate_otp() -> str:
+    """Kriptografik xavfsiz 6 xonali OTP (random emas, secrets)."""
+    return f"{secrets.randbelow(1_000_000):06d}"
+
 
 class RegisterView(generics.CreateAPIView):
     queryset = User.objects.all()
     permission_classes = (AllowAny,)
     serializer_class = RegisterSerializer
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = 'auth'
 
 class SendOTPView(views.APIView):
     permission_classes = (AllowAny,)
     serializer_class = LoginRequestSerializer
-    
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = 'otp'
+
     def post(self, request, *args, **kwargs):
         serializer = self.serializer_class(data=request.data)
         serializer.is_valid(raise_exception=True)
         phone = serializer.validated_data['phone']
-        
+
         user = find_user_by_phone(phone)
         if not user:
             return Response(
-                {"error": "Ushbu telefon raqami bazada mavjud emas. Iltimos, ro'yxatdan o'ting."}, 
+                {"error": "Ushbu telefon raqami bazada mavjud emas. Iltimos, ro'yxatdan o'ting."},
                 status=status.HTTP_404_NOT_FOUND
             )
-        
-        # Fixed OTP for local development until real SMS is integrated.
-        try:
-            otp_code = FAKE_OTP_CODE
-            cache.set(f"otp_{phone}", otp_code, timeout=300) # 5 minutes
-            print(f"--- MOCK SMS --- to {phone}: Your code is {otp_code}")
-        except Exception as e:
-            # If cache fails (e.g. Redis not configured), we still succeed
-            # because VerifyOTPView accepts the fixed development code.
-            print(f"Cache system error: {e}")
-        
-        return Response({
-            "message": f"OTP muvaffaqiyatli yuborildi. Test uchun {FAKE_OTP_CODE} kodidan foydalaning.",
-            "debug_code": FAKE_OTP_CODE,
-        })
+
+        # SMS bombing himoyasi: bitta raqamga ketma-ket yuborishni cheklash
+        cooldown_key = f"otp_cooldown_{phone}"
+        if cache.get(cooldown_key):
+            return Response(
+                {"error": "Kod yaqinda yuborildi. Iltimos, biroz kutib turing."},
+                status=status.HTTP_429_TOO_MANY_REQUESTS,
+            )
+
+        # DEV: qulay sobit kod. PROD: kriptografik xavfsiz tasodifiy kod.
+        otp_code = FAKE_OTP_CODE if settings.DEBUG else generate_otp()
+
+        cache.set(f"otp_{phone}", otp_code, timeout=OTP_TTL_SECONDS)
+        cache.delete(f"otp_attempts_{phone}")          # yangi kod → urinishlar nollanadi
+        cache.set(cooldown_key, True, timeout=OTP_SEND_COOLDOWN)
+
+        if settings.DEBUG:
+            print(f"--- MOCK SMS --- to {phone}: {otp_code}")
+            # debug_code FAQAT development'da qaytariladi — production'da hech qachon
+            return Response({
+                "message": "Tasdiqlash kodi yuborildi (development).",
+                "debug_code": otp_code,
+            })
+
+        # PRODUCTION: haqiqiy SMS yuborish
+        from orders.sms import send_otp_sms
+        if not send_otp_sms(phone, otp_code):
+            cache.delete(cooldown_key)                 # yuborilmadi → qayta urinishga ruxsat
+            return Response(
+                {"error": "SMS yuborib bo'lmadi. Birozdan so'ng qayta urinib ko'ring."},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+        return Response({"message": "Tasdiqlash kodi telefoningizga yuborildi."})
+
 
 class VerifyOTPView(views.APIView):
     permission_classes = (AllowAny,)
     serializer_class = VerifyOTPSerializer
-    
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = 'auth'
+
     def post(self, request, *args, **kwargs):
         serializer = self.serializer_class(data=request.data)
         serializer.is_valid(raise_exception=True)
         phone = serializer.validated_data['phone']
         code = serializer.validated_data['code']
-        
-        # Allow the fixed development code even if cache/SMS fails.
+
+        # Bitta kod uchun urinishlar sonini cheklash (brute-force himoya)
+        attempts_key = f"otp_attempts_{phone}"
+        attempts = cache.get(attempts_key, 0)
+        if attempts >= OTP_MAX_ATTEMPTS:
+            cache.delete(f"otp_{phone}")               # kodni kuydiramiz — yangi so'rash kerak
+            return Response(
+                {"error": "Juda ko'p noto'g'ri urinish. Iltimos, yangi kod so'rang."},
+                status=status.HTTP_429_TOO_MANY_REQUESTS,
+            )
+
         cached_otp = cache.get(f"otp_{phone}")
-        
-        if code == FAKE_OTP_CODE:
-            pass
-        elif not cached_otp or cached_otp != code:
-            return Response({"error": "Kod noto'g'ri yoki muddati o'tgan."}, status=status.HTTP_400_BAD_REQUEST)
-        
+
+        # DEV'da sobit kodga ruxsat; PROD'da FAQAT cache'dagi haqiqiy kod.
+        # Solishtirish constant-time (timing attack'dan himoya).
+        is_dev_code = settings.DEBUG and secrets.compare_digest(code, FAKE_OTP_CODE)
+        is_real_code = bool(cached_otp) and secrets.compare_digest(code, str(cached_otp))
+
+        if not (is_dev_code or is_real_code):
+            cache.set(attempts_key, attempts + 1, timeout=OTP_TTL_SECONDS)
+            return Response(
+                {"error": "Kod noto'g'ri yoki muddati o'tgan."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
         user = find_user_by_phone(phone)
         if not user:
             return Response({"error": "User not found."}, status=status.HTTP_404_NOT_FOUND)
-            
+
         user.is_verified = True
         user.is_active = True
         user.save()
-        
+
         cache.delete(f"otp_{phone}")
+        cache.delete(attempts_key)
         
         # Merge guest cart to user cart
         guest_session_id = request.headers.get('X-Guest-Session-Id')
@@ -102,7 +159,11 @@ class VerifyOTPView(views.APIView):
             'user': {
                 'id': user.id,
                 'phone': user.phone,
-                'is_admin': user.is_staff or user.is_superuser
+                'first_name': user.first_name,
+                'last_name': user.last_name,
+                'is_admin': user.is_superuser or bool(user.role),
+                'role': user.role,
+                'is_master': user.is_master,
             }
         })
 
@@ -114,6 +175,8 @@ class LoginView(SendOTPView):
 class PasswordLoginView(views.APIView):
     permission_classes = (AllowAny,)
     serializer_class = PasswordLoginSerializer
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = 'auth'
 
     def post(self, request, *args, **kwargs):
         serializer = self.serializer_class(data=request.data)
@@ -148,7 +211,9 @@ class PasswordLoginView(views.APIView):
                 'phone': user.phone,
                 'first_name': user.first_name,
                 'last_name': user.last_name,
-                'is_admin': user.is_superuser or user.is_staff,
+                'is_admin': user.is_superuser or bool(user.role),
+                'role': user.role,
+                'is_master': user.is_master,
             }
         })
 
@@ -427,4 +492,255 @@ class AdminFeedbackUpdateView(views.APIView):
             'id': feedback.id,
             'status': feedback.status,
             'user_phone': feedback.user.phone,
+        })
+
+
+# ── Xodim boshqaruvi (faqat Super Admin) ─────────────────────────────────────
+
+class StaffListView(generics.ListAPIView):
+    """GET /api/admin/staff/ — barcha xodimlar ro'yxati."""
+    permission_classes = (IsAuthenticated, IsSuperAdmin)
+    serializer_class   = StaffUserSerializer
+    pagination_class   = None
+
+    def get_queryset(self):
+        qs = (
+            User.objects
+            .filter(role__isnull=False)
+            .exclude(role='')
+            .order_by('role', 'phone')
+        )
+        q = self.request.query_params.get('q', '').strip()
+        if q:
+            qs = qs.filter(phone__icontains=q)
+        return qs
+
+
+class AssignRoleView(views.APIView):
+    """
+    POST /api/admin/staff/assign-role/
+    Body: { phone, role }  — role='' bo'lsa rol olib tashlanadi.
+    """
+    permission_classes = (IsAuthenticated, IsSuperAdmin)
+
+    def post(self, request):
+        s = AssignRoleSerializer(data=request.data)
+        s.is_valid(raise_exception=True)
+        phone = s.validated_data['phone']
+        role  = s.validated_data['role'] or None
+
+        # Super Admin rolini hech qachon tayinlash mumkin emas
+        if role == 'super_admin':
+            return Response(
+                {'detail': "Super Admin rolini tayinlab bo'lmaydi. "
+                           "Bu rol faqat tizim administratori uchun."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        user = find_user_by_phone(phone)
+        if not user:
+            return Response({'detail': 'Foydalanuvchi topilmadi.'}, status=status.HTTP_404_NOT_FOUND)
+
+        # Superuser ni o'zgartirish mumkin emas
+        if user.is_superuser:
+            return Response(
+                {'detail': "Super Admin foydalanuvchisini o'zgartirish mumkin emas."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        if user == request.user and not role:
+            return Response(
+                {'detail': "O'z rolingizni olib tashlay olmaysiz."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        old_role   = user.role
+        user.role  = role
+        user.save()   # save() ichida is_staff avtomatik yangilanadi
+
+        return Response({
+            'phone':    user.phone,
+            'old_role': old_role,
+            'new_role': user.role,
+            'is_staff': user.is_staff,
+        })
+
+
+class FireStaffView(views.APIView):
+    """
+    DELETE /api/admin/staff/<pk>/fire/
+    Xodimni ishdan bo'shatish: rolini olib tashlaydi va barcha tokenlarini
+    darhol bekor qiladi (role_invalidated_at yangilanadi).
+    Faqat Super Admin ishlatishi mumkin.
+    """
+    permission_classes = (IsAuthenticated, IsSuperAdmin)
+
+    def delete(self, request, pk):
+        try:
+            target = User.objects.get(pk=pk)
+        except User.DoesNotExist:
+            return Response({'detail': 'Xodim topilmadi.'}, status=status.HTTP_404_NOT_FOUND)
+
+        # Superuserni o'chirish mumkin emas
+        if target.is_superuser:
+            return Response(
+                {'detail': "Super Admin foydalanuvchisini roldan mahrum qilib bo'lmaydi."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        # Roli bo'lmagan foydalanuvchi — xodim emas
+        if not target.role:
+            return Response(
+                {'detail': 'Bu foydalanuvchi xodim emas.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # O'zini ishdan bo'shatishi mumkin emas
+        if target == request.user:
+            return Response(
+                {'detail': "O'z rolingizni olib tashlay olmaysiz."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        fired_role = target.role
+        target.role = None
+        # save() avtomatik: is_staff=False + role_invalidated_at=now() → eski tokenlar bekor
+        target.save()
+
+        return Response({
+            'id':         target.pk,
+            'phone':      target.phone,
+            'fired_role': fired_role,
+            'detail':     f"{target.phone} xodimi ishdan bo'shatildi. Barcha tokenlar bekor qilindi.",
+        })
+
+
+# ── Usta boshqaruvi (faqat Super Admin) ──────────────────────────────────────
+
+class MasterListView(generics.ListAPIView):
+    """GET /api/admin/masters/ — barcha ustalar ro'yxati."""
+    permission_classes = (IsAuthenticated, IsSuperAdmin)
+    serializer_class   = MasterUserSerializer
+    pagination_class   = None
+
+    def get_queryset(self):
+        qs = User.objects.filter(is_master=True).order_by('phone')
+        q = self.request.query_params.get('q', '').strip()
+        if q:
+            qs = qs.filter(phone__icontains=q)
+        return qs
+
+
+class AssignMasterView(views.APIView):
+    """
+    POST /api/admin/masters/assign/
+    Body: { phone }  — foydalanuvchini usta qiladi.
+    """
+    permission_classes = (IsAuthenticated, IsSuperAdmin)
+
+    def post(self, request):
+        s = AssignMasterSerializer(data=request.data)
+        s.is_valid(raise_exception=True)
+        phone = s.validated_data['phone']
+
+        user = find_user_by_phone(phone)
+        if not user:
+            return Response({'detail': 'Foydalanuvchi topilmadi.'}, status=status.HTTP_404_NOT_FOUND)
+
+        if user.is_master:
+            return Response({'detail': 'Bu foydalanuvchi allaqachon usta.'},
+                            status=status.HTTP_400_BAD_REQUEST)
+
+        user.is_master = True
+        user.save(update_fields=['is_master'])
+
+        return Response({
+            'id':     user.pk,
+            'phone':  user.phone,
+            'detail': f"{user.phone} usta ro'yxatiga qo'shildi.",
+        }, status=status.HTTP_201_CREATED)
+
+
+class RemoveMasterView(views.APIView):
+    """
+    DELETE /api/admin/masters/<pk>/remove/
+    Ustadan olib tashlash.
+    """
+    permission_classes = (IsAuthenticated, IsSuperAdmin)
+
+    def delete(self, request, pk):
+        try:
+            target = User.objects.get(pk=pk)
+        except User.DoesNotExist:
+            return Response({'detail': 'Foydalanuvchi topilmadi.'}, status=status.HTTP_404_NOT_FOUND)
+
+        if not target.is_master:
+            return Response({'detail': 'Bu foydalanuvchi usta emas.'},
+                            status=status.HTTP_400_BAD_REQUEST)
+
+        target.is_master = False
+        target.save(update_fields=['is_master'])
+
+        return Response({
+            'id':     target.pk,
+            'phone':  target.phone,
+            'detail': f"{target.phone} usta ro'yxatidan olib tashlandi.",
+        })
+
+
+class MasterStatusView(views.APIView):
+    """
+    GET /api/master/status/
+    Joriy foydalanuvchining usta chegirma holati: bazaviy foiz, amaldagi foiz
+    (faollikka qarab), oxirgi xariddan o'tgan kunlar. Shaffoflik uchun.
+    """
+    permission_classes = (IsAuthenticated,)
+
+    def get(self, request):
+        from orders.services import master_status
+        return Response(master_status(request.user))
+
+
+class AdminMasterDiscountView(views.APIView):
+    """
+    GET  /api/admin/masters/discount/  — joriy usta chegirma foizini qaytaradi.
+    POST /api/admin/masters/discount/  — { percent } — foizni o'rnatadi (0–90).
+    Faqat Super Admin.
+    """
+    permission_classes = (IsAuthenticated, IsSuperAdmin)
+
+    def get(self, request):
+        from products.models import GlobalSetting
+        pct = GlobalSetting.get_master_discount_percent()
+        return Response({'percent': float(pct)})
+
+    def post(self, request):
+        from decimal import Decimal, InvalidOperation
+        from products.models import GlobalSetting
+
+        raw = request.data.get('percent')
+        if raw is None or raw == '':
+            return Response({'detail': 'Foiz qiymati kiritilishi shart.'},
+                            status=status.HTTP_400_BAD_REQUEST)
+        try:
+            pct = Decimal(str(raw))
+        except (InvalidOperation, TypeError, ValueError):
+            return Response({'detail': "Noto'g'ri foiz formati."},
+                            status=status.HTTP_400_BAD_REQUEST)
+
+        if pct < 0 or pct > 90:
+            return Response({'detail': "Foiz 0 va 90 oralig'ida bo'lishi kerak."},
+                            status=status.HTTP_400_BAD_REQUEST)
+
+        # Butun son bo'lsa kasrsiz saqlaymiz (5.00 emas, 5)
+        stored = pct.to_integral_value() if pct == pct.to_integral_value() else pct
+
+        setting, _ = GlobalSetting.objects.get_or_create(key='master_discount_percent')
+        setting.value = str(stored)
+        setting.description = "Ustalar uchun chegirma foizi (%)"
+        setting.save()
+
+        return Response({
+            'percent': float(pct),
+            'detail':  f"Usta chegirmasi {stored}% ga o'rnatildi.",
         })

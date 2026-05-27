@@ -63,6 +63,7 @@ class OrderSerializer(serializers.ModelSerializer):
     payment = PaymentSerializer(read_only=True)
     history = OrderHistorySerializer(many=True, read_only=True)
     can_cancel = serializers.SerializerMethodField()
+    can_admin_cancel = serializers.SerializerMethodField()
     credit_is_overdue = serializers.SerializerMethodField()
 
     class Meta:
@@ -89,6 +90,7 @@ class OrderSerializer(serializers.ModelSerializer):
             'created_at',
             'updated_at',
             'can_cancel',
+            'can_admin_cancel',
             'items',
             'payment',
             'history',
@@ -108,10 +110,26 @@ class OrderSerializer(serializers.ModelSerializer):
             'credit_paid_at',
             'credit_is_overdue',
             'can_cancel',
+            'can_admin_cancel',
         )
 
     def get_can_cancel(self, obj):
         return obj.status in Order.CANCELLABLE_STATUSES
+
+    def get_can_admin_cancel(self, obj) -> bool:
+        """
+        Backend'dan keluvchi, admin UI uchun ishonchli manba.
+        Har bir to'lov usuli va holat kombinatsiyasi uchun hisoblanadi.
+        """
+        if obj.status in Order.CANCELLATION_STATUSES:
+            return False
+        if obj.status == Order.STATUS_RECEIVED:
+            return False
+        # Karta: faqat to'lov hali kelmagan bo'lsa (AWAITING_PAYMENT)
+        if obj.payment_method == Order.PAYMENT_METHOD_CARD:
+            return obj.status == Order.STATUS_AWAITING_PAYMENT
+        # Naqd / Muddatli: yig'ilish boshlashdan oldin (PENDING yoki CONFIRMED)
+        return obj.status in {Order.STATUS_PENDING, Order.STATUS_CONFIRMED}
 
     def get_credit_is_overdue(self, obj):
         if not obj.is_credit or obj.credit_paid:

@@ -1,54 +1,140 @@
 import { NavLink } from 'react-router-dom';
+import { useCartStore } from '../store/cartStore';
+import { useFavoritesStore } from '../store/favoritesStore';
+import { useAuthStore } from '../store/authStore';
+import { useTranslation } from '../i18n/useTranslation';
 
 const BottomNavBar = () => {
-  const getNavClasses = (isActive: boolean) => 
-    `flex flex-col items-center justify-center rounded-xl px-3 py-1 flex-1 transition-all duration-200 relative ${
-      isActive 
-        ? 'text-primary bg-primary-container/10 scale-105' 
-        : 'text-on-surface-variant active:bg-surface-container-low'
-    }`;
-
-  const getIconClasses = (isActive: boolean) => 
-    `material-symbols-outlined mb-1 ${isActive ? 'fill-icon' : ''}`;
+  const itemCount = useCartStore((s) => s.itemCount());
+  const favoritesCount = useFavoritesStore((s) => s.favorites.length);
+  const { isAuthenticated } = useAuthStore();
+  const { t } = useTranslation();
 
   return (
-    <nav className="md:hidden bg-surface-container-lowest/95 backdrop-blur-md border-t border-outline-variant shadow-[0_-2px_10px_rgba(0,0,0,0.05)] fixed bottom-0 left-0 w-full z-50 flex justify-around items-center px-2 pb-[env(safe-area-inset-bottom)] pt-2 h-[72px]">
-      <NavLink to="/" className={({ isActive }) => getNavClasses(isActive)}>
-        {({ isActive }) => (
-          <>
-            <span className={getIconClasses(isActive)}>home</span>
-            <span className="text-[11px] font-semibold font-sans">Home</span>
-          </>
-        )}
-      </NavLink>
-      <NavLink to="/catalog" className={({ isActive }) => getNavClasses(isActive)}>
-        {({ isActive }) => (
-          <>
-            <span className={getIconClasses(isActive)}>grid_view</span>
-            <span className="text-[11px] font-semibold font-sans">Catalog</span>
-          </>
-        )}
-      </NavLink>
-      <NavLink to="/cart" className={({ isActive }) => getNavClasses(isActive)}>
-        {({ isActive }) => (
-          <>
-            <span className={getIconClasses(isActive)}>shopping_cart</span>
-            {/* Example cart badge indicator */}
-            <span className="absolute top-1 right-3 bg-error w-2 h-2 rounded-full border border-surface-container-lowest"></span>
-            <span className="text-[11px] font-semibold font-sans">Cart</span>
-          </>
-        )}
-      </NavLink>
-      <NavLink 
-        to="/profile"
-        className={({ isActive }) => `flex flex-col items-center justify-center p-2 rounded-xl transition-all duration-150 ${
-          isActive 
-            ? 'text-primary bg-primary-container font-semibold px-3 py-1 scale-100' 
-            : 'text-on-surface-variant active:bg-surface-container-low scale-90'
-        }`}
+    <nav
+      className="md:hidden fixed bottom-0 left-0 w-full z-50
+        bg-surface-container-lowest/98 backdrop-blur-xl
+        border-t border-outline-variant/50
+        shadow-[0_-4px_24px_rgba(0,0,0,0.08)]
+        flex justify-around items-center
+        px-1
+        pb-[env(safe-area-inset-bottom)]
+        pt-1
+        h-[66px]"
+    >
+      <NavLink
+        to="/"
+        end
+        className={({ isActive }) =>
+          `flex flex-col items-center justify-center gap-0.5 flex-1 py-1 rounded-xl transition-all duration-200 ${
+            isActive ? 'text-primary' : 'text-on-surface-variant'
+          }`
+        }
       >
-        <span className="material-symbols-outlined text-[24px] mb-1">person</span>
-        <span>Profile</span>
+        {({ isActive }) => (
+          <>
+            <span className={`material-symbols-outlined text-[24px] transition-all duration-200 ${isActive ? 'fill-icon scale-110' : ''}`}>
+              home
+            </span>
+            <span className={`text-[10px] font-semibold tracking-tight ${isActive ? 'font-bold' : ''}`}>
+              {t.nav.home}
+            </span>
+          </>
+        )}
+      </NavLink>
+
+      <NavLink
+        to="/catalog"
+        className={({ isActive }) =>
+          `flex flex-col items-center justify-center gap-0.5 flex-1 py-1 rounded-xl transition-all duration-200 ${
+            isActive ? 'text-primary' : 'text-on-surface-variant'
+          }`
+        }
+      >
+        {({ isActive }) => (
+          <>
+            <span className={`material-symbols-outlined text-[24px] transition-all duration-200 ${isActive ? 'fill-icon scale-110' : ''}`}>
+              grid_view
+            </span>
+            <span className={`text-[10px] font-semibold tracking-tight ${isActive ? 'font-bold' : ''}`}>
+              {t.nav.catalog}
+            </span>
+          </>
+        )}
+      </NavLink>
+
+      <NavLink
+        to="/cart"
+        className={({ isActive }) =>
+          `flex flex-col items-center justify-center gap-0.5 flex-1 py-1 rounded-xl transition-all duration-200 relative ${
+            isActive ? 'text-primary' : 'text-on-surface-variant'
+          }`
+        }
+      >
+        {({ isActive }) => (
+          <>
+            <div className="relative">
+              <span className={`material-symbols-outlined text-[24px] transition-all duration-200 ${isActive ? 'fill-icon scale-110' : ''}`}>
+                shopping_cart
+              </span>
+              {itemCount > 0 && (
+                <span className="absolute -top-1.5 -right-1.5 bg-primary text-on-primary text-[9px] font-bold min-w-[16px] h-[16px] rounded-full flex items-center justify-center px-[3px] shadow-sm border border-surface-container-lowest leading-none">
+                  {itemCount > 99 ? '99+' : itemCount}
+                </span>
+              )}
+            </div>
+            <span className={`text-[10px] font-semibold tracking-tight ${isActive ? 'font-bold' : ''}`}>
+              {t.nav.cart}
+            </span>
+          </>
+        )}
+      </NavLink>
+
+      <NavLink
+        to="/favorites"
+        className={({ isActive }) =>
+          `flex flex-col items-center justify-center gap-0.5 flex-1 py-1 rounded-xl transition-all duration-200 relative ${
+            isActive ? 'text-red-500' : 'text-on-surface-variant'
+          }`
+        }
+      >
+        {({ isActive }) => (
+          <>
+            <div className="relative">
+              <span className={`material-symbols-outlined text-[24px] transition-all duration-200 ${isActive ? 'fill-icon scale-110' : ''}`}>
+                favorite
+              </span>
+              {favoritesCount > 0 && (
+                <span className="absolute -top-1.5 -right-1.5 bg-red-500 text-white text-[9px] font-bold min-w-[16px] h-[16px] rounded-full flex items-center justify-center px-[3px] shadow-sm border border-surface-container-lowest leading-none">
+                  {favoritesCount > 99 ? '99+' : favoritesCount}
+                </span>
+              )}
+            </div>
+            <span className={`text-[10px] font-semibold tracking-tight ${isActive ? 'font-bold' : ''}`}>
+              {t.nav.favorite}
+            </span>
+          </>
+        )}
+      </NavLink>
+
+      <NavLink
+        to={isAuthenticated ? '/profile' : '/auth'}
+        className={({ isActive }) =>
+          `flex flex-col items-center justify-center gap-0.5 flex-1 py-1 rounded-xl transition-all duration-200 ${
+            isActive ? 'text-primary' : 'text-on-surface-variant'
+          }`
+        }
+      >
+        {({ isActive }) => (
+          <>
+            <span className={`material-symbols-outlined text-[24px] transition-all duration-200 ${isActive ? 'fill-icon scale-110' : ''}`}>
+              person
+            </span>
+            <span className={`text-[10px] font-semibold tracking-tight ${isActive ? 'font-bold' : ''}`}>
+              {t.nav.profile}
+            </span>
+          </>
+        )}
       </NavLink>
     </nav>
   );

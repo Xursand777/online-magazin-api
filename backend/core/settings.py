@@ -190,6 +190,61 @@ if CDN_PROVIDER == 'cloudinary':
     # STATICFILES_STORAGE = 'cloudinary_storage.storage.StaticHashedCloudinaryStorage'
 
 # ─────────────────────────────────────────────────────────────────────────────
+# KESH — OTP, Rate Limiting va Session ma'lumotlari uchun
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# MUAMMO — Django default LocMemCache:
+#   Har bir worker (Gunicorn jarayoni) o'z alohida xotirasida saqlaydi.
+#   4 ta worker ishlatilsa, OTP 1-worker'da saqlanib 2-worker'da tekshirilsa
+#   → "Kod noto'g'ri" xatosi. Rate limiting ham har bir worker'da mustaqil
+#   hisoblanadi → brute-force himoyasi samarasiz bo'ladi.
+#
+# YECHIM — REDIS_URL muhit o'zgaruvchisini o'rnatish:
+#   Barcha workerlar umumiy Redis instancedan foydalanadi.
+#
+# Redis o'rnatish:
+#   sudo apt install redis-server && sudo systemctl enable --now redis   # Ubuntu/Debian
+#   brew install redis && brew services start redis                      # macOS
+#
+# REDIS_URL formatlari:
+#   redis://127.0.0.1:6379/1               — lokal, parolsiz, 1-database
+#   redis://:mypassword@127.0.0.1:6379/1   — parolli
+#   rediss://host:6380/1                   — TLS/SSL (masofaviy Redis)
+#   redis://redis:6379/1                   — Docker Compose service nomi
+
+_REDIS_URL = os.getenv('REDIS_URL', '')
+
+if _REDIS_URL:
+    # Umumiy Redis keshi — multi-worker'da OTP va rate limiting uchun zarur
+    CACHES = {
+        'default': {
+            'BACKEND': 'django.core.cache.backends.redis.RedisCache',
+            'LOCATION': _REDIS_URL,
+            # Default TTL: 5 daqiqa — OTP muddatiga mos (views'da maxsus TTL belgilanishi mumkin)
+            'TIMEOUT': 300,
+            # Kalit prefiksi: bir Redis instanceda bir nechta loyiha bo'lsa to'qnashuvni oldini oladi
+            'KEY_PREFIX': 'bozor',
+            'OPTIONS': {
+                # Ulanish va so'rov vaqt chegaralari (soniya)
+                # Redis vaqtinchalik o'chib-yonsa, ulanish 5 soniyadan ko'p kutmaydi
+                'socket_connect_timeout': 5,
+                'socket_timeout': 5,
+            },
+        }
+    }
+elif not DEBUG:
+    # Production'da Redis yo'q bo'lsa — xavfli holat, ishga tushmasin
+    raise RuntimeError(
+        "\n\n  [KESH] Production'da REDIS_URL muhit o'zgaruvchisini o'rnating!\n\n"
+        "  Sabab: Django default LocMemCache multi-worker (Gunicorn/uWSGI) muhitida\n"
+        "  OTP kodlarini va rate limiting ma'lumotlarini workerlar o'rtasida\n"
+        "  almasha olmaydi — bu xavfsizlik zaifligi.\n\n"
+        "  Redis o'rnatish: sudo apt install redis-server\n"
+        "  REDIS_URL misol:  redis://127.0.0.1:6379/1\n"
+    )
+# else: DEBUG=True, REDIS_URL yo'q → Django default LocMemCache (development uchun yetarli)
+
+# ─────────────────────────────────────────────────────────────────────────────
 # CORS — Cross-Origin Resource Sharing
 # ─────────────────────────────────────────────────────────────────────────────
 # NIMA: Brauzer boshqa domendan API'ga so'rov yuborganda bu sozlama ishlaydi.
@@ -268,11 +323,25 @@ if not DEBUG:
     SESSION_COOKIE_AGE = 7_200
 
 # ─────────────────────────────────────────────────────────────────────────────
+# ADMIN PANEL VA API HUJJATLARI YO'LLARI
+# ─────────────────────────────────────────────────────────────────────────────
+# Production'da Django admin yo'lini maxfiy qiling — bu avtomatlashtirilgan
+# /admin brute-force va skanerlash hujumlarini keskin kamaytiradi.
+#   DJANGO_ADMIN_URL=maxfiy-panel-9f3x
+ADMIN_URL = (os.getenv('DJANGO_ADMIN_URL', 'admin').strip('/') or 'admin') + '/'
+
+# Swagger/Schema hujjatlari: default'da FAQAT development'da ochiq.
+# Production'da yopiq (kerak bo'lsa ENABLE_API_DOCS=True bilan ataylab yoqiladi).
+ENABLE_API_DOCS = os.getenv(
+    'ENABLE_API_DOCS', 'True' if DEBUG else 'False'
+).lower() in ('true', '1', 'yes')
+
+# ─────────────────────────────────────────────────────────────────────────────
 # DRF — Django REST Framework
 # ─────────────────────────────────────────────────────────────────────────────
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': (
-        'rest_framework_simplejwt.authentication.JWTAuthentication',
+        'users.authentication.RoleAwareJWTAuthentication',
     ),
     'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
     'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',

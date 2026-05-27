@@ -3,12 +3,14 @@ import { Link } from 'react-router-dom';
 import { useCartStore } from '../store/cartStore';
 import type { CartItem } from '../store/cartStore';
 import { useAuthStore } from '../store/authStore';
+import { useTranslation } from '../i18n/useTranslation';
 
 const formatPrice = (v: string | number) =>
   Number(v).toLocaleString('uz-UZ') + ' UZS';
 
 const CartItemRow = ({ item }: { item: CartItem }) => {
   const { updateItem, removeItem } = useCartStore();
+  const { t } = useTranslation();
   const imgSrc = item.product_details?.main_image;
   const price =
     item.variant_details?.discount_price && Number(item.variant_details.discount_price) > 0
@@ -48,7 +50,7 @@ const CartItemRow = ({ item }: { item: CartItem }) => {
           </div>
           <button
             onClick={() => removeItem(item.id)}
-            aria-label="O'chirish"
+            aria-label={t.cart.delete}
             className="text-outline hover:text-error transition-colors p-1 flex-shrink-0 rounded hover:bg-error-container/20"
           >
             <span className="material-symbols-outlined text-[20px]">delete</span>
@@ -61,7 +63,7 @@ const CartItemRow = ({ item }: { item: CartItem }) => {
             <button
               onClick={() => updateItem(item.id, item.quantity - 1)}
               className="px-3 py-1.5 text-on-surface-variant hover:bg-surface-container-low transition-colors"
-              aria-label="Kamaytirish"
+              aria-label={t.cart.decrease}
             >
               <span className="material-symbols-outlined text-[18px]">remove</span>
             </button>
@@ -71,7 +73,7 @@ const CartItemRow = ({ item }: { item: CartItem }) => {
             <button
               onClick={() => updateItem(item.id, item.quantity + 1)}
               className="px-3 py-1.5 text-on-surface-variant hover:bg-surface-container-low transition-colors"
-              aria-label="Ko'paytirish"
+              aria-label={t.cart.increase}
             >
               <span className="material-symbols-outlined text-[18px]">add</span>
             </button>
@@ -94,6 +96,7 @@ const Cart = () => {
   const { cart, loading, fetchCart } = useCartStore();
   const { isAuthenticated } = useAuthStore();
   const [initialized, setInitialized] = useState(false);
+  const { t } = useTranslation();
 
   useEffect(() => {
     let active = true;
@@ -114,31 +117,31 @@ const Cart = () => {
     return (
       <div className="flex-grow w-full py-lg flex flex-col items-center justify-center min-h-[60vh] gap-4">
         <span className="material-symbols-outlined text-5xl text-primary animate-spin">progress_activity</span>
-        <p className="text-on-surface-variant">Savat yuklanmoqda...</p>
+        <p className="text-on-surface-variant">{t.cart.loading}</p>
       </div>
     );
   }
 
-  // Empty cart state
+    // Empty cart state
   if (!loading && items.length === 0) {
     return (
-      <div className="flex-grow w-full py-lg flex flex-col items-center justify-center min-h-[60vh] gap-4">
+      <div className="flex-grow w-full py-lg flex flex-col items-center justify-center min-h-[60vh] gap-6">
         <div className="w-28 h-28 rounded-full bg-surface-container flex items-center justify-center shadow-inner">
           <span className="material-symbols-outlined text-6xl text-outline">shopping_cart</span>
         </div>
-        <h2 className="font-h2 text-h2 text-on-surface">Savat bo'sh</h2>
-        <p className="font-body-md text-body-md text-on-surface-variant text-center max-w-xs">
-          {isAuthenticated
-            ? "Hali hech narsa qo'shilmagan. Katalogdan mahsulot tanlang!"
-            : "Tanlangan mahsulotlar shu qurilmada vaqtincha saqlanadi. Checkout paytida login so'raladi."}
-        </p>
-        <div className="flex gap-3">
-          <Link to="/catalog" className="bg-primary text-on-primary px-6 py-3 rounded-xl font-label-md text-label-md hover:opacity-90 transition-opacity">
-            Katalogga o'tish
+        <div className="text-center">
+          <h2 className="font-h2 text-h2 text-on-surface mb-3">{t.cart.empty}</h2>
+          <p className="font-body-md text-body-md text-on-surface-variant max-w-sm mx-auto leading-relaxed">
+            {t.cart.emptyDesc}
+          </p>
+        </div>
+        <div className="flex gap-3 flex-wrap justify-center">
+          <Link to="/" className="bg-[#22c55e] hover:bg-[#16a34a] text-white px-8 py-3.5 rounded-[12px] font-semibold transition-colors shadow-sm text-[15px]">
+            {t.cart.goHome}
           </Link>
           {!isAuthenticated && (
-            <Link to="/auth?redirect=/checkout" className="border border-primary text-primary px-6 py-3 rounded-xl font-label-md text-label-md hover:bg-primary-container transition-colors">
-              Kirish
+            <Link to="/auth?redirect=/checkout" className="border border-outline-variant text-on-surface px-6 py-3 rounded-[12px] font-semibold hover:bg-surface-container transition-colors text-[15px]">
+              {t.nav.login}
             </Link>
           )}
         </div>
@@ -150,10 +153,10 @@ const Cart = () => {
     <div className="flex-grow w-full py-lg pb-28 md:pb-lg">
       <div className="mb-lg">
         <h1 className="font-h1 text-h1 text-on-background flex items-center gap-3">
-          Savat
+          {t.cart.title}
           {itemCount > 0 && (
             <span className="bg-primary-container text-on-primary-container text-base font-semibold px-3 py-1 rounded-full">
-              {itemCount} ta
+              {itemCount} {t.cart.items}
             </span>
           )}
         </h1>
@@ -170,21 +173,21 @@ const Cart = () => {
           {/* Right: Order Summary */}
           <div className="w-full lg:w-96 flex-shrink-0 lg:sticky lg:top-24">
             <div className="bg-surface-container-lowest p-lg rounded-xl border border-outline-variant shadow-sm">
-              <h2 className="font-h3 text-h3 text-on-background mb-lg">Buyurtma xulosasi</h2>
+              <h2 className="font-h3 text-h3 text-on-background mb-lg">{t.cart.orderSummary}</h2>
               <div className="flex flex-col gap-md mb-lg">
                 <div className="flex justify-between items-center font-body-md text-body-md">
-                  <span className="text-on-surface-variant">Mahsulotlar ({itemCount}):</span>
+                  <span className="text-on-surface-variant">{t.cart.products} ({itemCount}):</span>
                   <span className="text-on-background">{formatPrice(totalPrice)}</span>
                 </div>
                 <div className="flex justify-between items-center font-body-md text-body-md">
-                  <span className="text-on-surface-variant">Yetkazib berish:</span>
-                  <span className="text-primary font-medium">Bepul</span>
+                  <span className="text-on-surface-variant">{t.cart.delivery}:</span>
+                  <span className="text-primary font-medium">{t.cart.free}</span>
                 </div>
               </div>
 
               <div className="border-t border-outline-variant pt-md mb-lg">
                 <div className="flex justify-between items-end">
-                  <span className="font-body-lg text-on-background">Jami:</span>
+                  <span className="font-body-lg text-on-background">{t.cart.total}:</span>
                   <span className="font-price text-h2 text-on-background">{formatPrice(totalPrice)}</span>
                 </div>
               </div>
@@ -194,7 +197,7 @@ const Cart = () => {
                   to="/checkout"
                   className="w-full bg-secondary-container text-on-secondary-container font-label-md text-label-md py-3 rounded-xl hover:opacity-90 transition-opacity flex justify-center items-center gap-2 uppercase tracking-wide"
                 >
-                  Rasmiylashtirish
+                  {t.cart.checkout}
                   <span className="material-symbols-outlined">arrow_forward</span>
                 </Link>
               ) : (
@@ -203,13 +206,13 @@ const Cart = () => {
                   className="w-full bg-primary text-on-primary font-label-md text-label-md py-3 rounded-xl hover:opacity-90 transition-opacity flex justify-center items-center gap-2"
                 >
                   <span className="material-symbols-outlined">login</span>
-                  Kirish va rasmiylashtirish
+                  {t.cart.loginCheckout}
                 </Link>
               )}
 
               <div className="mt-md flex items-center justify-center gap-2 text-outline font-body-sm text-body-sm">
                 <span className="material-symbols-outlined text-[16px]">verified_user</span>
-                {isAuthenticated ? "Xavfsiz to'lov kafolatlangan" : "Savat local saqlanadi va login bo'lganda akkauntga ko'chiriladi"}
+                {isAuthenticated ? t.cart.securePayment : t.cart.cartSaved}
               </div>
             </div>
           </div>

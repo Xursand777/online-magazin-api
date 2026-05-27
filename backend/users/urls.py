@@ -6,6 +6,9 @@ from .views import (
     AdminUserSearchView, AdminUserListView, AdminUserDetailView,
     AdminUserToggleBanView, AdminUserToggleActiveView,
     AdminFeedbackListView, AdminFeedbackUpdateView,
+    StaffListView, AssignRoleView, FireStaffView,
+    MasterListView, AssignMasterView, RemoveMasterView, AdminMasterDiscountView,
+    MasterStatusView,
 )
 
 urlpatterns = [
@@ -17,6 +20,7 @@ urlpatterns = [
     path('auth/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
 
     path('profile/', UserProfileView.as_view(), name='profile'),
+    path('master/status/', MasterStatusView.as_view(), name='master_status'),
     path('addresses/', AddressListCreateView.as_view(), name='address_list_create'),
     path('addresses/<int:pk>/', AddressDetailView.as_view(), name='address_detail'),
     path('feedback/', FeedbackCreateView.as_view(), name='feedback'),
@@ -29,4 +33,15 @@ urlpatterns = [
 
     path('admin/feedback/', AdminFeedbackListView.as_view(), name='admin_feedback_list'),
     path('admin/feedback/<int:pk>/', AdminFeedbackUpdateView.as_view(), name='admin_feedback_update'),
+
+    # Xodim boshqaruvi (faqat Super Admin)
+    path('admin/staff/', StaffListView.as_view(), name='admin_staff_list'),
+    path('admin/staff/assign-role/', AssignRoleView.as_view(), name='admin_assign_role'),
+    path('admin/staff/<int:pk>/fire/', FireStaffView.as_view(), name='admin_fire_staff'),
+
+    # Usta boshqaruvi (faqat Super Admin)
+    path('admin/masters/', MasterListView.as_view(), name='admin_master_list'),
+    path('admin/masters/assign/', AssignMasterView.as_view(), name='admin_assign_master'),
+    path('admin/masters/discount/', AdminMasterDiscountView.as_view(), name='admin_master_discount'),
+    path('admin/masters/<int:pk>/remove/', RemoveMasterView.as_view(), name='admin_remove_master'),
 ]

@@ -1,11 +1,29 @@
 import { create } from 'zustand';
 
+export type StaffRole = 'super_admin' | 'admin' | 'seller' | 'courier';
+
+export const ROLE_LABELS: Record<string, string> = {
+  super_admin: 'Super Admin',
+  admin:       'Admin',
+  seller:      'Sotuvchi',
+  courier:     'Kuryer',
+};
+
+export const ROLE_COLORS: Record<string, string> = {
+  super_admin: 'bg-error/15 text-error border border-error/20',
+  admin:       'bg-primary/15 text-primary border border-primary/20',
+  seller:      'bg-blue-500/15 text-blue-600 border border-blue-500/20',
+  courier:     'bg-purple-500/15 text-purple-600 border border-purple-500/20',
+};
+
 interface AuthUser {
   id: number;
   phone: string;
   first_name: string;
   last_name: string;
   is_admin: boolean;
+  role?: StaffRole | null;
+  is_master?: boolean;
 }
 
 interface AuthState {

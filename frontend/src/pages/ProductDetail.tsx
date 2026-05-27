@@ -1,9 +1,15 @@
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState, useMemo, useCallback } from 'react';
 import { Link, useParams, useNavigate } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { getProductDetail, getSimilarProducts } from '../api/endpoints';
 import { useCartStore } from '../store/cartStore';
+import { useFavoritesStore } from '../store/favoritesStore';
+import { useAuthStore } from '../store/authStore';
+import { toast } from '../utils/toast';
+import Lightbox from '../components/Lightbox';
 import ProductCard, { type Product as ProductCardData } from '../components/ProductCard';
+import ProductSkeleton from '../components/ProductSkeleton';
+import { useTranslation } from '../i18n/useTranslation';
 
 
 interface ProductImage { id: number; image: string; is_main: boolean; }
@@ -22,13 +28,140 @@ interface ProductVariant {
   discount_price_usd: string | null;
   stock: number;
 }
+interface CompatModel {
+  id: number;
+  slug: string;
+  full_name: string;
+  notes: string;
+}
+interface CompatBrandGroup {
+  brand: string;
+  brand_slug: string;
+  models: CompatModel[];
+}
 interface ProductDetailData {
   id: number; name: string; description: string;
-  price: string; discount_price: string | null; is_discount: boolean; stock: number;
+  price: string; discount_price: string | null; master_price: string | null; is_discount: boolean; stock: number;
   is_new: boolean; is_popular: boolean;
   category: { id: number; name: string; slug: string; parent: number | null; };
   images: ProductImage[]; variants: ProductVariant[];
+  compatible_models: CompatBrandGroup[];
 }
+
+// ── Moslik bo'limi ────────────────────────────────────────────────────────────
+const COLLAPSED_MODELS_PER_BRAND = 4;
+
+const CompatibilitySection = ({
+  groups,
+  t,
+}: {
+  groups: CompatBrandGroup[];
+  t: ReturnType<typeof import('../i18n/useTranslation').useTranslation>['t'];
+}) => {
+  const [expanded, setExpanded] = useState(false);
+  const [expandedBrands, setExpandedBrands] = useState<Set<string>>(new Set());
+  const navigate = useNavigate();
+
+  const totalModels = groups.reduce((s, g) => s + g.models.length, 0);
+
+  const toggleBrand = useCallback((slug: string) => {
+    setExpandedBrands((prev) => {
+      const n = new Set(prev);
+      n.has(slug) ? n.delete(slug) : n.add(slug);
+      return n;
+    });
+  }, []);
+
+  if (!groups.length) return null;
+
+  return (
+    <div className="rounded-2xl border border-outline-variant bg-surface-container-lowest overflow-hidden">
+      {/* Header — always visible */}
+      <button
+        onClick={() => setExpanded((p) => !p)}
+        className="flex w-full items-center gap-3 px-4 py-3.5 text-left hover:bg-surface-container/40 transition-colors"
+      >
+        <span className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl bg-primary/10">
+          <span className="material-symbols-outlined text-[20px] text-primary">phonelink</span>
+        </span>
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-semibold text-on-surface">{t.product.compatibleWith}</p>
+          <p className="text-xs text-on-surface-variant">
+            {totalModels} {t.product.compatibleDevices}
+          </p>
+        </div>
+        <span
+          className="material-symbols-outlined text-[20px] text-on-surface-variant transition-transform duration-200"
+          style={{ transform: expanded ? 'rotate(180deg)' : 'none' }}
+        >
+          expand_more
+        </span>
+      </button>
+
+      {/* Expanded content */}
+      {expanded && (
+        <div className="border-t border-outline-variant/60 px-4 pb-4 pt-3 space-y-4">
+          {groups.map((group) => {
+            const isBrandExpanded = expandedBrands.has(group.brand_slug);
+            const visibleModels = isBrandExpanded
+              ? group.models
+              : group.models.slice(0, COLLAPSED_MODELS_PER_BRAND);
+            const hiddenCount = group.models.length - COLLAPSED_MODELS_PER_BRAND;
+
+            return (
+              <div key={group.brand_slug}>
+                {/* Brand label */}
+                <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-on-surface-variant">
+                  {group.brand}
+                </p>
+
+                {/* Model chips */}
+                <div className="flex flex-wrap gap-1.5">
+                  {visibleModels.map((model) => (
+                    <button
+                      key={model.id}
+                      onClick={() => navigate(`/catalog?compatible_with=${model.slug}`)}
+                      title={model.notes || model.full_name}
+                      className="group relative flex items-center gap-1 rounded-full border border-outline-variant bg-surface px-3 py-1 text-xs text-on-surface transition-all hover:border-primary hover:bg-primary/5 hover:text-primary active:scale-95"
+                    >
+                      <span className="material-symbols-outlined text-[13px] text-on-surface-variant group-hover:text-primary transition-colors">
+                        smartphone
+                      </span>
+                      {model.full_name}
+                      {model.notes && (
+                        <span className="ml-0.5 text-[10px] text-on-surface-variant group-hover:text-primary/70">
+                          · {model.notes}
+                        </span>
+                      )}
+                    </button>
+                  ))}
+
+                  {/* Show more / less toggle for this brand */}
+                  {hiddenCount > 0 && !isBrandExpanded && (
+                    <button
+                      onClick={() => toggleBrand(group.brand_slug)}
+                      className="flex items-center gap-1 rounded-full border border-dashed border-outline-variant px-3 py-1 text-xs text-on-surface-variant hover:border-primary hover:text-primary transition-colors"
+                    >
+                      +{hiddenCount} {t.product.showAllModels}
+                    </button>
+                  )}
+                  {isBrandExpanded && group.models.length > COLLAPSED_MODELS_PER_BRAND && (
+                    <button
+                      onClick={() => toggleBrand(group.brand_slug)}
+                      className="flex items-center gap-1 rounded-full border border-dashed border-outline-variant px-3 py-1 text-xs text-on-surface-variant hover:border-primary hover:text-primary transition-colors"
+                    >
+                      {t.product.hideModels}
+                    </button>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+};
 
 const formatPrice = (v: string | number) =>
   Number(v).toLocaleString('uz-UZ') + ' UZS';
@@ -85,20 +218,24 @@ const uniqueBy = <T,>(items: T[], keyGetter: (item: T) => string) => {
 const ProductDetail = () => {
   const { id } = useParams();
   const navigate = useNavigate();
+  const { t, language } = useTranslation();
+  const isMaster = useAuthStore(s => s.user?.is_master ?? false);
   const [activeImg, setActiveImg] = useState(0);
   const [galleryIdx, setGalleryIdx] = useState(0);
   const [selectedColor, setSelectedColor] = useState('');
   const [selectedQuality, setSelectedQuality] = useState('');
   const [selectedSize, setSelectedSize] = useState('');
+  const [lightboxOpen, setLightboxOpen] = useState(false);
+  const [lightboxStartIdx, setLightboxStartIdx] = useState(0);
 
   const { data: product, isLoading, isError } = useQuery<ProductDetailData>({
-    queryKey: ['product', id],
+    queryKey: ['product', id, language],
     queryFn: () => getProductDetail(id!).then(r => r.data),
     enabled: !!id,
   });
 
   const { data: similarProducts = [], isLoading: isSimilarLoading } = useQuery<ProductCardData[]>({
-    queryKey: ['similar-products', id],
+    queryKey: ['similar-products', id, language],
     queryFn: () => getSimilarProducts(id!).then(r => r.data),
     enabled: !!id,
     staleTime: 5 * 60 * 1000,
@@ -107,6 +244,34 @@ const ProductDetail = () => {
   const { addItem, updateItem, removeItem, addingId, updatingItemIds } = useCartStore();
   const cart = useCartStore((state) => state.cart);
   const isAdding = addingId === Number(id);
+
+  const { toggleFavorite, isFavorite } = useFavoritesStore();
+  const queryClient = useQueryClient();
+  const isFav = isFavorite(Number(id));
+
+  const handleToggleFavorite = () => {
+    if (!product) return;
+    const productSnapshot = {
+      id: product.id,
+      name: product.name,
+      price: product.price,
+      discount_price: product.discount_price,
+      is_discount: product.is_discount,
+      main_image: product.images[0]?.image || null,
+    };
+
+    if (isFav) {
+      toggleFavorite(productSnapshot);
+      toast.undo(
+        t.product.removedFromFavorites,
+        () => toggleFavorite(productSnapshot),
+        t.common.cancel
+      );
+    } else {
+      toggleFavorite(productSnapshot);
+      toast.success(t.product.addedToFavorites);
+    }
+  };
 
   const images = product?.images || [];
   const variants = product?.variants || [];
@@ -175,7 +340,7 @@ const ProductDetail = () => {
     if (selectedQuality) parts.push(selectedQuality);
     if (selectedSize) parts.push(selectedSize);
     if (selectedColor) parts.push(selectedColor);
-    
+
     if (parts.length > 0) {
       return `${product.name} • ${parts.join(' • ')}`;
     }
@@ -187,6 +352,14 @@ const ProductDetail = () => {
       document.title = `${displayTitle} | Bozor`;
     }
   }, [displayTitle]);
+
+  // Ko'rilgan mahsulot server tomonida avtomatik yoziladi (GET /products/<id>/).
+  // Bosh sahifadagi "Ko'rgan mahsulotlar" yangilanishi uchun query'ni eskirtiramiz.
+  useEffect(() => {
+    if (!product) return;
+    queryClient.invalidateQueries({ queryKey: ['recently-viewed'] });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [product?.id]);
 
   useEffect(() => {
     if (!variants.length || !colorOptions.length) return;
@@ -222,7 +395,7 @@ const ProductDetail = () => {
     <div className="flex-grow w-full py-lg flex items-center justify-center min-h-[60vh]">
       <div className="flex flex-col items-center gap-4">
         <span className="material-symbols-outlined text-5xl text-primary animate-spin">progress_activity</span>
-        <p className="text-on-surface-variant">Yuklanmoqda...</p>
+        <p className="text-on-surface-variant">{t.product.loading}</p>
       </div>
     </div>
   );
@@ -230,8 +403,8 @@ const ProductDetail = () => {
   if (isError || !product) return (
     <div className="flex-grow w-full py-lg flex flex-col items-center justify-center min-h-[60vh] gap-4">
       <span className="material-symbols-outlined text-5xl text-error">error</span>
-      <h2 className="font-h3 text-on-surface">Mahsulot topilmadi</h2>
-      <button onClick={() => navigate(-1)} className="text-primary hover:underline">Orqaga qaytish</button>
+      <h2 className="font-h3 text-on-surface">{t.product.notFound}</h2>
+      <button onClick={() => navigate(-1)} className="text-primary hover:underline">{t.product.goBack}</button>
     </div>
   );
 
@@ -254,9 +427,9 @@ const ProductDetail = () => {
     <div className="flex-grow w-full py-lg grid grid-cols-1 md:grid-cols-12 gap-lg lg:gap-2xl pb-24 md:pb-8">
       {/* Breadcrumbs */}
       <nav className="md:col-span-12 flex items-center gap-sm text-body-sm font-body-sm text-on-surface-variant">
-        <Link to="/" className="hover:text-primary transition-colors">Bosh sahifa</Link>
+        <Link to="/" className="hover:text-primary transition-colors">{t.favorites.breadcrumb}</Link>
         <span className="material-symbols-outlined text-sm">chevron_right</span>
-        <Link to="/catalog" className="hover:text-primary transition-colors">Katalog</Link>
+        <Link to="/catalog" className="hover:text-primary transition-colors">{t.nav.catalog}</Link>
         {product.category && (
           <>
             <span className="material-symbols-outlined text-sm">chevron_right</span>
@@ -271,17 +444,25 @@ const ProductDetail = () => {
 
       {/* Image Gallery */}
       <section className="md:col-span-6 lg:col-span-5 flex flex-col gap-md">
-        <div className="aspect-square bg-surface-container-lowest border border-outline-variant rounded-xl overflow-hidden flex items-center justify-center relative shadow-sm">
+        <div
+          className="aspect-square bg-surface-container-lowest border border-outline-variant rounded-xl overflow-hidden flex items-center justify-center relative shadow-sm cursor-zoom-in group"
+          onClick={() => {
+            if (!mainImg) return;
+            setLightboxStartIdx(variantGallery.length > 0 ? galleryIdx : activeImg);
+            setLightboxOpen(true);
+          }}
+          title={t.product.zoomHint}
+        >
           {mainImg ? (
             <img
               alt={product.name}
-              className="w-full h-full object-contain p-lg transition-all duration-300"
+              className="w-full h-full object-contain p-lg transition-all duration-300 group-hover:scale-105"
               src={mainImg}
             />
           ) : (
             <div className="flex flex-col items-center gap-2 text-on-surface-variant">
               <span className="material-symbols-outlined text-6xl">image</span>
-              <span className="text-body-sm">Rasm yo'q</span>
+              <span className="text-body-sm">{t.product.noImage}</span>
             </div>
           )}
           {product.is_discount && product.discount_price && (
@@ -291,7 +472,12 @@ const ProductDetail = () => {
           )}
           {product.is_new && (
             <div className="absolute top-sm right-sm bg-primary-container text-on-primary-container text-xs font-bold px-2 py-1 rounded-full shadow">
-              Yangi
+              {t.product.isNew}
+            </div>
+          )}
+          {mainImg && (
+            <div className="absolute bottom-2 right-2 bg-black/50 text-white rounded-full p-1.5 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
+              <span className="material-symbols-outlined text-[18px]">zoom_in</span>
             </div>
           )}
         </div>
@@ -335,8 +521,12 @@ const ProductDetail = () => {
             <h1 className="text-h2 font-h2 text-on-surface leading-tight transition-all duration-300">
               {displayTitle}
             </h1>
-            <button aria-label="favorite" className="text-on-surface-variant hover:text-tertiary transition-colors flex-shrink-0 mt-1">
-              <span className="material-symbols-outlined text-2xl">favorite_border</span>
+            <button
+              onClick={handleToggleFavorite}
+              aria-label="favorite"
+              className={`transition-all duration-300 rounded-full p-2 backdrop-blur-sm active:scale-75 flex-shrink-0 mt-1 ${isFav ? 'text-red-500 scale-110 bg-red-50/50' : 'text-on-surface-variant hover:text-red-400 hover:scale-110 hover:bg-surface-container'}`}
+            >
+              <span className={`material-symbols-outlined text-2xl transition-colors ${isFav ? 'fill-icon' : ''}`}>favorite</span>
             </button>
           </div>
 
@@ -345,16 +535,17 @@ const ProductDetail = () => {
             {currentStock > 0 ? (
               <span className="flex items-center gap-1 text-primary text-body-sm font-semibold">
                 <span className="material-symbols-outlined text-[16px] fill-icon">check_circle</span>
-                Tanlangan variant omborda bor ({currentStock} dona)
+                {t.product.variantInStock} ({currentStock} {t.product.pcs})
               </span>
             ) : (
               <span className="flex items-center gap-1 text-error text-body-sm font-semibold">
                 <span className="material-symbols-outlined text-[16px]">cancel</span>
-                Ushbu variant tugagan
+                {t.product.variantOutOfStock}
               </span>
             )}
             <span className="text-primary font-medium flex items-center gap-1 text-body-sm">
-              <span className="material-symbols-outlined text-sm">local_shipping</span> Bepul yetkazib berish
+              <span className="material-symbols-outlined text-sm">local_shipping</span>
+              {t.product.freeShipping}
             </span>
           </div>
 
@@ -368,13 +559,47 @@ const ProductDetail = () => {
 
               return (
                 <div key={`price-block-${currentVariant?.id}`} className="animate-in fade-in zoom-in-95 duration-200 space-y-1">
-                  {/* "Narxdan" prefix when no variant selected yet */}
                   {hasVariantsOnPage && !currentVariant && (
                     <div className="text-xs font-semibold uppercase tracking-wide text-on-surface-variant">
-                      Narxdan boshlab
+                      {t.product.startingFrom}
                     </div>
                   )}
-                  {showDiscount ? (
+                  {isMaster && product.master_price ? (
+                    // Usta narxi — faollikka qarab amaldagi foiz (variantlarga ham qo'llanadi).
+                    // Foiz mahsulot darajasidagi master_price'dan olinadi va joriy
+                    // (variant) narxga qo'llanadi — server bilan bir xil natija.
+                    (() => {
+                      const productEffective = product.is_discount && product.discount_price
+                        ? Number(product.discount_price)
+                        : Number(product.price);
+                      const masterFactor = productEffective > 0
+                        ? Number(product.master_price) / productEffective
+                        : 1;
+                      const masterEffective = showDiscount ? variantDiscountPrice! : variantPrice;
+                      const masterCurrent = Math.round(masterEffective * masterFactor);
+                      // 2 kasr xonagacha aniqlik (3.75% kabi proporsional foizlarni to'g'ri ko'rsatadi)
+                      const masterPct = Math.round((1 - masterFactor) * 10000) / 100;
+                      return (
+                    <div className="space-y-1">
+                      <div className="flex items-baseline gap-2 flex-wrap">
+                        <span className="text-h2 font-h2 text-primary">{formatPrice(masterCurrent)}</span>
+                        <span className="text-body-lg text-on-surface-variant line-through">
+                          {formatPrice(masterEffective)}
+                        </span>
+                        <span className="rounded-full bg-primary/15 text-primary border border-primary/20 px-2.5 py-0.5 text-xs font-bold">
+                          USTA −{masterPct}%
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-1.5 rounded-lg bg-primary/10 px-3 py-1.5 w-fit">
+                        <span className="material-symbols-outlined text-[15px] text-primary">construction</span>
+                        <span className="text-xs font-semibold text-primary">
+                          Usta chegirmasi: {formatPrice(masterEffective - masterCurrent)} tejaysiz
+                        </span>
+                      </div>
+                    </div>
+                      );
+                    })()
+                  ) : showDiscount ? (
                     <div className="flex items-baseline gap-2 flex-wrap">
                       <span className="text-h2 font-h2 text-on-surface">{formatPrice(variantDiscountPrice!)}</span>
                       <span className="text-body-lg text-on-surface-variant line-through">{formatPrice(variantPrice)}</span>
@@ -385,12 +610,11 @@ const ProductDetail = () => {
                   ) : (
                     <span className="text-h2 font-h2 text-on-surface block">{formatPrice(variantPrice)}</span>
                   )}
-                  {/* Tejamkorlik summasi */}
-                  {savings > 0 && (
+                  {!isMaster && savings > 0 && (
                     <div className="flex items-center gap-1.5 rounded-lg bg-tertiary-container/20 px-3 py-1.5 w-fit">
                       <span className="material-symbols-outlined text-[15px] text-tertiary">savings</span>
                       <span className="text-xs font-semibold text-tertiary">
-                        {formatPrice(savings)} tejaysiz
+                        {formatPrice(savings)} {t.product.youSave}
                       </span>
                     </div>
                   )}
@@ -406,7 +630,7 @@ const ProductDetail = () => {
             {colorOptions.length > 0 && (
               <div className="flex flex-col gap-sm">
                 <span className="text-label-md font-label-md text-on-surface">
-                  Rangi: <span className="font-bold">{selectedColorVariant?.color || selectedColor}</span>
+                  {t.product.color}: <span className="font-bold">{selectedColorVariant?.color || selectedColor}</span>
                 </span>
 
                 <div className="flex flex-wrap gap-sm">
@@ -440,7 +664,7 @@ const ProductDetail = () => {
             )}
             {qualityOptions.length > 0 && (
               <div className="flex flex-col gap-sm">
-                <span className="text-label-md font-label-md text-on-surface uppercase">Sifat</span>
+                <span className="text-label-md font-label-md text-on-surface uppercase">{t.product.quality}</span>
                 <div className="flex flex-wrap gap-sm">
                   {qualityOptions.map((variant) => {
                     const label = variant.quality || '';
@@ -466,7 +690,7 @@ const ProductDetail = () => {
                             {qPrice.toLocaleString('uz-UZ')} UZS
                           </span>
                         )}
-                        {disabled && <span className="text-[10px] text-error">Tugagan</span>}
+                        {disabled && <span className="text-[10px] text-error">{t.product.outOfStock}</span>}
                       </button>
                     );
                   })}
@@ -475,7 +699,7 @@ const ProductDetail = () => {
             )}
             {sizeOptions.length > 0 && (
               <div className="flex flex-col gap-sm">
-                <span className="text-label-md font-label-md text-on-surface uppercase">O'lcham / Model</span>
+                <span className="text-label-md font-label-md text-on-surface uppercase">{t.product.sizeModel}</span>
                 <div className="flex flex-wrap gap-sm">
                   {sizeOptions.map((variant) => {
                     const label = variant.size || variant.model;
@@ -519,7 +743,7 @@ const ProductDetail = () => {
                   updateItem(cartItem.id, cartQuantity - 1);
                 }}
                 className="flex h-full w-14 items-center justify-center text-on-surface-variant transition-colors hover:bg-surface-container-low hover:text-on-surface disabled:cursor-not-allowed disabled:opacity-45"
-                aria-label="Kamaytirish"
+                aria-label={t.product.reduce}
               >
                 <span className="material-symbols-outlined text-[20px]">remove</span>
               </button>
@@ -531,8 +755,8 @@ const ProductDetail = () => {
                 disabled={isUpdatingCartItem || isAtStockLimit}
                 onClick={() => updateItem(cartItem.id, cartQuantity + 1)}
                 className="flex h-full w-14 items-center justify-center text-primary transition-colors hover:bg-primary-container/20 disabled:cursor-not-allowed disabled:opacity-45"
-                aria-label="Ko'paytirish"
-                title={isAtStockLimit ? `Omborda ${stockLimit} dona mavjud` : undefined}
+                aria-label={t.product.increase}
+                title={isAtStockLimit ? `${stockLimit} ${t.product.stockLimitPcs}` : undefined}
               >
                 <span className={`material-symbols-outlined text-[20px] ${isUpdatingCartItem ? 'animate-spin' : ''}`}>
                   {isUpdatingCartItem ? 'progress_activity' : 'add'}
@@ -548,7 +772,7 @@ const ProductDetail = () => {
               <span className={`material-symbols-outlined ${isAdding ? 'animate-spin' : ''}`}>
                 {isAdding ? 'progress_activity' : 'shopping_cart'}
               </span>
-              {isAdding ? "Qo'shilmoqda..." : isOutOfStock ? "Omborda yo'q" : "Savatga qo'shish"}
+              {isAdding ? t.product.adding : isOutOfStock ? t.product.outOfStock : t.product.addToCart}
             </button>
           )}
           <Link
@@ -556,7 +780,7 @@ const ProductDetail = () => {
             className="flex-1 bg-secondary-container text-on-secondary-container py-3 px-6 rounded-lg font-label-md text-label-md shadow-sm hover:opacity-90 transition-opacity flex items-center justify-center gap-2"
           >
             <span className="material-symbols-outlined">bolt</span>
-            Tezkor zakaz
+            {t.product.quickOrder}
           </Link>
         </div>
 
@@ -567,24 +791,29 @@ const ProductDetail = () => {
               <span className="material-symbols-outlined text-primary text-2xl">storefront</span>
             </div>
             <div>
-              <h3 className="text-body-md font-body-md text-on-surface font-semibold">Bozor Rasmiy Do'kon</h3>
+              <h3 className="text-body-md font-body-md text-on-surface font-semibold">{t.product.officialStore}</h3>
               <p className="text-body-sm font-body-sm text-on-surface-variant flex items-center gap-1">
                 <span className="material-symbols-outlined text-[14px] text-primary fill-icon">verified</span>
-                Tasdiqlangan Sotuvchi
+                {t.product.verifiedSeller}
               </p>
             </div>
           </div>
           <div className="text-right">
             <div className="text-body-sm font-body-sm text-on-surface font-semibold">99.8%</div>
-            <div className="text-body-sm font-body-sm text-on-surface-variant">Ijobiy Baho</div>
+            <div className="text-body-sm font-body-sm text-on-surface-variant">{t.product.positiveRating}</div>
           </div>
         </div>
+
+        {/* Moslik bo'limi */}
+        {product.compatible_models?.length > 0 && (
+          <CompatibilitySection groups={product.compatible_models} t={t} />
+        )}
       </section>
 
       {/* Description */}
       {product.description && (
         <section className="md:col-span-12 mt-lg border-t border-outline-variant pt-lg">
-          <h2 className="text-h3 font-h3 text-on-surface mb-md">Mahsulot haqida</h2>
+          <h2 className="text-h3 font-h3 text-on-surface mb-md">{t.product.about}</h2>
           <div className="bg-surface-container-lowest border border-outline-variant rounded-xl p-lg">
             <p className="text-body-md font-body-md text-on-surface-variant whitespace-pre-line leading-relaxed">
               {product.description}
@@ -596,24 +825,13 @@ const ProductDetail = () => {
       {(isSimilarLoading || similarProducts.length > 0) && (
         <section className="md:col-span-12 mt-lg border-t border-outline-variant pt-lg">
           <div className="mb-md flex items-center justify-between gap-3">
-            <h2 className="text-h3 font-h3 text-on-surface">O'xshash mahsulotlar</h2>
+            <h2 className="text-h3 font-h3 text-on-surface">{t.product.similar}</h2>
           </div>
 
           {isSimilarLoading ? (
             <div className="grid grid-cols-2 gap-md md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
               {[1, 2, 3, 4, 5].map((item) => (
-                <div
-                  key={item}
-                  className="h-[360px] animate-pulse rounded-xl border border-outline-variant bg-surface-container-lowest"
-                >
-                  <div className="h-48 rounded-t-xl bg-surface-container-low" />
-                  <div className="space-y-3 p-md">
-                    <div className="h-4 w-4/5 rounded bg-surface-container-low" />
-                    <div className="h-4 w-3/5 rounded bg-surface-container-low" />
-                    <div className="h-8 w-2/3 rounded bg-surface-container-low" />
-                    <div className="h-11 rounded-lg bg-surface-container-low" />
-                  </div>
-                </div>
+                <ProductSkeleton key={item} />
               ))}
             </div>
           ) : (
@@ -624,6 +842,18 @@ const ProductDetail = () => {
             </div>
           )}
         </section>
+      )}
+
+      {lightboxOpen && (
+        <Lightbox
+          images={
+            variantGallery.length > 0
+              ? variantGallery.map((i) => i.url)
+              : images.map((i) => i.image)
+          }
+          initialIndex={lightboxStartIdx}
+          onClose={() => setLightboxOpen(false)}
+        />
       )}
     </div>
   );

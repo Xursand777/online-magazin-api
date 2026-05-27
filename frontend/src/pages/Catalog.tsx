@@ -1,8 +1,10 @@
 import { useState } from 'react';
 import { Link, useParams, Routes, Route, useNavigate, useSearchParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { getCategories, getCategoryProducts, searchProducts } from '../api/endpoints';
+import { getCategories, getCategoryProducts, getProducts, searchProducts } from '../api/endpoints';
 import ProductCard from '../components/ProductCard';
+import ProductSkeleton from '../components/ProductSkeleton';
+import { useTranslation } from '../i18n/useTranslation';
 
 interface Category {
   id: number;
@@ -15,9 +17,11 @@ interface Category {
 
 const Catalog = () => {
   const [searchParams] = useSearchParams();
-  const searchQuery = (searchParams.get('q') || '').trim();
+  const searchQuery    = (searchParams.get('q') || '').trim();
+  const compatibleWith = (searchParams.get('compatible_with') || '').trim();
+  const { t, language } = useTranslation();
   const { data: categories = [], isLoading } = useQuery<Category[]>({
-    queryKey: ['categories'],
+    queryKey: ['categories', language],
     queryFn: () => getCategories().then(res => res.data.results || res.data),
   });
 
@@ -27,8 +31,8 @@ const Catalog = () => {
       <aside className="hidden lg:block w-72 shrink-0 self-start sticky top-[80px]">
         <div className="bg-surface-container-lowest rounded-2xl shadow-sm border border-outline-variant overflow-hidden">
           <div className="p-lg bg-surface-container-low border-b border-outline-variant">
-            <h2 className="font-h3 text-h3 text-on-surface">Katalog</h2>
-            <p className="font-body-sm text-body-sm text-on-surface-variant">Barcha bo'limlar</p>
+            <h2 className="font-h3 text-h3 text-on-surface">{t.catalog.title}</h2>
+            <p className="font-body-sm text-body-sm text-on-surface-variant">{t.catalog.allSections}</p>
           </div>
           <nav className="flex flex-col py-2 max-h-[calc(100vh-250px)] overflow-y-auto scrollbar-thin">
             {isLoading ? (
@@ -47,7 +51,14 @@ const Catalog = () => {
       {/* Main Content Area */}
       <main className="flex-1 w-full min-w-0">
         <Routes>
-          <Route index element={<CatalogIndex categories={categories} isLoading={isLoading} searchQuery={searchQuery} />} />
+          <Route index element={
+            <CatalogIndex
+              categories={categories}
+              isLoading={isLoading}
+              searchQuery={searchQuery}
+              compatibleWith={compatibleWith}
+            />
+          } />
           <Route path=":slug" element={<CategoryDetail categories={categories} />} />
         </Routes>
       </main>
@@ -55,12 +66,10 @@ const Catalog = () => {
   );
 };
 
-// Recursive Menu Item Component
 const CategoryMenuItem = ({ category, depth = 0 }: { category: Category; depth?: number }) => {
   const { slug } = useParams();
   const hasChildren = category.children && category.children.length > 0;
-  
-  // Check if this category or any of its children is active
+
   const isActive = category.slug === slug;
   const isChildActive = (cat: Category): boolean => {
     if (cat.slug === slug) return true;
@@ -73,11 +82,11 @@ const CategoryMenuItem = ({ category, depth = 0 }: { category: Category; depth?:
   return (
     <div className="flex flex-col">
       <div className="flex items-center group">
-        <Link 
+        <Link
           to={`/catalog/${category.slug}`}
           className={`flex-1 flex items-center gap-3 px-lg py-3 transition-colors ${depth > 0 ? 'pl-12' : ''} ${
-            isActive 
-              ? 'bg-primary text-on-primary font-bold shadow-sm rounded-r-full mr-4' 
+            isActive
+              ? 'bg-primary text-on-primary font-bold shadow-sm rounded-r-full mr-4'
               : 'text-on-surface hover:bg-primary-container/10'
           }`}
         >
@@ -89,7 +98,7 @@ const CategoryMenuItem = ({ category, depth = 0 }: { category: Category; depth?:
           <span className={`font-body-md ${depth === 0 ? 'tracking-tight' : ''}`}>{category.name}</span>
         </Link>
         {hasChildren && (
-          <button 
+          <button
             onClick={() => setIsOpen(!isOpen)}
             className={`p-3 transition-all ${isActive ? 'text-on-primary absolute right-8' : 'text-outline hover:text-primary'}`}
           >
@@ -108,28 +117,89 @@ const CategoryMenuItem = ({ category, depth = 0 }: { category: Category; depth?:
   );
 };
 
-// Default Catalog View (List of all Catalogs)
-const CatalogIndex = ({ categories, isLoading, searchQuery }: { categories: Category[], isLoading: boolean, searchQuery: string }) => {
+const CatalogIndex = ({
+  categories, isLoading, searchQuery, compatibleWith,
+}: {
+  categories: Category[]; isLoading: boolean; searchQuery: string; compatibleWith: string;
+}) => {
+  const { t, language } = useTranslation();
+
   const { data: searchResults = [], isLoading: isSearchLoading } = useQuery({
-    queryKey: ['catalog-search', searchQuery],
+    queryKey: ['catalog-search', searchQuery, language],
     queryFn: () => searchProducts(searchQuery, true).then(res => res.data),
     enabled: Boolean(searchQuery),
     staleTime: 60000,
     refetchOnWindowFocus: false,
   });
 
+  const { data: compatibleProducts = [], isLoading: isCompatibleLoading } = useQuery({
+    queryKey: ['compatible-products', compatibleWith, language],
+    queryFn: () => getProducts({ compatible_with: compatibleWith }).then(res => res.data.results || res.data),
+    enabled: Boolean(compatibleWith),
+    staleTime: 60000,
+    refetchOnWindowFocus: false,
+  });
+
+  if (compatibleWith) {
+    const modelName = compatibleWith
+      .split('-')
+      .map(w => w.charAt(0).toUpperCase() + w.slice(1))
+      .join(' ');
+    return (
+      <div className="flex flex-col gap-xl">
+        <div className="flex flex-col gap-2 border-b border-outline-variant pb-lg md:flex-row md:items-end md:justify-between">
+          <div className="flex items-start gap-4">
+            <div className="w-12 h-12 rounded-xl bg-primary-container/20 flex items-center justify-center text-primary shrink-0">
+              <span className="material-symbols-outlined">smartphone</span>
+            </div>
+            <div>
+              <h1 className="text-h1 font-h1 text-on-background">{modelName}</h1>
+              <p className="text-body-lg text-on-surface-variant">{t.product.shopCompatible}</p>
+            </div>
+          </div>
+          <Link to="/catalog" className="text-primary font-semibold hover:underline">
+            {t.catalog.backToCatalog}
+          </Link>
+        </div>
+
+        {isCompatibleLoading ? (
+          <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-lg">
+            <SkeletonGrid count={8} />
+          </div>
+        ) : compatibleProducts.length > 0 ? (
+          <div className="flex flex-col gap-lg">
+            <p className="text-body-sm text-on-surface-variant">
+              {compatibleProducts.length} {t.catalog.productsFoundSuffix}
+            </p>
+            <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-lg">
+              {(compatibleProducts as any[]).map((p) => (
+                <ProductCard key={p.id} product={p} />
+              ))}
+            </div>
+          </div>
+        ) : (
+          <div className="bg-surface-container-low rounded-3xl p-2xl text-center flex flex-col items-center gap-4 border-2 border-dashed border-outline-variant">
+            <span className="material-symbols-outlined text-6xl text-outline opacity-20">inventory_2</span>
+            <p className="text-on-surface-variant font-body-lg">{t.catalog.noProducts}</p>
+            <Link to="/catalog" className="text-primary font-semibold hover:underline">{t.catalog.backToCatalog}</Link>
+          </div>
+        )}
+      </div>
+    );
+  }
+
   if (searchQuery) {
     return (
       <div className="flex flex-col gap-xl">
         <div className="flex flex-col gap-2 border-b border-outline-variant pb-lg md:flex-row md:items-end md:justify-between">
           <div>
-            <h1 className="text-h1 font-h1 text-on-background">Qidiruv natijalari</h1>
+            <h1 className="text-h1 font-h1 text-on-background">{t.catalog.searchResults}</h1>
             <p className="text-body-lg text-on-surface-variant">
-              "{searchQuery}" bo'yicha {searchResults.length} ta mahsulot topildi
+              "{searchQuery}" — {searchResults.length} {t.catalog.searchFoundSuffix}
             </p>
           </div>
           <Link to="/catalog" className="text-primary font-semibold hover:underline">
-            Katalog bo'limlariga qaytish
+            {t.catalog.backToCatalog}
           </Link>
         </div>
 
@@ -146,7 +216,7 @@ const CatalogIndex = ({ categories, isLoading, searchQuery }: { categories: Cate
         ) : (
           <div className="bg-surface-container-low rounded-3xl p-2xl text-center flex flex-col items-center gap-4 border-2 border-dashed border-outline-variant">
             <span className="material-symbols-outlined text-6xl text-outline opacity-20">search_off</span>
-            <p className="text-on-surface-variant font-body-lg">Bu so'rov bo'yicha mahsulot topilmadi.</p>
+            <p className="text-on-surface-variant font-body-lg">{t.catalog.noSearchResults}</p>
           </div>
         )}
       </div>
@@ -158,14 +228,14 @@ const CatalogIndex = ({ categories, isLoading, searchQuery }: { categories: Cate
   return (
     <div className="flex flex-col gap-2xl">
       <div className="flex flex-col gap-2">
-        <h1 className="text-h1 font-h1 text-on-background">Barcha bo'limlar</h1>
-        <p className="text-body-lg text-on-surface-variant">O'zingizga kerakli bo'limni tanlang</p>
+        <h1 className="text-h1 font-h1 text-on-background">{t.catalog.allSections}</h1>
+        <p className="text-body-lg text-on-surface-variant">{t.catalog.selectSection}</p>
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-lg">
         {categories.map(cat => (
-          <Link 
-            key={cat.id} 
+          <Link
+            key={cat.id}
             to={`/catalog/${cat.slug}`}
             className="group bg-surface-container-lowest rounded-3xl border border-outline-variant p-6 hover:-translate-y-1 hover:border-primary/45 hover:bg-primary-container/5 hover:shadow-xl dark:hover:border-outline dark:hover:bg-surface-container-high transition-all duration-300"
           >
@@ -180,8 +250,8 @@ const CatalogIndex = ({ categories, isLoading, searchQuery }: { categories: Cate
               <span className="material-symbols-outlined text-outline group-hover:text-primary transition-colors">arrow_forward_ios</span>
             </div>
             <h3 className="text-h3 font-h3 text-on-surface mb-2">{cat.name}</h3>
-            <p className="text-body-sm text-on-surface-variant mb-4">{cat.children?.length || 0} ta quyi bo'lim</p>
-            
+            <p className="text-body-sm text-on-surface-variant mb-4">{cat.children?.length || 0} {t.catalog.subSectionCount}</p>
+
             <div className="flex flex-wrap gap-2">
               {cat.children?.slice(0, 3).map(child => (
                 <span key={child.id} className="bg-surface-container px-3 py-1 rounded-full text-xs text-on-surface-variant">
@@ -196,12 +266,11 @@ const CatalogIndex = ({ categories, isLoading, searchQuery }: { categories: Cate
   );
 };
 
-// Detailed Category View (Subcategories & Products)
 const CategoryDetail = ({ categories }: { categories: Category[] }) => {
   const { slug } = useParams();
   const navigate = useNavigate();
-  
-  // Find category in tree
+  const { t, language } = useTranslation();
+
   const findCategory = (tree: Category[], slug?: string): Category | null => {
     if (!slug) return null;
     for (const cat of tree) {
@@ -215,20 +284,20 @@ const CategoryDetail = ({ categories }: { categories: Category[] }) => {
   const category = findCategory(categories, slug);
 
   const { data: products = [], isLoading } = useQuery({
-    queryKey: ['category-products', category?.id],
+    queryKey: ['category-products', category?.id, language],
     queryFn: () => category ? getCategoryProducts(category.id).then(res => res.data.results || res.data) : [],
     enabled: !!category,
   });
 
   if (!category && categories.length > 0) {
-    return <div className="p-xl text-center">Kategoriya topilmadi.</div>;
+    return <div className="p-xl text-center">{t.catalog.notFound}</div>;
   }
 
   return (
     <div className="flex flex-col gap-xl animate-in fade-in duration-500">
       {/* Breadcrumbs */}
       <nav className="flex items-center gap-2 text-body-sm text-on-surface-variant">
-        <Link to="/catalog" className="hover:text-primary transition-colors">Katalog</Link>
+        <Link to="/catalog" className="hover:text-primary transition-colors">{t.catalog.title}</Link>
         <span className="material-symbols-outlined text-sm">chevron_right</span>
         <span className="text-on-surface font-semibold">{category?.name}</span>
       </nav>
@@ -238,7 +307,7 @@ const CategoryDetail = ({ categories }: { categories: Category[] }) => {
         <div>
           <h1 className="text-h1 font-h1 text-on-background mb-2">{category?.name}</h1>
           <p className="text-body-lg text-on-surface-variant">
-            {products.length} ta mahsulot topildi
+            {products.length} {t.catalog.productsFoundSuffix}
           </p>
         </div>
       </div>
@@ -246,11 +315,11 @@ const CategoryDetail = ({ categories }: { categories: Category[] }) => {
       {/* Subcategories Grid if any */}
       {category?.children && category.children.length > 0 && (
         <section className="flex flex-col gap-lg">
-          <h2 className="text-h3 font-h3 text-on-surface">Bo'limlar</h2>
+          <h2 className="text-h3 font-h3 text-on-surface">{t.catalog.subsections}</h2>
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
             {category.children.map(child => (
-              <Link 
-                key={child.id} 
+              <Link
+                key={child.id}
                 to={`/catalog/${child.slug}`}
                 className="bg-surface-container-low rounded-2xl p-4 flex flex-col items-center text-center gap-3 hover:bg-primary-container/20 transition-all border border-transparent hover:border-primary/20"
               >
@@ -266,7 +335,7 @@ const CategoryDetail = ({ categories }: { categories: Category[] }) => {
 
       {/* Products Grid */}
       <section className="flex flex-col gap-lg mt-xl">
-        <h2 className="text-h3 font-h3 text-on-surface">Mahsulotlar</h2>
+        <h2 className="text-h3 font-h3 text-on-surface">{t.catalog.products}</h2>
         {isLoading ? (
           <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-lg">
             <SkeletonGrid count={8} />
@@ -280,8 +349,8 @@ const CategoryDetail = ({ categories }: { categories: Category[] }) => {
         ) : (
           <div className="bg-surface-container-low rounded-3xl p-2xl text-center flex flex-col items-center gap-4 border-2 border-dashed border-outline-variant">
             <span className="material-symbols-outlined text-6xl text-outline opacity-20">inventory_2</span>
-            <p className="text-on-surface-variant font-body-lg">Hozircha mahsulotlar yo'q.</p>
-            <button onClick={() => navigate('/catalog')} className="text-primary font-semibold hover:underline">Boshqa bo'limga o'tish</button>
+            <p className="text-on-surface-variant font-body-lg">{t.catalog.noProducts}</p>
+            <button onClick={() => navigate('/catalog')} className="text-primary font-semibold hover:underline">{t.catalog.goToOther}</button>
           </div>
         )}
       </section>
@@ -292,11 +361,7 @@ const CategoryDetail = ({ categories }: { categories: Category[] }) => {
 const SkeletonGrid = ({ count }: { count: number }) => (
   <>
     {Array.from({ length: count }).map((_, i) => (
-      <div key={i} className="bg-surface-container-lowest rounded-3xl p-6 border border-outline-variant flex flex-col gap-4 animate-pulse">
-        <div className="w-full aspect-square bg-surface-container rounded-2xl" />
-        <div className="h-6 w-3/4 bg-surface-container rounded-lg" />
-        <div className="h-4 w-1/2 bg-surface-container rounded-lg" />
-      </div>
+      <ProductSkeleton key={i} />
     ))}
   </>
 );

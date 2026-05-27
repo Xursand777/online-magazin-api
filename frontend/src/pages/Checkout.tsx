@@ -4,13 +4,14 @@ import { useCartStore } from '../store/cartStore';
 import { useAuthStore } from '../store/authStore';
 import { createOrderFromCart, getCreditStatus, getProfile } from '../api/endpoints';
 import { toast } from '../utils/toast';
+import { useTranslation } from '../i18n/useTranslation';
 
 const formatPrice = (v: string | number) =>
   Number(v).toLocaleString('uz-UZ') + ' UZS';
 
-const getCheckoutErrorMessage = (err: any) => {
+const getCheckoutErrorMessage = (err: any, fallback: string) => {
   const data = err?.response?.data;
-  if (!data) return "Buyurtma berishda xatolik yuz berdi.";
+  if (!data) return fallback;
   if (typeof data.error === 'string') return data.error;
   if (Array.isArray(data.error)) return data.error.join(' ');
 
@@ -18,7 +19,7 @@ const getCheckoutErrorMessage = (err: any) => {
   if (Array.isArray(firstValue)) return String(firstValue[0]);
   if (typeof firstValue === 'string') return firstValue;
 
-  return "Buyurtma berishda xatolik yuz berdi.";
+  return fallback;
 };
 
 interface CreditStatus {
@@ -31,6 +32,7 @@ interface CreditStatus {
 }
 
 const Checkout = () => {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const { cart, fetchCart, loading: cartLoading } = useCartStore();
   const { isAuthenticated } = useAuthStore();
@@ -48,7 +50,7 @@ const Checkout = () => {
 
   useEffect(() => {
     if (!isAuthenticated) {
-      toast.error("Rasmiylashtirish uchun avval tizimga kiring.");
+      toast.error(t.checkout.loginRequired);
       navigate('/auth?redirect=/checkout', { replace: true });
       return;
     }
@@ -67,6 +69,7 @@ const Checkout = () => {
           ...prev,
           receiver_name: `${p.first_name || ''} ${p.last_name || ''}`.trim() || prev.receiver_name,
           receiver_phone: p.phone || prev.receiver_phone,
+          delivery_address: p.delivery_address || prev.delivery_address,
         }));
       })
       .catch(() => {});
@@ -91,7 +94,7 @@ const Checkout = () => {
     return (
       <div className="flex-grow flex flex-col items-center justify-center py-20 gap-4">
         <span className="material-symbols-outlined text-5xl text-primary animate-spin">progress_activity</span>
-        <p className="text-on-surface-variant">Savat ma'lumotlari yuklanmoqda...</p>
+        <p className="text-on-surface-variant">{t.checkout.loading}</p>
       </div>
     );
   }
@@ -100,9 +103,9 @@ const Checkout = () => {
     return (
       <div className="flex-grow flex flex-col items-center justify-center py-20 gap-4">
         <span className="material-symbols-outlined text-6xl text-outline">shopping_cart_off</span>
-        <h2 className="text-h2 font-h2">Savat bo'sh</h2>
-        <p className="text-on-surface-variant">Buyurtma berish uchun avval savatga mahsulot qo'shing.</p>
-        <Link to="/" className="text-primary hover:underline font-medium">Bosh sahifaga qaytish</Link>
+        <h2 className="text-h2 font-h2">{t.cart.empty}</h2>
+        <p className="text-on-surface-variant">{t.cart.emptyDesc}</p>
+        <Link to="/" className="text-primary hover:underline font-medium">{t.nav.home}</Link>
       </div>
     );
   }
@@ -110,17 +113,17 @@ const Checkout = () => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formData.receiver_name || !formData.receiver_phone || !formData.delivery_address) {
-      toast.error("Iltimos, barcha maydonlarni to'ldiring.");
+      toast.error(t.checkout.allFieldsRequired);
       return;
     }
 
     if (formData.payment_method === 'credit') {
       if (creditStatus?.credit_ban) {
-        toast.error("Muddatli to'lov bloklangan — buyurtma bera olmaysiz.");
+        toast.error(t.checkout.creditBanToast);
         return;
       }
       if (creditStatus?.has_unpaid_credit) {
-        toast.error("Avval mavjud muddatli to'lov buyurtmangizni to'lang.");
+        toast.error(t.checkout.unpaidCreditToast);
         return;
       }
     }
@@ -133,11 +136,11 @@ const Checkout = () => {
     setLoading(true);
     try {
       const res = await createOrderFromCart(payload);
-      toast.success("Buyurtma qabul qilindi!");
+      toast.success(t.checkout.orderSuccess);
       await useCartStore.getState().fetchCart();
       navigate(`/profile`, { state: { newOrderId: res.data.id } });
     } catch (err: any) {
-      toast.error(getCheckoutErrorMessage(err));
+      toast.error(getCheckoutErrorMessage(err, t.checkout.orderError));
     } finally {
       setLoading(false);
     }
@@ -146,8 +149,8 @@ const Checkout = () => {
   return (
     <div className="flex-grow w-full py-lg pb-3xl">
       <header className="mb-lg">
-        <h1 className="font-h1 text-h1 text-on-surface">Rasmiylashtirish</h1>
-        <p className="font-body-md text-body-md text-on-surface-variant mt-sm">Buyurtma tafsilotlarini to'ldiring.</p>
+        <h1 className="font-h1 text-h1 text-on-surface">{t.checkout.title}</h1>
+        <p className="font-body-md text-body-md text-on-surface-variant mt-sm">{t.checkout.deliveryAddress}</p>
       </header>
       
       <form onSubmit={handleSubmit} className="grid grid-cols-1 lg:grid-cols-12 gap-lg lg:gap-xl">
@@ -155,10 +158,10 @@ const Checkout = () => {
         <div className="lg:col-span-8 flex flex-col gap-lg">
           {/* 1. Delivery Information */}
           <section className="bg-surface-container-lowest rounded-xl border border-outline-variant shadow-sm p-lg">
-            <h2 className="font-h3 text-h3 text-on-surface mb-md border-b border-outline-variant pb-sm">Yetkazib berish ma'lumotlari</h2>
+            <h2 className="font-h3 text-h3 text-on-surface mb-md border-b border-outline-variant pb-sm">{t.checkout.deliveryAddress}</h2>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-md mb-md">
               <div className="flex flex-col md:col-span-2">
-                <label className="font-label-md text-label-md text-on-surface-variant mb-xs" htmlFor="receiver_name">Ism va Familiya *</label>
+                <label className="font-label-md text-label-md text-on-surface-variant mb-xs" htmlFor="receiver_name">{t.checkout.receiverName} *</label>
                 <input 
                   className="border border-outline-variant rounded-lg px-sm py-sm focus:ring-primary focus:border-primary bg-surface-bright outline-none" 
                   id="receiver_name" 
@@ -170,7 +173,7 @@ const Checkout = () => {
                 />
               </div>
               <div className="flex flex-col md:col-span-2">
-                <label className="font-label-md text-label-md text-on-surface-variant mb-xs" htmlFor="receiver_phone">Telefon raqam *</label>
+                <label className="font-label-md text-label-md text-on-surface-variant mb-xs" htmlFor="receiver_phone">{t.checkout.receiverPhone} *</label>
                 <input 
                   className="border border-outline-variant rounded-lg px-sm py-sm focus:ring-primary focus:border-primary bg-surface-bright outline-none" 
                   id="receiver_phone" 
@@ -184,11 +187,11 @@ const Checkout = () => {
             </div>
             
             <div className="flex flex-col mb-md">
-              <label className="font-label-md text-label-md text-on-surface-variant mb-xs" htmlFor="address">Manzil *</label>
+              <label className="font-label-md text-label-md text-on-surface-variant mb-xs" htmlFor="address">{t.checkout.deliveryAddress} *</label>
               <textarea 
                 className="border border-outline-variant rounded-lg px-sm py-sm focus:ring-primary focus:border-primary bg-surface-bright outline-none resize-none" 
                 id="address"
-                placeholder="Shahar, tuman, ko'cha, uy, xonadon" 
+                placeholder={t.checkout.addressPlaceholder}
                 rows={3}
                 required
                 value={formData.delivery_address}
@@ -199,16 +202,16 @@ const Checkout = () => {
 
           {/* 2. Payment Methods */}
           <section className="bg-surface-container-lowest rounded-xl border border-outline-variant shadow-sm p-lg">
-            <h2 className="font-h3 text-h3 text-on-surface mb-md border-b border-outline-variant pb-sm">To'lov turi</h2>
+            <h2 className="font-h3 text-h3 text-on-surface mb-md border-b border-outline-variant pb-sm">{t.checkout.paymentMethod}</h2>
 
             {/* Muddatli to'lov ogohlantirishlari */}
             {creditStatus?.credit_ban && (
               <div className="mb-md p-md rounded-xl border border-error bg-error-container/30 flex items-start gap-sm">
                 <span className="material-symbols-outlined text-error text-[22px] mt-0.5">block</span>
                 <div>
-                  <p className="font-label-md text-error font-semibold">Muddatli to'lov bloklangan</p>
+                  <p className="font-label-md text-error font-semibold">{t.checkout.creditBanTitle}</p>
                   <p className="text-xs text-on-surface-variant mt-xs">
-                    Siz 3 marta to'lov muddatini o'tkazib yuborgansiz. Muddatli to'lov imkoniyatingiz doimiy taqiqlangan.
+                    {t.checkout.creditBanDesc}
                   </p>
                 </div>
               </div>
@@ -218,14 +221,14 @@ const Checkout = () => {
                 <span className="material-symbols-outlined text-[22px] mt-0.5" style={{color:'#d97706'}}>warning</span>
                 <div>
                   <p className="font-label-md font-semibold" style={{color:'#92400e'}}>
-                    To'lanmagan muddatli to'lov buyurtmangiz bor (#{creditStatus.unpaid_credit_order_id})
+                    {t.checkout.unpaidCreditPrefix} (#{creditStatus.unpaid_credit_order_id})
                   </p>
                   <p className="text-xs text-on-surface-variant mt-xs">
-                    To'lov muddati: <strong>{creditStatus.unpaid_credit_due_date}</strong>.
+                    {t.checkout.dueDateLabel} <strong>{creditStatus.unpaid_credit_due_date}</strong>.
                     {creditStatus.is_overdue && (
-                      <span className="text-error ml-1 font-semibold">Muddati o'tib ketgan!</span>
+                      <span className="text-error ml-1 font-semibold">{t.checkout.overdueTag}</span>
                     )}
-                    {' '}Yangi buyurtma berib bo'lmaydi.
+                    {' '}{t.checkout.cannotOrder}
                   </p>
                 </div>
               </div>
@@ -234,8 +237,8 @@ const Checkout = () => {
               <div className="mb-md p-md rounded-xl border flex items-start gap-sm" style={{borderColor:'#f59e0b', background:'#fef3c720'}}>
                 <span className="material-symbols-outlined text-[20px] mt-0.5" style={{color:'#d97706'}}>info</span>
                 <p className="text-xs text-on-surface-variant">
-                  Siz {creditStatus!.overdue_credit_count} marta to'lov muddatini kechiktirdingiz.{' '}
-                  3 martadan so'ng muddatli to'lov imkoniyati to'liq bloklanadi.
+                  {creditStatus!.overdue_credit_count} {t.checkout.overdueCountWarning}{' '}
+                  {t.checkout.overdueCountBlock}
                 </p>
               </div>
             )}
@@ -251,8 +254,8 @@ const Checkout = () => {
                 />
                 <div className="border-2 border-outline-variant rounded-xl p-md flex flex-col items-center text-center gap-sm peer-checked:border-primary peer-checked:bg-primary-container/10 transition-all h-full">
                   <span className="material-symbols-outlined text-on-surface-variant text-[32px]">payments</span>
-                  <span className="font-label-md text-label-md text-on-surface">Naqd pul</span>
-                  <span className="font-body-sm text-body-sm text-on-surface-variant text-xs">Yetkazilganda to'lash</span>
+                  <span className="font-label-md text-label-md text-on-surface">{t.checkout.cash}</span>
+                  <span className="font-body-sm text-body-sm text-on-surface-variant text-xs">{t.checkout.cash}</span>
                 </div>
               </label>
 
@@ -266,8 +269,8 @@ const Checkout = () => {
                 />
                 <div className="border-2 border-outline-variant rounded-xl p-md flex flex-col items-center text-center gap-sm peer-checked:border-primary peer-checked:bg-primary-container/10 transition-all h-full">
                   <span className="material-symbols-outlined text-on-surface-variant text-[32px]">credit_card</span>
-                  <span className="font-label-md text-label-md text-on-surface">Karta orqali</span>
-                  <span className="font-body-sm text-body-sm text-on-surface-variant text-xs">Click / Payme (Tez kunda)</span>
+                  <span className="font-label-md text-label-md text-on-surface">{t.checkout.card}</span>
+                  <span className="font-body-sm text-body-sm text-on-surface-variant text-xs">Click / Payme ({t.checkout.comingSoon})</span>
                 </div>
               </label>
 
@@ -286,8 +289,8 @@ const Checkout = () => {
                 />
                 <div className="border-2 border-outline-variant rounded-xl p-md flex flex-col items-center text-center gap-sm peer-checked:border-primary peer-checked:bg-primary-container/10 transition-all h-full">
                   <span className="material-symbols-outlined text-on-surface-variant text-[32px]">schedule_send</span>
-                  <span className="font-label-md text-label-md text-on-surface">Muddatli to'lov</span>
-                  <span className="font-body-sm text-body-sm text-on-surface-variant text-xs">5 – 20 kun ichida to'lash</span>
+                  <span className="font-label-md text-label-md text-on-surface">{t.checkout.credit}</span>
+                  <span className="font-body-sm text-body-sm text-on-surface-variant text-xs">5 – 20 {t.checkout.creditDays}</span>
                 </div>
               </label>
             </div>
@@ -297,9 +300,9 @@ const Checkout = () => {
               <div className="mt-md p-md rounded-xl border border-primary/40 bg-primary-container/10">
                 <div className="flex items-center justify-between mb-sm">
                   <label className="font-label-md text-label-md text-on-surface">
-                    To'lov muddatini tanlang
+                    {t.checkout.selectCreditDays}
                   </label>
-                  <span className="font-bold text-primary text-lg">{formData.credit_days} kun</span>
+                  <span className="font-bold text-primary text-lg">{formData.credit_days} {t.checkout.daysUnit}</span>
                 </div>
                 <input
                   type="range"
@@ -311,12 +314,11 @@ const Checkout = () => {
                   className="w-full accent-primary"
                 />
                 <div className="flex justify-between text-xs text-on-surface-variant mt-xs">
-                  <span>5 kun (minimum)</span>
-                  <span>20 kun (maksimum)</span>
+                  <span>{t.checkout.minDaysLabel}</span>
+                  <span>{t.checkout.maxDaysLabel}</span>
                 </div>
                 <p className="text-xs text-on-surface-variant mt-sm leading-relaxed">
-                  Buyurtma tasdiqlangandan so'ng <strong>{formData.credit_days} kun</strong> ichida to'lashingiz kerak.
-                  Muddatni o'tkazib yuborsangiz, keyingi buyurtma berish imkoniyatingiz to'xtatiladi.
+                  {t.checkout.creditDaysWarningBefore} <strong>{formData.credit_days} {t.checkout.daysUnit}</strong> {t.checkout.creditDaysWarningAfter}
                 </p>
               </div>
             )}
@@ -326,24 +328,24 @@ const Checkout = () => {
         {/* Right Column: Order Summary */}
         <div className="lg:col-span-4">
           <section className="bg-surface-container-lowest rounded-xl border border-outline-variant shadow-sm p-lg sticky top-[80px]">
-            <h2 className="font-h3 text-h3 text-on-surface mb-md">Buyurtma xulosasi</h2>
+            <h2 className="font-h3 text-h3 text-on-surface mb-md">{t.checkout.orderSummary}</h2>
             <div className="space-y-sm mb-md pb-md border-b border-outline-variant">
               <div className="flex justify-between items-center">
-                <span className="font-body-md text-body-md text-on-surface-variant">Mahsulotlar ({cart?.items.length})</span>
+                <span className="font-body-md text-body-md text-on-surface-variant">{t.cart.products} ({cart?.items.length})</span>
                 <span className="font-body-md text-body-md text-on-surface">{formatPrice(totalPrice)}</span>
               </div>
               <div className="flex justify-between items-center">
-                <span className="font-body-md text-body-md text-on-surface-variant">Yetkazib berish</span>
-                <span className="font-body-md text-body-md text-primary font-medium">Bepul</span>
+                <span className="font-body-md text-body-md text-on-surface-variant">{t.checkout.delivery}</span>
+                <span className="font-body-md text-body-md text-primary font-medium">{t.checkout.free}</span>
               </div>
             </div>
-            
+
             <div className="flex justify-between items-center mb-lg">
-              <span className="font-h3 text-h3 text-on-surface">Jami</span>
+              <span className="font-h3 text-h3 text-on-surface">{t.checkout.total}</span>
               <span className="font-price text-price text-primary">{formatPrice(totalPrice)}</span>
             </div>
-            
-            <button 
+
+            <button
               type="submit"
               disabled={loading}
               className="w-full bg-primary text-on-primary font-label-md text-label-md py-md rounded-xl hover:opacity-90 transition-opacity flex justify-center items-center gap-sm disabled:opacity-60"
@@ -351,13 +353,13 @@ const Checkout = () => {
               {loading ? (
                 <span className="material-symbols-outlined animate-spin text-[20px]">progress_activity</span>
               ) : null}
-              Buyurtma berish
+              {t.checkout.placeOrder}
               <span className="material-symbols-outlined text-[20px]">arrow_forward</span>
             </button>
-            
+
             <div className="mt-md flex items-center justify-center gap-xs text-on-surface-variant">
               <span className="material-symbols-outlined text-[16px]">verified_user</span>
-              <span className="font-body-sm text-body-sm text-xs">Xavfsiz rasmiylashtirish</span>
+              <span className="font-body-sm text-body-sm text-xs">{t.cart.securePayment}</span>
             </div>
           </section>
         </div>

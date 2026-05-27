@@ -5,6 +5,7 @@ import { useAuthStore } from '../store/authStore';
 import { useCartStore } from '../store/cartStore';
 import { registerUser, requestLoginOtp, verifyLoginOtp } from '../api/endpoints';
 import { toast } from '../utils/toast';
+import { useTranslation } from '../i18n/useTranslation';
 
 const OTP_LENGTH = 6;
 type LoginStep = 'phone' | 'otp';
@@ -87,6 +88,7 @@ const maskPhone = (digits9: string) => {
 // ─── Component ───────────────────────────────────────────────────────────────
 
 const Auth = () => {
+  const { t } = useTranslation();
   const [isLogin, setIsLogin] = useState(true);
   const [loginStep, setLoginStep] = useState<LoginStep>('phone');
   const [loading, setLoading] = useState(false);
@@ -108,6 +110,10 @@ const Auth = () => {
   const [regPassword, setRegPassword] = useState('');
   const [regConfirm, setRegConfirm] = useState('');
   const [regTerms, setRegTerms] = useState(false);
+
+  // Password visibility toggles
+  const [showRegPassword, setShowRegPassword] = useState(false);
+  const [showRegConfirm, setShowRegConfirm] = useState(false);
 
   // ─── Timers ──────────────────────────────────────────────────────────────
 
@@ -158,10 +164,10 @@ const Auth = () => {
         data?.non_field_errors?.[0] ||
         data?.error ||
         data?.detail ||
-        'Xatolik yuz berdi.'
+        t.auth.errors.generic
       );
     }
-    return 'Ulanishda muammo. Server ishlab turibdimi?';
+    return t.auth.errors.connection;
   };
 
   // ─── Login handlers ───────────────────────────────────────────────────────
@@ -170,7 +176,7 @@ const Auth = () => {
     e.preventDefault();
     const digits = loginDigits.replace(/\D/g, '');
     if (digits.length !== 9) {
-      setError("Telefon raqamini to'liq kiriting (9 ta raqam).");
+      setError(t.auth.errors.phoneRequired);
       return;
     }
     setError('');
@@ -194,7 +200,7 @@ const Auth = () => {
     e.preventDefault();
     const code = otpDigits.join('');
     if (code.length !== OTP_LENGTH) {
-      setError("6 xonali kodni to'liq kiriting.");
+      setError(t.auth.errors.otpRequired);
       return;
     }
     setError('');
@@ -232,15 +238,15 @@ const Auth = () => {
     e.preventDefault();
     const digits = regDigits.replace(/\D/g, '');
     if (digits.length !== 9) {
-      setError("Telefon raqamini to'liq kiriting (9 ta raqam).");
+      setError(t.auth.errors.phoneRequired);
       return;
     }
     if (regPassword !== regConfirm) {
-      setError('Parollar mos kelmadi.');
+      setError(t.auth.errors.passwordMismatch);
       return;
     }
     if (!regTerms) {
-      setError('Shartlarga roziligingizni bildiring.');
+      setError(t.auth.errors.termsRequired);
       return;
     }
     setError('');
@@ -305,7 +311,7 @@ const Auth = () => {
           <Link to="/" className="inline-block">
             <h1 className="text-h1 font-h1 text-primary">Bozor</h1>
           </Link>
-          <p className="mt-3 text-body-md text-on-surface-variant">Ishonchli bozor platformasi</p>
+          <p className="mt-3 text-body-md text-on-surface-variant">{t.auth.platformSlogan}</p>
         </div>
 
         <div className="overflow-hidden rounded-[28px] border border-outline-variant bg-surface-container-lowest p-5 shadow-[0_16px_48px_rgba(15,23,42,0.10)] md:p-6">
@@ -317,7 +323,7 @@ const Auth = () => {
                 isLogin ? 'bg-primary text-on-primary shadow-sm' : 'text-on-surface-variant'
               }`}
             >
-              Kirish
+              {t.auth.login}
             </button>
             <button
               onClick={() => switchTab(false)}
@@ -325,7 +331,7 @@ const Auth = () => {
                 !isLogin ? 'bg-primary text-on-primary shadow-sm' : 'text-on-surface-variant'
               }`}
             >
-              Ro'yxatdan o'tish
+              {t.auth.register}
             </button>
           </div>
 
@@ -340,15 +346,15 @@ const Auth = () => {
           {isLogin && loginStep === 'phone' && (
             <form className="space-y-6" onSubmit={handleRequestOtp}>
               <div>
-                <p className="mb-1 text-xl font-bold text-on-surface">Telefon orqali kirish</p>
+                <p className="mb-1 text-xl font-bold text-on-surface">{t.auth.loginTitle}</p>
                 <p className="text-sm leading-6 text-on-surface-variant">
-                  O'zbekiston telefon raqamingizni kiriting — tasdiqlash kodi yuboriladi.
+                  {t.auth.loginSubtitle}
                 </p>
               </div>
 
               <div>
                 <label className="mb-2 block text-sm font-semibold text-on-surface" htmlFor="phone-login">
-                  Telefon raqam
+                  {t.auth.phoneLabel}
                 </label>
                 <PhoneInput
                   id="phone-login"
@@ -357,7 +363,7 @@ const Auth = () => {
                   isComplete={loginDigits.replace(/\D/g, '').length === 9}
                 />
                 <p className="mt-1.5 text-xs text-on-surface-variant">
-                  Masalan: +998 90 123 45 67
+                  {t.auth.example}
                 </p>
               </div>
 
@@ -367,7 +373,7 @@ const Auth = () => {
                 className="flex w-full items-center justify-center gap-2 rounded-2xl bg-primary px-5 py-4 text-base font-semibold text-on-primary transition-opacity hover:opacity-92 disabled:opacity-50"
               >
                 {loading && <span className="material-symbols-outlined animate-spin text-[18px]">progress_activity</span>}
-                Kodni yuborish
+                {t.auth.sendCode}
               </button>
             </form>
           )}
@@ -377,10 +383,9 @@ const Auth = () => {
             <form className="space-y-6" onSubmit={handleVerifyOtp}>
               <div className="flex items-start justify-between gap-4">
                 <div>
-                  <p className="mb-1 text-xl font-bold text-on-surface">Tasdiqlash kodi</p>
+                  <p className="mb-1 text-xl font-bold text-on-surface">{t.auth.otpTitle}</p>
                   <p className="text-sm leading-6 text-on-surface-variant">
-                    <span className="font-mono font-semibold text-on-surface">{maskPhone(otpPhone)}</span> raqamiga
-                    yuborilgan 6 xonali kodni kiriting.
+                    <span className="font-mono font-semibold text-on-surface">{maskPhone(otpPhone)}</span> {t.auth.otpSubtitle}
                   </p>
                 </div>
                 <button
@@ -392,22 +397,23 @@ const Auth = () => {
                   }}
                   className="shrink-0 text-sm font-semibold text-primary hover:underline"
                 >
-                  O'zgartirish
+                  {t.auth.changeNumber}
                 </button>
               </div>
 
-              {otpDebugCode && (
-                <div className="rounded-2xl border border-primary/30 bg-primary-container/10 px-4 py-3 text-sm text-primary">
-                  Test kodi:{' '}
-                  <span className="font-bold tracking-[0.3em]">{otpDebugCode}</span>
-                  <span className="ml-2 text-on-surface-variant">
-                    (SMS integratsiyasi yo'q — backend konsolida ham ko'rinadi)
-                  </span>
+              {/* OTP debug code — faqat development rejimida ko'rinadi */}
+              {import.meta.env.DEV && otpDebugCode && (
+                <div className="rounded-2xl border border-amber-400/50 bg-amber-50 dark:bg-amber-950/30 px-4 py-3 text-sm">
+                  <div className="flex items-center gap-2 text-amber-700 dark:text-amber-400 mb-1">
+                    <span className="material-symbols-outlined text-[16px]">developer_mode</span>
+                    <span className="font-semibold text-xs uppercase tracking-wide">{t.auth.devMode}</span>
+                  </div>
+                  <span className="font-bold tracking-[0.35em] text-amber-800 dark:text-amber-300 text-lg">{otpDebugCode}</span>
                 </div>
               )}
 
               <div>
-                <p className="mb-2 block text-sm font-semibold text-on-surface">Kod</p>
+                <p className="mb-2 block text-sm font-semibold text-on-surface">{t.auth.codeLabel}</p>
                 <div className="grid grid-cols-6 gap-2 md:gap-3" onPaste={handleOtpPaste}>
                   {otpDigits.map((digit, i) => (
                     <input
@@ -428,8 +434,8 @@ const Auth = () => {
               <div className="flex items-center justify-between gap-3 text-sm">
                 <span className="text-on-surface-variant">
                   {resendSeconds > 0
-                    ? `Qayta yuborish: 00:${String(resendSeconds).padStart(2, '0')}`
-                    : 'Kod kelmadimi?'}
+                    ? `${t.auth.resendTimer} 00:${String(resendSeconds).padStart(2, '0')}`
+                    : t.auth.noCode}
                 </span>
                 <button
                   type="button"
@@ -437,7 +443,7 @@ const Auth = () => {
                   disabled={loading || resendSeconds > 0}
                   className="font-semibold text-primary disabled:text-on-surface-variant"
                 >
-                  Qayta yuborish
+                  {t.auth.resendCode}
                 </button>
               </div>
 
@@ -447,7 +453,7 @@ const Auth = () => {
                 className="flex w-full items-center justify-center gap-2 rounded-2xl bg-primary px-5 py-4 text-base font-semibold text-on-primary transition-opacity hover:opacity-92 disabled:opacity-60"
               >
                 {loading && <span className="material-symbols-outlined animate-spin text-[18px]">progress_activity</span>}
-                Kirishni tasdiqlash
+                {t.auth.verifyCode}
               </button>
             </form>
           )}
@@ -456,16 +462,16 @@ const Auth = () => {
           {!isLogin && (
             <form className="space-y-5" onSubmit={handleRegister}>
               <div>
-                <p className="mb-1 text-xl font-bold text-on-surface">Akkaunt yaratish</p>
+                <p className="mb-1 text-xl font-bold text-on-surface">{t.auth.registerTitle}</p>
                 <p className="text-sm leading-6 text-on-surface-variant">
-                  Ro'yxatdan o'tgandan keyin telefon orqali kod bilan tasdiqlaysiz.
+                  {t.auth.registerSubtitle}
                 </p>
               </div>
 
               {/* Phone */}
               <div>
                 <label className="mb-2 block text-sm font-semibold text-on-surface" htmlFor="phone-register">
-                  Telefon raqam
+                  {t.auth.phoneLabel}
                 </label>
                 <PhoneInput
                   id="phone-register"
@@ -474,53 +480,79 @@ const Auth = () => {
                   isComplete={regDigits.replace(/\D/g, '').length === 9}
                 />
                 <p className="mt-1.5 text-xs text-on-surface-variant">
-                  Masalan: +998 90 123 45 67
+                  {t.auth.example}
                 </p>
               </div>
 
               {/* Password */}
               <div>
                 <label className="mb-2 block text-sm font-semibold text-on-surface" htmlFor="password-reg">
-                  Parol
+                  {t.auth.password}
                 </label>
-                <input
-                  id="password-reg"
-                  type="password"
-                  placeholder="Kamida 8 ta belgi"
-                  required
-                  value={regPassword}
-                  onChange={(e) => setRegPassword(e.target.value)}
-                  className="w-full rounded-2xl border border-outline-variant bg-surface-bright px-4 py-4 text-base text-on-surface outline-none transition-shadow focus:border-primary focus:ring-2 focus:ring-primary/15"
-                />
+                <div className="relative">
+                  <input
+                    id="password-reg"
+                    type={showRegPassword ? 'text' : 'password'}
+                    placeholder={t.auth.minChars}
+                    required
+                    value={regPassword}
+                    onChange={(e) => setRegPassword(e.target.value)}
+                    className="w-full rounded-2xl border border-outline-variant bg-surface-bright px-4 pr-12 py-4 text-base text-on-surface outline-none transition-shadow focus:border-primary focus:ring-2 focus:ring-primary/15"
+                  />
+                  <button
+                    type="button"
+                    tabIndex={-1}
+                    onClick={() => setShowRegPassword((v) => !v)}
+                    className="absolute right-3.5 top-1/2 -translate-y-1/2 text-on-surface-variant hover:text-on-surface transition-colors p-1 rounded-lg"
+                    aria-label={showRegPassword ? t.auth.passwordHide : t.auth.passwordShow}
+                  >
+                    <span className="material-symbols-outlined text-[22px]">
+                      {showRegPassword ? 'visibility_off' : 'visibility'}
+                    </span>
+                  </button>
+                </div>
               </div>
 
               {/* Confirm password */}
               <div>
                 <label className="mb-2 block text-sm font-semibold text-on-surface" htmlFor="confirm-password">
-                  Parolni tasdiqlang
+                  {t.auth.confirmPassword}
                 </label>
                 <div className="relative">
                   <input
                     id="confirm-password"
-                    type="password"
+                    type={showRegConfirm ? 'text' : 'password'}
                     placeholder="••••••••"
                     required
                     value={regConfirm}
                     onChange={(e) => setRegConfirm(e.target.value)}
-                    className={`w-full rounded-2xl border bg-surface-bright px-4 py-4 text-base text-on-surface outline-none transition-shadow focus:ring-2 focus:ring-primary/15 ${
+                    className={`w-full rounded-2xl border bg-surface-bright px-4 pr-12 py-4 text-base text-on-surface outline-none transition-shadow focus:ring-2 focus:ring-primary/15 ${
                       regConfirm && regConfirm !== regPassword
                         ? 'border-error focus:border-error'
                         : 'border-outline-variant focus:border-primary'
                     }`}
                   />
-                  {regConfirm && regConfirm === regPassword && (
-                    <span className="material-symbols-outlined absolute right-4 top-1/2 -translate-y-1/2 text-primary text-[20px]">
+                  {/* Show/hide icon — agar to'g'ri bo'lsa checkmark, aks holda visibility toggle */}
+                  {regConfirm && regConfirm === regPassword ? (
+                    <span className="material-symbols-outlined absolute right-4 top-1/2 -translate-y-1/2 text-primary text-[20px] pointer-events-none">
                       check_circle
                     </span>
+                  ) : (
+                    <button
+                      type="button"
+                      tabIndex={-1}
+                      onClick={() => setShowRegConfirm((v) => !v)}
+                      className="absolute right-3.5 top-1/2 -translate-y-1/2 text-on-surface-variant hover:text-on-surface transition-colors p-1 rounded-lg"
+                      aria-label={showRegConfirm ? t.auth.passwordHide : t.auth.passwordShow}
+                    >
+                      <span className="material-symbols-outlined text-[22px]">
+                        {showRegConfirm ? 'visibility_off' : 'visibility'}
+                      </span>
+                    </button>
                   )}
                 </div>
                 {regConfirm && regConfirm !== regPassword && (
-                  <p className="mt-1 text-xs text-error">Parollar mos kelmadi</p>
+                  <p className="mt-1 text-xs text-error">{t.auth.errors.passwordMismatch}</p>
                 )}
               </div>
 
@@ -534,9 +566,9 @@ const Auth = () => {
                 />
                 <span className="text-sm leading-6 text-on-surface-variant">
                   <a className="font-semibold text-primary hover:underline" href="#">
-                    Shartlar va qoidalar
+                    {t.auth.termsLink}
                   </a>
-                  ga roziman.
+                  {' '}{t.auth.termsAgree}
                 </span>
               </label>
 
@@ -546,7 +578,7 @@ const Auth = () => {
                 className="flex w-full items-center justify-center gap-2 rounded-2xl bg-primary px-5 py-4 text-base font-semibold text-on-primary transition-opacity hover:opacity-92 disabled:opacity-50"
               >
                 {loading && <span className="material-symbols-outlined animate-spin text-[18px]">progress_activity</span>}
-                Ro'yxatdan o'tish
+                {t.auth.register}
               </button>
             </form>
           )}

@@ -2,24 +2,97 @@ from django.db import models
 from django.contrib.auth.models import AbstractUser
 from django.utils.translation import gettext_lazy as _
 
+
+class UserRole(models.TextChoices):
+    SUPER_ADMIN = 'super_admin', 'Super Admin'   # faqat is_superuser, tayinlab bo'lmaydi
+    ADMIN       = 'admin',       'Admin'
+    SELLER      = 'seller',      'Sotuvchi'
+    COURIER     = 'courier',     'Kuryer'
+
+
 class User(AbstractUser):
     username = models.CharField(max_length=150, blank=True, null=True)
-    phone = models.CharField(_("Phone number"), max_length=15, unique=True)
+    phone    = models.CharField(_("Phone number"), max_length=15, unique=True)
 
-    is_verified = models.BooleanField(default=False, help_text="Designates whether this user has verified their phone number.")
+    is_verified = models.BooleanField(
+        default=False,
+        help_text="Foydalanuvchi telefon raqamini tasdiqlagan.",
+    )
+
+    # Xodim roli — bo'sh bo'lsa oddiy mijoz
+    role = models.CharField(
+        max_length=20,
+        choices=UserRole.choices,
+        blank=True,
+        null=True,
+        db_index=True,
+        help_text="Xodim roli. Bo'sh bo'lsa — oddiy foydalanuvchi.",
+    )
+
+    # Rol o'zgarganda eski JWT tokenlarni bloklash uchun timestamp
+    # CustomJWTAuth: token.iat < role_invalidated_at → rad etiladi
+    role_invalidated_at = models.DateTimeField(
+        null=True, blank=True,
+        help_text="Rol o'zgartirilgan vaqt. Bundan oldingi tokenlar bekor bo'ladi.",
+    )
+
+    # Usta (master/craftsman) — maxsus chegirma tizimi
+    is_master = models.BooleanField(
+        default=False,
+        db_index=True,
+        help_text="Usta foydalanuvchi. Barcha mahsulotlarda 5% chegirma oladi.",
+    )
 
     # Kredit (qarzga xarid) tizimi
     credit_ban = models.BooleanField(
         default=False,
-        help_text="3 marta muddati o'tgan to'lovdan so'ng buyurtma berish taqiqlanadi."
+        help_text="3 marta muddati o'tgan to'lovdan so'ng buyurtma berish taqiqlanadi.",
     )
     overdue_credit_count = models.PositiveSmallIntegerField(
         default=0,
-        help_text="Muddati o'tgan kredit buyurtmalar soni. 3 taga yetsa credit_ban=True bo'ladi."
+        help_text="Muddati o'tgan kredit buyurtmalar soni. 3 taga yetsa credit_ban=True bo'ladi.",
     )
 
-    USERNAME_FIELD = 'phone'
+    USERNAME_FIELD  = 'phone'
     REQUIRED_FIELDS = []
+
+    # ── Rol yordamchi metodlari ───────────────────────────────────────────────
+
+    def has_role(self, *roles: str) -> bool:
+        """Foydalanuvchi berilgan rollardan birida ekanini tekshiradi."""
+        if self.is_superuser:
+            return True
+        return self.role in roles
+
+    def can_access_admin(self) -> bool:
+        """Admin panelga kirish huquqi."""
+        return bool(self.role) or self.is_superuser
+
+    @property
+    def role_display(self) -> str:
+        if self.is_superuser and not self.role:
+            return 'Super Admin'
+        return self.get_role_display() if self.role else 'Mijoz'
+
+    def save(self, *args, **kwargs):
+        # Rol berilganda is_staff avtomatik True bo'lsin (Django admin uchun)
+        if self.role and not self.is_staff:
+            self.is_staff = True
+        elif not self.role and not self.is_superuser and self.is_staff:
+            self.is_staff = False
+
+        # Rol o'zgarganda role_invalidated_at ni yangilaymiz
+        # Bu eski JWT tokenlarni avtomatik bloklaydi
+        if self.pk:
+            try:
+                old = User.objects.only('role').get(pk=self.pk)
+                if old.role != self.role:
+                    from django.utils import timezone
+                    self.role_invalidated_at = timezone.now()
+            except User.DoesNotExist:
+                pass
+
+        super().save(*args, **kwargs)
 
     def __str__(self):
         return self.phone
@@ -35,6 +108,7 @@ class UserProfile(models.Model):
     ]
     gender = models.CharField(max_length=1, choices=gender_choices, null=True, blank=True)
     language = models.CharField(max_length=10, default='uz')
+    delivery_address = models.TextField(blank=True, default='')
 
     def __str__(self):
         return f"{self.user.phone} Profile"

@@ -1,57 +1,11 @@
-// Simple global toast system without extra dependencies
+// ─── Global Toast System with Undo support ───────────────────────────────────
+
 let container: HTMLElement | null = null;
-let listenersAttached = false;
-
-const positionContainer = (el: HTMLElement) => {
-  const isDesktop = window.matchMedia('(min-width: 768px)').matches;
-
-  el.style.position = 'fixed';
-  el.style.display = 'flex';
-  el.style.flexDirection = 'column';
-  el.style.gap = '8px';
-  el.style.pointerEvents = 'none';
-  el.style.zIndex = '45';
-
-  if (isDesktop) {
-    const header = document.querySelector('header');
-    const headerBottom = header?.getBoundingClientRect().bottom ?? 64;
-
-    el.style.top = `${Math.round(headerBottom + 12)}px`;
-    el.style.right = '28px';
-    el.style.bottom = 'auto';
-    el.style.left = 'auto';
-    el.style.width = 'auto';
-    el.style.maxWidth = 'min(340px, calc(100vw - 56px))';
-    el.style.alignItems = 'flex-end';
-    return;
-  }
-
-  el.style.top = 'max(14px, env(safe-area-inset-top))';
-  el.style.right = '12px';
-  el.style.bottom = 'auto';
-  el.style.left = '12px';
-  el.style.width = 'auto';
-  el.style.maxWidth = 'none';
-  el.style.alignItems = 'stretch';
-};
-
-const attachPositionListeners = () => {
-  if (listenersAttached || typeof window === 'undefined') return;
-  listenersAttached = true;
-
-  const refresh = () => {
-    if (container) positionContainer(container);
-  };
-
-  window.addEventListener('resize', refresh);
-  window.addEventListener('orientationchange', refresh);
-  window.addEventListener('scroll', refresh, { passive: true });
-};
 
 const getContainer = () => {
   if (typeof document === 'undefined') return null;
   if (container) return container;
-  
+
   let el = document.getElementById('toast-root');
   if (!el) {
     el = document.createElement('div');
@@ -62,85 +16,152 @@ const getContainer = () => {
     el.classList.add('bozor-toast-root');
   }
   container = el;
-  positionContainer(el);
-  attachPositionListeners();
   return el;
 };
 
-const show = (message: string, type: 'success' | 'error' | 'info') => {
+interface ShowOptions {
+  /** Duration (ms) before auto-dismiss. Default: 3500 */
+  duration?: number;
+  /** Label for optional action button (e.g. "Bekor qilish") */
+  actionLabel?: string;
+  /** Callback when action button is clicked */
+  onAction?: () => void;
+}
+
+const COLORS = {
+  success: { icon: 'check_circle', color: '#10b981', cls: 'toast-success' },
+  error:   { icon: 'error',        color: '#ef4444', cls: 'toast-error'   },
+  info:    { icon: 'info',         color: '#3b82f6', cls: 'toast-info'    },
+  warning: { icon: 'warning',      color: '#f59e0b', cls: 'toast-info'    },
+};
+
+const show = (
+  message: string,
+  type: keyof typeof COLORS,
+  options: ShowOptions = {}
+) => {
   const target = getContainer();
   if (!target) return;
 
-  const colors = {
-    success: {
-      bg: 'rgb(var(--color-primary-container) / 0.16)',
-      border: 'rgb(var(--color-primary) / 0.28)',
-      text: 'rgb(var(--color-primary))',
-      icon: '✓',
-    },
-    error: {
-      bg: 'rgb(var(--color-error-container) / 0.7)',
-      border: 'rgb(var(--color-error) / 0.28)',
-      text: 'rgb(var(--color-on-error-container))',
-      icon: '✕',
-    },
-    info: {
-      bg: 'rgb(var(--color-primary-container) / 0.14)',
-      border: 'rgb(var(--color-primary) / 0.25)',
-      text: 'rgb(var(--color-primary))',
-      icon: 'ℹ',
-    },
-  };
-  const c = colors[type];
+  const { duration = 3500, actionLabel, onAction } = options;
+  const c = COLORS[type];
 
-  const toast = document.createElement('div');
-  toast.style.cssText = `
-    background: ${c.bg};
-    border: 1px solid ${c.border};
-    color: ${c.text};
-    padding: 10px 16px;
-    border-radius: 10px;
-    font-family: inherit;
-    font-size: 14px;
-    font-weight: 500;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    box-shadow: 0 10px 24px rgba(0,0,0,0.14);
-    backdrop-filter: blur(14px);
-    pointer-events: all;
-    transform: translateX(120%);
-    transition: transform 0.3s cubic-bezier(0.34,1.56,0.64,1);
-    width: fit-content;
-    min-width: 220px;
-    max-width: min(340px, calc(100vw - 32px));
-    box-sizing: border-box;
-    white-space: normal;
-  `;
+  // ─── Toast wrapper ───────────────────────────────────────
+  const el = document.createElement('div');
+  el.className = `bozor-toast ${c.cls}`;
 
+  // Icon
   const icon = document.createElement('span');
-  icon.style.cssText = 'font-weight:700;font-size:16px;line-height:1';
+  icon.className = 'material-symbols-outlined';
+  icon.style.cssText = `
+    color: ${c.color} !important;
+    font-size: 20px !important;
+    line-height: 1 !important;
+    flex-shrink: 0 !important;
+  `;
   icon.textContent = c.icon;
 
+  // Message text
   const text = document.createElement('span');
-  text.style.cssText = 'line-height:1.35';
+  text.style.cssText = `
+    line-height: 1.4 !important;
+    flex-grow: 1 !important;
+    font-weight: 500 !important;
+    font-size: 13.5px !important;
+  `;
   text.textContent = message;
 
-  toast.append(icon, text);
-  target.appendChild(toast);
+  el.append(icon, text);
 
-  requestAnimationFrame(() => {
-    toast.style.transform = 'translateX(0)';
+  // ─── Action button (Undo) ────────────────────────────────
+  let actionClicked = false;
+  if (actionLabel && onAction) {
+    const divider = document.createElement('span');
+    divider.style.cssText = `
+      display: block !important;
+      width: 1px !important;
+      height: 20px !important;
+      background: rgba(255,255,255,0.18) !important;
+      flex-shrink: 0 !important;
+    `;
+
+    const btn = document.createElement('button');
+    btn.textContent = actionLabel;
+    btn.style.cssText = `
+      background: none !important;
+      border: none !important;
+      cursor: pointer !important;
+      flex-shrink: 0 !important;
+      padding: 4px 6px !important;
+      border-radius: 6px !important;
+      font-size: 13px !important;
+      font-weight: 700 !important;
+      color: #86efac !important;
+      letter-spacing: 0.02em !important;
+      white-space: nowrap !important;
+      transition: background 0.15s !important;
+      pointer-events: all !important;
+    `;
+    btn.onmouseenter = () => { btn.style.background = 'rgba(255,255,255,0.1) !important'; };
+    btn.onmouseleave = () => { btn.style.background = 'none !important'; };
+
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      actionClicked = true;
+      onAction();
+      // Immediately dismiss toast
+      dismiss();
+    });
+
+    el.append(divider, btn);
+  }
+
+  target.appendChild(el);
+
+  // Force reflow so CSS transition can fire
+  el.offsetHeight;
+  el.classList.add('toast-show');
+
+  // ─── Auto dismiss ────────────────────────────────────────
+  const dismiss = () => {
+    el.classList.remove('toast-show');
+    const cleanup = () => {
+      el.removeEventListener('transitionend', cleanup);
+      el.remove();
+    };
+    el.addEventListener('transitionend', cleanup);
+    // Fallback if transitionend doesn't fire
+    setTimeout(() => el.remove(), 500);
+  };
+
+  const timer = setTimeout(() => {
+    if (!actionClicked) dismiss();
+  }, duration);
+
+  // Cancel timer if action clicked
+  el.addEventListener('click', () => {
+    if (actionClicked) clearTimeout(timer);
   });
-
-  setTimeout(() => {
-    toast.style.transform = 'translateX(120%)';
-    toast.addEventListener('transitionend', () => toast.remove());
-  }, 3000);
 };
 
+// ─── Public API ───────────────────────────────────────────
 export const toast = {
-  success: (msg: string) => show(msg, 'success'),
-  error: (msg: string) => show(msg, 'error'),
-  info: (msg: string) => show(msg, 'info'),
+  success: (msg: string, opts?: ShowOptions) => show(msg, 'success', opts),
+  error:   (msg: string, opts?: ShowOptions) => show(msg, 'error',   opts),
+  info:    (msg: string, opts?: ShowOptions) => show(msg, 'info',    opts),
+  warning: (msg: string, opts?: ShowOptions) => show(msg, 'warning', opts),
+
+  /**
+   * Convenience: shows a success toast with an "Bekor qilish" undo button.
+   * Caller provides the undo callback.
+   *
+   * @example
+   * toast.undo("Sevimlilardan olib tashlandi", () => addBackToFavorites(item));
+   */
+  undo: (msg: string, onUndo: () => void, undoLabel = "Bekor qilish") =>
+    show(msg, 'success', {
+      duration: 5000, // 5 seconds — enough time to tap undo
+      actionLabel: undoLabel,
+      onAction: onUndo,
+    }),
 };

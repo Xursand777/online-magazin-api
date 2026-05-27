@@ -21,6 +21,23 @@ class GlobalSetting(models.Model):
         except:
             return Decimal('12800')
 
+    @classmethod
+    def get_master_discount_percent(cls):
+        """Ustalar uchun chegirma foizi (0–90). Default: 5%."""
+        setting, _ = cls.objects.get_or_create(
+            key='master_discount_percent',
+            defaults={'value': '5', 'description': "Ustalar uchun chegirma foizi (%)"},
+        )
+        try:
+            pct = Decimal(setting.value)
+        except Exception:
+            return Decimal('5')
+        if pct < 0:
+            return Decimal('0')
+        if pct > 90:
+            return Decimal('90')
+        return pct
+
 
 # ─── Smart Translation Engine ─────────────────────────────────────────────────
 #
@@ -520,6 +537,8 @@ class PhoneModel(models.Model):
     series = models.ForeignKey(PhoneSeries, on_delete=models.CASCADE, related_name='models')
     name   = models.CharField(
         max_length=100,
+        blank=True,
+        default='',
         help_text="Variant nomi: 'Pro', 'Pro Max', 'Ultra', 'Plus', yoki bo'sh (standart)"
     )
     slug       = models.SlugField(max_length=300, unique=True, blank=True)

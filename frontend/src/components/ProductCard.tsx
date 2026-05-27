@@ -1,12 +1,16 @@
 import { Link } from 'react-router-dom';
 import { useCartStore } from '../store/cartStore';
+import { useFavoritesStore } from '../store/favoritesStore';
+import { useAuthStore } from '../store/authStore';
 import { toast } from '../utils/toast';
+import { useTranslation } from '../i18n/useTranslation';
 
 export interface Product {
   id: number | string;
   name: string;
   price: string | number;
   discount_price?: string | number | null;
+  master_price?: string | number | null;
   is_discount?: boolean;
   // API returns main_image, but we also accept image for flexibility
   main_image?: string | null;
@@ -32,11 +36,50 @@ const NoImage = () => (
   </div>
 );
 
-const ProductCard = ({ product, onToggleFavorite, isFavorite = false, layout = 'grid' }: ProductCardProps) => {
+const ProductCard = ({ product, onToggleFavorite, isFavorite: propIsFavorite, layout = 'grid' }: ProductCardProps) => {
   const imageUrl = product.main_image || product.image || null;
+  const { t } = useTranslation();
+  const isMaster = useAuthStore(s => s.user?.is_master ?? false);
   const cartItem = useCartStore((state) =>
     state.cart?.items.find((item) => item.product === Number(product.id) && item.variant === null) || null
   );
+  
+  // Connect to favorites store
+  const { toggleFavorite, isFavorite: checkFavorite } = useFavoritesStore();
+  const isFav = propIsFavorite !== undefined ? propIsFavorite : checkFavorite(product.id);
+  
+  const handleToggleFavorite = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+
+    // Build the product snapshot for the store
+    const productSnapshot = {
+      id: product.id,
+      name: product.name,
+      price: product.price,
+      discount_price: product.discount_price,
+      is_discount: product.is_discount,
+      main_image: imageUrl,
+    };
+
+    if (onToggleFavorite) {
+      onToggleFavorite(product.id);
+      return;
+    }
+
+    if (isFav) {
+      toggleFavorite(productSnapshot);
+      toast.undo(
+        t.product.removedFromFavorites,
+        () => { toggleFavorite(productSnapshot); },
+        t.common.cancel
+      );
+    } else {
+      toggleFavorite(productSnapshot);
+      toast.success(t.product.addedToFavorites);
+    }
+  };
+
   const { addItem, updateItem, removeItem, addingId, updatingItemIds } = useCartStore();
   const isAdding = addingId === Number(product.id);
   const quantity = cartItem?.quantity || 0;
@@ -90,7 +133,7 @@ const ProductCard = ({ product, onToggleFavorite, isFavorite = false, layout = '
             updateItem(cartItem.id, quantity - 1);
           }}
           className="flex h-full w-10 items-center justify-center text-on-surface-variant transition-colors hover:bg-surface-container-low hover:text-on-surface"
-          aria-label="Kamaytirish"
+          aria-label={t.cart.decrease}
         >
           <span className="material-symbols-outlined text-[18px]">remove</span>
         </button>
@@ -114,7 +157,7 @@ const ProductCard = ({ product, onToggleFavorite, isFavorite = false, layout = '
           }}
           disabled={isUpdating || isAtStockLimit}
           className="flex h-full w-10 items-center justify-center text-primary transition-colors hover:bg-primary-container/20 disabled:cursor-not-allowed disabled:opacity-45"
-          aria-label="Ko'paytirish"
+          aria-label={t.cart.increase}
         >
           <span className={`material-symbols-outlined text-[18px] ${isUpdating ? 'animate-spin' : ''}`}>
             {isUpdating ? 'progress_activity' : 'add'}
@@ -128,7 +171,7 @@ const ProductCard = ({ product, onToggleFavorite, isFavorite = false, layout = '
           event.preventDefault();
           event.stopPropagation();
           if (isOutOfStock) {
-            toast.error("Bu mahsulot hozir omborda yo'q.");
+            toast.error(t.product.outOfStock);
             return;
           }
           addItem(addPayload);
@@ -140,7 +183,7 @@ const ProductCard = ({ product, onToggleFavorite, isFavorite = false, layout = '
           {isAdding ? 'progress_activity' : 'shopping_cart'}
         </span>
         <span className="text-label-md font-label-md">
-          {isAdding ? "Qo'shilmoqda..." : isOutOfStock ? "Omborda yo'q" : 'Savatga'}
+          {isAdding ? t.product.addedToCart : isOutOfStock ? t.product.outOfStock : t.product.addToCart}
         </span>
       </button>
     );
@@ -162,9 +205,20 @@ const ProductCard = ({ product, onToggleFavorite, isFavorite = false, layout = '
           <Link to={`/products/${product.id}`} className="text-body-sm font-body-sm text-on-surface line-clamp-2 mb-1 hover:text-primary transition-colors block">
             {product.name}
           </Link>
-          <div className="text-price font-price text-primary text-[16px] mb-2">
-            {formatPrice(displayPrice)}
-          </div>
+          {isMaster && product.master_price ? (
+            <div className="flex items-center gap-1.5 mb-2">
+              <div className="text-price font-price text-primary text-[16px]">
+                {formatPrice(product.master_price)}
+              </div>
+              <span className="text-[9px] font-bold bg-primary/15 text-primary rounded-full px-1.5 py-0.5 leading-none">
+                USTA
+              </span>
+            </div>
+          ) : (
+            <div className="text-price font-price text-primary text-[16px] mb-2">
+              {formatPrice(displayPrice)}
+            </div>
+          )}
           <div className="max-w-[180px]">
             <QuantityControl compact />
           </div>
@@ -198,20 +252,16 @@ const ProductCard = ({ product, onToggleFavorite, isFavorite = false, layout = '
         {/* New badge */}
         {product.is_new && !product.is_discount && (
           <span className="absolute top-2 left-2 bg-primary-container text-on-primary-container px-2 py-0.5 rounded-full text-[11px] font-bold shadow-sm">
-            Yangi
+            {t.product.isNew}
           </span>
         )}
 
         {/* Favorite button */}
         <button
-          onClick={(e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            onToggleFavorite?.(product.id);
-          }}
-          className={`absolute top-2 right-2 transition-colors bg-surface-container-lowest/85 rounded-full p-1 backdrop-blur-sm shadow-sm ${isFavorite ? 'text-error' : 'text-outline hover:text-error'}`}
+          onClick={handleToggleFavorite}
+          className={`absolute top-2 right-2 transition-all duration-300 bg-surface-container-lowest/85 rounded-full p-1.5 backdrop-blur-sm shadow-sm active:scale-75 ${isFav ? 'text-red-500 scale-110' : 'text-outline hover:text-red-400 hover:scale-110'}`}
         >
-          <span className={`material-symbols-outlined text-[20px] ${isFavorite ? 'fill-icon' : ''}`}>favorite</span>
+          <span className={`material-symbols-outlined text-[20px] transition-colors ${isFav ? 'fill-icon' : ''}`}>favorite</span>
         </button>
       </Link>
 
@@ -231,7 +281,23 @@ const ProductCard = ({ product, onToggleFavorite, isFavorite = false, layout = '
         </div>
 
         <div className="mt-auto">
-          {product.is_discount && product.discount_price ? (
+          {isMaster && product.master_price ? (
+            <>
+              {/* Crossed-out effective price (discount or regular) */}
+              <div className="text-body-sm font-body-sm text-outline line-through mb-[-2px]">
+                {formatPrice(product.is_discount && product.discount_price ? product.discount_price : product.price)}
+              </div>
+              {/* Master price */}
+              <div className="flex items-center gap-1.5 mb-md">
+                <div className="text-price font-price text-primary">
+                  {formatPrice(product.master_price)}
+                </div>
+                <span className="text-[9px] font-bold bg-primary/15 text-primary rounded-full px-1.5 py-0.5 leading-none">
+                  USTA
+                </span>
+              </div>
+            </>
+          ) : product.is_discount && product.discount_price ? (
             <>
               <div className="text-body-sm font-body-sm text-outline line-through mb-[-2px]">
                 {formatPrice(product.price)}

@@ -7,7 +7,8 @@ from rest_framework import generics, views, status, viewsets
 from rest_framework.pagination import PageNumberPagination
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.response import Response
-from rest_framework.permissions import AllowAny, IsAdminUser
+from rest_framework.permissions import AllowAny, IsAdminUser, IsAuthenticated
+from users.permissions import IsStaffMember, IsAdminOrAbove, IsSuperAdmin, CanAccessStockReport
 from recommendations.services import (
     build_personalized_recommendations,
     recommendation_headers,
@@ -22,6 +23,7 @@ from .serializers import (
     CompatibilityWriteSerializer, CompatibilityBulkSeriesSerializer, ProductCompatibilityReadSerializer,
 )
 from .services import build_similar_products
+from recommendations.models import RecommendationEvent
 from .models import (
     Category, HomeBanner, Product, GlobalSetting, ProductVariant,
     PhoneBrand, PhoneSeries, PhoneModel, ProductCompatibility,
@@ -70,6 +72,11 @@ def active_home_banners():
 
 class AdminResultsPagination(PageNumberPagination):
     page_size = 20
+    page_size_query_param = 'page_size'
+    max_page_size = 100
+
+class SectionPagination(PageNumberPagination):
+    page_size = 40
     page_size_query_param = 'page_size'
     max_page_size = 100
 
@@ -178,6 +185,75 @@ class ProductDetailView(generics.RetrieveAPIView):
         return Response(serializer.data, headers=recommendation_headers(guest_session_id))
 
 
+class RecentlyViewedView(views.APIView):
+    """
+    GET    /api/recently-viewed/        — joriy foydalanuvchi (yoki mehmon) ko'rgan mahsulotlar.
+    DELETE /api/recently-viewed/        — tarixni tozalash.
+
+    Manba: RecommendationEvent(event_type='view'). Har bir mahsulot ko'rilganda
+    ProductDetailView avtomatik yozadi. Ma'lumot foydalanuvchiga (auth) yoki
+    mehmon sessiyasiga (X-Guest-Session-Id) bog'langan — hech qachon umumiy emas.
+    """
+    permission_classes = (AllowAny,)
+
+    MAX_ITEMS = 20
+    SCAN_LIMIT = 300  # eng so'nggi 300 ta hodisani ko'rib chiqamiz
+
+    def _owner_filter(self, request):
+        if request.user.is_authenticated:
+            return Q(user=request.user)
+        gsid = request.headers.get('X-Guest-Session-Id')
+        if gsid:
+            return Q(guest_session_id=gsid)
+        return None
+
+    def get(self, request):
+        owner = self._owner_filter(request)
+        if owner is None:
+            return Response([])
+
+        exclude_id = request.query_params.get('exclude')
+
+        product_ids = (
+            RecommendationEvent.objects
+            .filter(owner, event_type='view', product__isnull=False, product__is_active=True)
+            .order_by('-created_at')
+            .values_list('product_id', flat=True)[:self.SCAN_LIMIT]
+        )
+
+        ordered_ids = []
+        seen = set()
+        for pid in product_ids:
+            if exclude_id and str(pid) == str(exclude_id):
+                continue
+            if pid not in seen:
+                seen.add(pid)
+                ordered_ids.append(pid)
+            if len(ordered_ids) >= self.MAX_ITEMS:
+                break
+
+        if not ordered_ids:
+            return Response([])
+
+        products = (
+            Product.objects
+            .filter(id__in=ordered_ids, is_active=True)
+            .select_related('category')
+            .prefetch_related('images')
+        )
+        by_id = {p.id: p for p in products}
+        ordered = [by_id[pid] for pid in ordered_ids if pid in by_id]
+
+        data = ProductListSerializer(ordered, many=True, context={'request': request}).data
+        return Response(data)
+
+    def delete(self, request):
+        owner = self._owner_filter(request)
+        if owner is not None:
+            RecommendationEvent.objects.filter(owner, event_type='view').delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
 class ProductSimilarListView(generics.ListAPIView):
     serializer_class = ProductListSerializer
     permission_classes = (AllowAny,)
@@ -196,9 +272,9 @@ class MainPageView(views.APIView):
     permission_classes = (AllowAny,)
 
     def get(self, request, *args, **kwargs):
-        discount_products = Product.objects.filter(is_active=True, is_discount=True).order_by('-updated_at', '-id')
-        new_products = Product.objects.filter(is_active=True, is_new=True).order_by('-created_at', '-id')
-        popular_products = Product.objects.filter(is_active=True, is_popular=True).order_by('-updated_at', '-id')
+        discount_products = Product.objects.filter(is_active=True, is_discount=True).order_by('-updated_at', '-id')[:10]
+        new_products = Product.objects.filter(is_active=True, is_new=True).order_by('-created_at', '-id')[:10]
+        popular_products = Product.objects.filter(is_active=True, is_popular=True).order_by('-updated_at', '-id')[:10]
         recommendation_payload = build_personalized_recommendations(request, limit=10)
         recommended_products = recommendation_payload['products']
 
@@ -224,21 +300,21 @@ class HomeBannerListView(generics.ListAPIView):
 class ProductDiscountListView(generics.ListAPIView):
     serializer_class = ProductListSerializer
     permission_classes = (AllowAny,)
-    pagination_class = None
+    pagination_class = SectionPagination
     def get_queryset(self):
         return Product.objects.filter(is_active=True, is_discount=True).order_by('-updated_at')
 
 class ProductNewListView(generics.ListAPIView):
     serializer_class = ProductListSerializer
     permission_classes = (AllowAny,)
-    pagination_class = None
+    pagination_class = SectionPagination
     def get_queryset(self):
         return Product.objects.filter(is_active=True, is_new=True).order_by('-created_at')
 
 class ProductPopularListView(generics.ListAPIView):
     serializer_class = ProductListSerializer
     permission_classes = (AllowAny,)
-    pagination_class = None
+    pagination_class = SectionPagination
     def get_queryset(self):
         return Product.objects.filter(is_active=True, is_popular=True).order_by('-updated_at')
 
@@ -256,17 +332,29 @@ class CategoryProductListView(generics.ListAPIView):
         category_id = self.kwargs.get('pk')
         return Product.objects.filter(is_active=True, category_id=category_id)
 
+_SAFE = ('GET', 'HEAD', 'OPTIONS')
+
+
 class AdminCategoryViewSet(viewsets.ModelViewSet):
     queryset = Category.objects.all()
     serializer_class = AdminCategorySerializer
-    permission_classes = (IsAdminUser,)
     pagination_class = None
+
+    def get_permissions(self):
+        if self.request.method in _SAFE:
+            return [IsAuthenticated(), IsStaffMember()]
+        return [IsAuthenticated(), IsAdminOrAbove()]
+
 
 class AdminProductViewSet(viewsets.ModelViewSet):
     queryset = Product.objects.select_related('category').prefetch_related('images', 'variants', 'variants__images').order_by('-updated_at')
     serializer_class = AdminProductSerializer
-    permission_classes = (IsAdminUser,)
     parser_classes = (MultiPartParser, FormParser, JSONParser)
+
+    def get_permissions(self):
+        if self.request.method in _SAFE:
+            return [IsAuthenticated(), IsStaffMember()]
+        return [IsAuthenticated(), IsAdminOrAbove()]
     pagination_class = AdminResultsPagination
 
     def get_queryset(self):
@@ -315,12 +403,17 @@ class AdminProductViewSet(viewsets.ModelViewSet):
 class AdminHomeBannerViewSet(viewsets.ModelViewSet):
     queryset = HomeBanner.objects.select_related('product').prefetch_related('product__images').order_by('order', '-updated_at', '-id')
     serializer_class = AdminHomeBannerSerializer
-    permission_classes = (IsAdminUser,)
     parser_classes = (MultiPartParser, FormParser, JSONParser)
     pagination_class = None
 
+    def get_permissions(self):
+        if self.request.method in _SAFE:
+            return [IsAuthenticated(), IsStaffMember()]
+        return [IsAuthenticated(), IsAdminOrAbove()]
+
+
 class AdminExchangeRateView(views.APIView):
-    permission_classes = (IsAdminUser,)
+    permission_classes = (IsAuthenticated, IsAdminOrAbove)
 
     def get(self, request):
         rate = GlobalSetting.get_usd_rate()
@@ -369,7 +462,7 @@ class AdminExchangeRateView(views.APIView):
 
 class AdminStockReportView(views.APIView):
     """Ombor hisoboti: Kam qolgan tovarlar va variantlar ro'yxati."""
-    permission_classes = (IsAdminUser,)
+    permission_classes = (IsAuthenticated, CanAccessStockReport)
 
     def get(self, request):
         min_stock = request.query_params.get('min_stock', 0)
@@ -602,7 +695,7 @@ class AdminCompatibilityView(views.APIView):
     POST   /api/admin/products/{pk}/compatibility/  → model ID'lar qo'shish
     DELETE /api/admin/products/{pk}/compatibility/  → model ID'lar o'chirish
     """
-    permission_classes = (IsAdminUser,)
+    permission_classes = (IsAuthenticated, IsAdminOrAbove)
 
     def get(self, request, pk):
         product = get_object_or_404(Product, pk=pk)
@@ -666,7 +759,7 @@ class AdminCompatibilityBulkSeriesView(views.APIView):
     bir marta bosish bilan mahsulotga qo'shadi.
     Zapchast ko'p modelga mos kelganda vaqtni tejaydi.
     """
-    permission_classes = (IsAdminUser,)
+    permission_classes = (IsAuthenticated, IsAdminOrAbove)
 
     def post(self, request, pk):
         product = get_object_or_404(Product, pk=pk)
@@ -713,7 +806,7 @@ from .serializers import (
 
 class AdminPhoneBrandViewSet(viewsets.ModelViewSet):
     """CRUD — Telefon brendlari."""
-    permission_classes = (IsAdminUser,)
+    permission_classes = (IsAuthenticated, IsAdminOrAbove)
     queryset = (
         PhoneBrand.objects
         .prefetch_related('series__models')
@@ -728,7 +821,7 @@ class AdminPhoneBrandViewSet(viewsets.ModelViewSet):
 
 class AdminPhoneSeriesViewSet(viewsets.ModelViewSet):
     """CRUD — Telefon seriyalari."""
-    permission_classes = (IsAdminUser,)
+    permission_classes = (IsAuthenticated, IsAdminOrAbove)
     serializer_class = AdminPhoneSeriesWriteSerializer
     queryset = (
         PhoneSeries.objects
@@ -739,7 +832,7 @@ class AdminPhoneSeriesViewSet(viewsets.ModelViewSet):
 
 class AdminPhoneModelViewSet(viewsets.ModelViewSet):
     """CRUD — Aniq telefon modellari."""
-    permission_classes = (IsAdminUser,)
+    permission_classes = (IsAuthenticated, IsAdminOrAbove)
     serializer_class = AdminPhoneModelWriteSerializer
     queryset = (
         PhoneModel.objects

@@ -1,10 +1,13 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
-import HomeSearch from '../components/HomeSearch';
+
 import ProductCard from '../components/ProductCard';
 import type { Product } from '../components/ProductCard';
-import { getMainPage, getDiscountProducts, getNewProducts, getPopularProducts, getCategories } from '../api/endpoints';
+import ProductSkeleton from '../components/ProductSkeleton';
+import { getMainPage, getDiscountProducts, getNewProducts, getPopularProducts, getCategories, getRecentlyViewed, clearRecentlyViewed } from '../api/endpoints';
+import { useAuthStore } from '../store/authStore';
+import { useTranslation } from '../i18n/useTranslation';
 
 interface MainPageData {
   banners?: HomeBanner[];
@@ -56,14 +59,14 @@ const bannerTitleSize = (title: string) => {
 };
 
 const ProductSectionSkeleton = () => (
-  <div className="flex gap-4 overflow-x-auto pb-2">
-    {[1,2,3,4].map(i => (
-      <div key={i} className="w-48 flex-shrink-0 h-64 bg-surface-container rounded-xl animate-pulse" />
+  <div className="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+    {[1,2,3,4,5,6,7,8,9,10].map(i => (
+      <ProductSkeleton key={i} />
     ))}
   </div>
 );
 
-const formatMoney = (value: string | number | null | undefined, suffix = "so'm") => {
+const formatMoney = (value: string | number | null | undefined, suffix = 'UZS') => {
   if (value === null || value === undefined || value === '') return null;
   return `${Number(value).toLocaleString('uz-UZ')} ${suffix}`;
 };
@@ -82,13 +85,80 @@ const categoryIcon = (name: string) => {
 
 type SlideDirection = 'next' | 'prev';
 
+// ─── Ko'rgan mahsulotlar bo'limi ─────────────────────────────────────────────
+//
+// Manba: server (`/recently-viewed/`). Ma'lumot foydalanuvchiga (auth) yoki
+// mehmon sessiyasiga bog'langan — har bir foydalanuvchi uchun alohida, hech
+// qachon umumiy emas. Mahsulot ko'rilganda backend avtomatik yozadi; bu yerda
+// faqat o'qiymiz va istalganda tarixni tozalaymiz.
+//
+const RecentlyViewedSection = () => {
+  const { t } = useTranslation();
+  const qc = useQueryClient();
+  const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
+
+  const { data: products = [] } = useQuery<Product[]>({
+    queryKey: ['recently-viewed', isAuthenticated],
+    queryFn: () => getRecentlyViewed().then((r) => r.data),
+    staleTime: 0,
+  });
+
+  const clearAll = async () => {
+    await clearRecentlyViewed();
+    qc.setQueryData(['recently-viewed', isAuthenticated], []);
+  };
+
+  // Minimal 2 ta ko'rilgan mahsulot bo'lmasа bo'limni ko'rsatmaymiz
+  if (products.length < 2) return null;
+
+  return (
+    <section className="mb-2xl">
+      {/* Section header */}
+      <div className="flex items-center justify-between mb-md">
+        <h2 className="font-h2 text-h2 text-on-background text-xl md:text-2xl flex items-center gap-2">
+          <span className="material-symbols-outlined text-primary fill-icon">history</span>
+          {t.home.recentlyViewed}
+        </h2>
+        <button
+          onClick={clearAll}
+          className="text-sm text-on-surface-variant hover:text-error transition-colors flex items-center gap-1 group"
+          aria-label={t.home.clearHistory}
+        >
+          <span className="material-symbols-outlined text-[16px] group-hover:text-error transition-colors">delete_sweep</span>
+          {t.home.clearHistory}
+        </button>
+      </div>
+
+      {/* Horizontally scrollable product strip */}
+      <div className="relative">
+        <div className="flex gap-4 overflow-x-auto pb-3 snap-x snap-mandatory scrollbar-hide -mx-4 px-4 md:mx-0 md:px-0 md:grid md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 md:overflow-visible md:pb-0">
+          {products.slice(0, 12).map((product) => (
+            <div
+              key={product.id}
+              className="flex-shrink-0 w-44 snap-start md:w-auto md:flex-shrink md:min-w-0"
+            >
+              <ProductCard product={product} />
+            </div>
+          ))}
+        </div>
+
+        {/* Fade-out hint on the right edge (mobile only) */}
+        {products.length > 3 && (
+          <div className="pointer-events-none absolute right-0 top-0 bottom-3 w-10 bg-gradient-to-l from-surface-container-low/80 to-transparent md:hidden" />
+        )}
+      </div>
+    </section>
+  );
+};
+
 const Home = () => {
+  const { t, language } = useTranslation();
   const [activeSlide, setActiveSlide] = useState(0);
   const [incomingSlide, setIncomingSlide] = useState<number | null>(null);
   const [slideDirection, setSlideDirection] = useState<SlideDirection>('next');
   const [animationPhase, setAnimationPhase] = useState<'idle' | 'prepare' | 'animate'>('idle');
   const { data: mainData, isLoading } = useQuery<MainPageData>({
-    queryKey: ['mainPage'],
+    queryKey: ['mainPage', language],
     staleTime: 0, // always fetch fresh data
     queryFn: async () => {
       try {
@@ -116,8 +186,8 @@ const Home = () => {
           new_products: getData(newP),
           popular_products: getData(pop),
           recommended_products: [],
-          recommended_title: 'Siz uchun tavsiya',
-          recommended_description: "Ommabop mahsulotlar asosida shakllantirilgan to'plam.",
+          recommended_title: t.home.recommended,
+          recommended_description: t.home.recommended,
         };
       }
     },
@@ -157,7 +227,7 @@ const Home = () => {
   );
 
   const { data: categories = [] } = useQuery({
-    queryKey: ['categories-home'],
+    queryKey: ['categories-home', language],
     queryFn: () => getCategories().then(res => res.data.results || res.data),
   });
 
@@ -171,14 +241,14 @@ const Home = () => {
     () => [
       {
         id: 'xiaomi-redmi-note-15',
-        eyebrow: 'Reklama',
-        title: 'Smartfon Redmi Note 15',
-        subtitle: 'Yangi avlod Redmi smartfoni qulay narxda va zamonaviy dizayn bilan.',
+        eyebrow: t.home.bannerAd,
+        title: t.home.bannerXiaomiTitle,
+        subtitle: t.home.bannerXiaomiSubtitle,
         price: formatMoney(activeProductPrice(xiaomiHero)),
         oldPrice:
           xiaomiHero?.is_discount && xiaomiHero.price ? formatMoney(xiaomiHero.price) : null,
         image: xiaomiHero?.main_image || null,
-        ctaLabel: 'Mahsulotni ko‘rish',
+        ctaLabel: t.home.viewProduct,
         ctaHref: xiaomiHero ? `/products/${xiaomiHero.id}` : '/catalog',
         backgroundColor: '#111433',
         accentColor: '#12b981',
@@ -186,14 +256,14 @@ const Home = () => {
       },
       {
         id: 'premium-products',
-        eyebrow: 'Yangi mavsum',
-        title: 'Premium mahsulotlar',
-        subtitle: 'Flagman smartfonlar va ommabop texnika tanlovi eng yaxshi narxlarda.',
+        eyebrow: t.home.bannerSeason,
+        title: t.home.bannerPremiumTitle,
+        subtitle: t.home.bannerPremiumSubtitle,
         price: premiumHero ? formatMoney(activeProductPrice(premiumHero), 'UZS') : null,
         oldPrice:
           premiumHero?.is_discount && premiumHero.price ? formatMoney(premiumHero.price, 'UZS') : null,
         image: premiumHero?.main_image || null,
-        ctaLabel: 'Katalogga o‘tish',
+        ctaLabel: t.home.goToCatalog,
         ctaHref: premiumHero ? `/products/${premiumHero.id}` : '/catalog',
         backgroundColor: '#007a4d',
         accentColor: '#ffb23f',
@@ -212,13 +282,13 @@ const Home = () => {
 
       return {
         id: `admin-banner-${banner.id}`,
-        eyebrow: 'Reklama',
+        eyebrow: t.home.bannerAd,
         title: banner.title || 'Tovar nomini kiriting',
         subtitle: banner.subtitle || '',
         price: formatMoney(salePrice),
         oldPrice: formatMoney(oldPrice),
         image: banner.product_image_url || null,
-        ctaLabel: banner.button_label || "Mahsulotni ko'rish",
+        ctaLabel: banner.button_label || t.home.viewProduct,
         ctaHref: banner.target_url || (banner.product ? `/products/${banner.product}` : '/catalog'),
         backgroundColor: banner.background_color || '#111827',
         accentColor: banner.accent_color || '#007a4d',
@@ -364,7 +434,6 @@ const Home = () => {
 
   return (
     <div className="w-full pb-24 md:pb-8">
-      <HomeSearch />
 
       <section className="mb-xl">
         <div className="relative overflow-hidden rounded-[28px] border border-outline-variant bg-surface-container-lowest shadow-[0_24px_70px_rgba(15,23,42,0.12)]">
@@ -430,12 +499,15 @@ const Home = () => {
         </div>
       </section>
 
+      {/* ─── Ko'rgan mahsulotlar ─────────────────────────────── */}
+      <RecentlyViewedSection />
+
       {/* Personalized Recommendations */}
       {recommendedProducts.length > 0 && (
         <section className="mb-2xl overflow-hidden rounded-[28px] border border-outline-variant bg-surface-container-lowest shadow-[0_24px_70px_rgba(15,23,42,0.08)]">
           <div className="border-b border-outline-variant bg-gradient-to-r from-secondary-container/45 via-surface-container-lowest to-primary-container/30 px-4 py-3 md:px-6">
             <div className="inline-flex items-center rounded-full bg-surface-container-lowest/90 px-3 py-1.5 text-sm font-semibold text-primary shadow-sm">
-              Tavsiya etamiz -&gt;
+              {t.home.recommended} →
             </div>
           </div>
 
@@ -452,10 +524,10 @@ const Home = () => {
         <div className="flex justify-between items-center mb-md">
           <h2 className="font-h2 text-h2 text-on-background text-xl md:text-2xl flex items-center gap-2">
             <span className="material-symbols-outlined text-tertiary fill-icon">local_fire_department</span>
-            Chegirmadagi mahsulotlar
+            {t.home.discountProducts}
           </h2>
           <Link to="/sections/discount" className="text-primary font-label-md text-label-md hover:underline">
-            Barchasini ko'rish
+            {t.home.viewAll}
           </Link>
         </div>
         {isLoading ? (
@@ -469,7 +541,7 @@ const Home = () => {
         ) : (
           <div className="text-on-surface-variant text-center py-8 bg-surface-container rounded-xl">
             <span className="material-symbols-outlined text-4xl block mb-2">inventory_2</span>
-            Chegirmali mahsulotlar yo'q
+            {t.home.noDiscountProducts}
           </div>
         )}
       </section>
@@ -479,10 +551,10 @@ const Home = () => {
         <div className="flex justify-between items-center mb-md">
           <h2 className="font-h2 text-h2 text-on-background text-xl md:text-2xl flex items-center gap-2">
             <span className="material-symbols-outlined text-primary fill-icon">new_releases</span>
-            Yangi mahsulotlar
+            {t.home.newProducts}
           </h2>
           <Link to="/sections/new" className="text-primary font-label-md text-label-md hover:underline">
-            Barchasini ko'rish
+            {t.home.viewAll}
           </Link>
         </div>
         {isLoading ? (
@@ -496,7 +568,7 @@ const Home = () => {
         ) : (
           <div className="text-on-surface-variant text-center py-8 bg-surface-container rounded-xl">
             <span className="material-symbols-outlined text-4xl block mb-2">inventory_2</span>
-            Yangi mahsulotlar yo'q
+            {t.home.noNewProducts}
           </div>
         )}
       </section>
@@ -506,10 +578,10 @@ const Home = () => {
         <div className="flex justify-between items-center mb-md">
           <h2 className="font-h2 text-h2 text-on-background text-xl md:text-2xl flex items-center gap-2">
             <span className="material-symbols-outlined text-secondary fill-icon">trending_up</span>
-            Ommabop mahsulotlar
+            {t.home.popularProducts}
           </h2>
           <Link to="/sections/popular" className="text-primary font-label-md text-label-md hover:underline">
-            Barchasini ko'rish
+            {t.home.viewAll}
           </Link>
         </div>
         {isLoading ? (
@@ -523,7 +595,7 @@ const Home = () => {
         ) : (
           <div className="text-on-surface-variant text-center py-8 bg-surface-container rounded-xl">
             <span className="material-symbols-outlined text-4xl block mb-2">inventory_2</span>
-            Ommabop mahsulotlar yo'q
+            {t.home.noPopularProducts}
           </div>
         )}
       </section>

@@ -1,6 +1,10 @@
 from rest_framework import generics, views, status
 from rest_framework.pagination import PageNumberPagination
-from rest_framework.permissions import IsAuthenticated, IsAdminUser
+from rest_framework.permissions import IsAuthenticated
+from users.permissions import (
+    IsStaffMember, IsAdminOrAbove, IsSuperAdmin,
+    CanAccessKassa, CanAccessReports, CanCreatePOS, can_transition,
+)
 from rest_framework.response import Response
 from django.shortcuts import get_object_or_404
 from django.db import transaction
@@ -150,7 +154,7 @@ class OrderPagePagination(PageNumberPagination):
 
 
 class AdminOrderListView(generics.ListAPIView):
-    permission_classes = (IsAuthenticated, IsAdminUser)
+    permission_classes = (IsAuthenticated, IsStaffMember)
     serializer_class = OrderSerializer
     pagination_class = OrderPagePagination
 
@@ -190,11 +194,15 @@ class AdminOrderListView(generics.ListAPIView):
         elif is_credit == 'false':
             queryset = queryset.filter(is_credit=False)
 
+        payment_status = self.request.query_params.get('payment_status')
+        if payment_status:
+            queryset = queryset.filter(payment__status=payment_status)
+
         return queryset
 
 
 class AdminOrderStatusUpdateView(views.APIView):
-    permission_classes = (IsAuthenticated, IsAdminUser)
+    permission_classes = (IsAuthenticated, IsStaffMember)
 
     def post(self, request, pk, *args, **kwargs):
         auto_cancel_expired_orders()
@@ -202,9 +210,17 @@ class AdminOrderStatusUpdateView(views.APIView):
         serializer = AdminOrderStatusUpdateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
+        new_status = serializer.validated_data['status']
+
+        if not can_transition(request.user, order.status, new_status):
+            return Response(
+                {'detail': f"Sizning rolingiz '{order.status}' → '{new_status}' o'tishga ruxsat bermaydi."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
         order = transition_order_status(
             order=order,
-            new_status=serializer.validated_data['status'],
+            new_status=new_status,
             actor_type=OrderHistory.ACTOR_ADMIN,
             actor=request.user,
             note=serializer.validated_data.get('note', ''),
@@ -214,7 +230,7 @@ class AdminOrderStatusUpdateView(views.APIView):
 
 class AdminCustomerHistoryView(views.APIView):
     """Admin: telefon raqam bo'yicha barcha buyurtmalar tarixi (POS + online)."""
-    permission_classes = (IsAuthenticated, IsAdminUser)
+    permission_classes = (IsAuthenticated, IsStaffMember)
 
     def get(self, request, *args, **kwargs):
         from users.utils import find_user_by_phone, phone_lookup_variants, normalize_phone_number
@@ -302,7 +318,7 @@ class AdminCustomerHistoryView(views.APIView):
 
 class AdminCreditPayView(views.APIView):
     """Admin muddatli to'lov buyurtmasini to'langan deb belgilaydi."""
-    permission_classes = (IsAuthenticated, IsAdminUser)
+    permission_classes = (IsAuthenticated, CanAccessKassa)
 
     def post(self, request, pk, *args, **kwargs):
         order = get_object_or_404(Order, pk=pk)
@@ -376,7 +392,7 @@ class UserCreditStatusView(views.APIView):
 
 class AdminReportView(views.APIView):
     """Admin uchun to'liq hisobot: KPI, vaqt qatori, mahsulotlar statistikasi."""
-    permission_classes = (IsAuthenticated, IsAdminUser)
+    permission_classes = (IsAuthenticated, CanAccessReports)
 
     def get(self, request, *args, **kwargs):
         # --- Sana diapazoni ---
@@ -403,7 +419,7 @@ class AdminReportView(views.APIView):
                 pass
 
         # --- KPI Summary ---
-        delivered_qs = qs.filter(status=Order.STATUS_DELIVERED)
+        delivered_qs = qs.filter(status__in=[Order.STATUS_DELIVERED, Order.STATUS_RECEIVED])
         cancelled_qs = qs.filter(status__in=[
             Order.STATUS_CANCELLED_BY_USER,
             Order.STATUS_CANCELLED_BY_ADMIN,
@@ -581,7 +597,7 @@ class AdminPOSOrderView(views.APIView):
     Admin POS (Point of Sale): do'konda bevosita savdo.
     Ro'yxatdan o'tmagan mijozlar uchun ham ishlaydi.
     """
-    permission_classes = (IsAuthenticated, IsAdminUser)
+    permission_classes = (IsAuthenticated, CanCreatePOS)
 
     @transaction.atomic
     def post(self, request, *args, **kwargs):
@@ -678,10 +694,10 @@ class AdminPOSOrderView(views.APIView):
             skip_credit_check=True,  # POS admin o'zi nazorat qiladi
         )
 
-        # --- Statusni DELIVERED ga to'g'ridan-to'g'ri o'tkazish (status mashinasini chetlab o'tamiz) ---
+        # --- Statusni RECEIVED ga to'g'ridan-to'g'ri o'tkazish (do'konda xaridorga topshirildi) ---
         from .services import Payment as PaymentModel
         prev_status = order.status
-        order.status = Order.STATUS_DELIVERED
+        order.status = Order.STATUS_RECEIVED
         order.save(update_fields=['status', 'updated_at'])
 
         # Muddatli to'lov bo'lmasa, to'lovni PAID deb belgilaymiz
@@ -692,7 +708,7 @@ class AdminPOSOrderView(views.APIView):
 
         _create_history(
             order,
-            to_status=Order.STATUS_DELIVERED,
+            to_status=Order.STATUS_RECEIVED,
             from_status=prev_status,
             actor_type=OrderHistory.ACTOR_ADMIN,
             actor=request.user,
@@ -704,12 +720,12 @@ class AdminPOSOrderView(views.APIView):
 
 class KassaView(views.APIView):
     """Admin Kassa statistikasi va yechib olingan pullar tarixi."""
-    permission_classes = (IsAuthenticated, IsAdminUser)
+    permission_classes = (IsAuthenticated, CanAccessKassa)
 
     def get(self, request, *args, **kwargs):
         from orders.models import Order, Withdrawal
 
-        delivered_qs = Order.objects.filter(status=Order.STATUS_DELIVERED)
+        delivered_qs = Order.objects.filter(status__in=[Order.STATUS_DELIVERED, Order.STATUS_RECEIVED])
         total_income = delivered_qs.aggregate(total=Sum('total_price'))['total'] or 0
 
         withdrawals_qs = Withdrawal.objects.all()
@@ -766,7 +782,7 @@ class KassaView(views.APIView):
 
 class KassaWithdrawView(views.APIView):
     """Admin kassadan pul yechib olishi."""
-    permission_classes = (IsAuthenticated, IsAdminUser)
+    permission_classes = (IsAuthenticated, CanAccessKassa)
 
     def post(self, request, *args, **kwargs):
         amount = request.data.get('amount')
@@ -784,7 +800,7 @@ class KassaWithdrawView(views.APIView):
         from django.db.models import Sum
         from orders.models import Order, Withdrawal
         
-        delivered_qs = Order.objects.filter(status=Order.STATUS_DELIVERED)
+        delivered_qs = Order.objects.filter(status__in=[Order.STATUS_DELIVERED, Order.STATUS_RECEIVED])
         total_income = delivered_qs.aggregate(total=Sum('total_price'))['total'] or 0
         withdrawals_qs = Withdrawal.objects.all()
         total_expense = withdrawals_qs.aggregate(total=Sum('amount'))['total'] or 0
@@ -813,7 +829,7 @@ class KassaWithdrawView(views.APIView):
 
 class AdminDashboardView(views.APIView):
     """Admin bosh sahifasi — barcha asosiy ko'rsatkichlar bitta so'rovda."""
-    permission_classes = (IsAuthenticated, IsAdminUser)
+    permission_classes = (IsAuthenticated, IsStaffMember)
 
     def get(self, request, *args, **kwargs):
         from django.db.models import Sum, Count
@@ -827,7 +843,7 @@ class AdminDashboardView(views.APIView):
         today_qs = Order.objects.filter(created_at__date=today)
         today_orders = today_qs.count()
         today_revenue = float(
-            today_qs.filter(status=Order.STATUS_DELIVERED)
+            today_qs.filter(status__in=[Order.STATUS_DELIVERED, Order.STATUS_RECEIVED])
             .aggregate(total=Sum('total_price'))['total'] or 0
         )
 
@@ -835,7 +851,7 @@ class AdminDashboardView(views.APIView):
         month_qs = Order.objects.filter(created_at__date__gte=month_start)
         month_orders = month_qs.count()
         month_revenue = float(
-            month_qs.filter(status=Order.STATUS_DELIVERED)
+            month_qs.filter(status__in=[Order.STATUS_DELIVERED, Order.STATUS_RECEIVED])
             .aggregate(total=Sum('total_price'))['total'] or 0
         )
 
@@ -852,7 +868,7 @@ class AdminDashboardView(views.APIView):
 
         # Kassa balansi
         total_income = float(
-            Order.objects.filter(status=Order.STATUS_DELIVERED)
+            Order.objects.filter(status__in=[Order.STATUS_DELIVERED, Order.STATUS_RECEIVED])
             .aggregate(total=Sum('total_price'))['total'] or 0
         )
         total_expense = float(
@@ -896,7 +912,7 @@ class AdminDashboardView(views.APIView):
             .values('day')
             .annotate(
                 order_count=Count('id'),
-                delivered_revenue=Sum('total_price', filter=Q(status=Order.STATUS_DELIVERED)),
+                delivered_revenue=Sum('total_price', filter=Q(status__in=[Order.STATUS_DELIVERED, Order.STATUS_RECEIVED])),
             )
             .order_by('day')
         )

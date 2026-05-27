@@ -35,9 +35,16 @@ class CartSerializer(serializers.ModelSerializer):
         fields = ('id', 'user', 'guest_session_id', 'items', 'total_price', 'created_at')
 
     def get_total_price(self, obj):
+        from orders.services import effective_master_percent, apply_master_discount
+        request = self.context.get('request')
+        user = getattr(request, 'user', None) if request else None
+        master_pct = effective_master_percent(user)
+
         total = Decimal('0.00')
         for item in obj.items.all():
             price = get_cart_item_price(item)
+            if master_pct > 0:
+                price = apply_master_discount(price, master_pct)
             total += price * item.quantity
         return total
 

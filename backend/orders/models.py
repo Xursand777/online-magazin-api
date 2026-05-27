@@ -5,48 +5,61 @@ from products.models import Product, ProductVariant
 
 
 class Order(models.Model):
-    STATUS_PENDING = 'PENDING'
-    STATUS_CONFIRMED = 'CONFIRMED'
-    STATUS_PACKING = 'PACKING'
-    STATUS_SHIPPING = 'SHIPPING'
-    STATUS_DELIVERED = 'DELIVERED'
-    STATUS_CANCELLED_BY_USER = 'CANCELLED_BY_USER'
-    STATUS_CANCELLED_BY_ADMIN = 'CANCELLED_BY_ADMIN'
-    STATUS_SYSTEM_AUTO_CANCEL = 'SYSTEM_AUTO_CANCEL'
+    # ── Karta to'lovi uchun boshlang'ich holat ──────────────────────────────────
+    STATUS_AWAITING_PAYMENT = 'AWAITING_PAYMENT'   # Faqat karta: to'lov kutilmoqda
+    # ── Asosiy zanjir ────────────────────────────────────────────────────────────
+    STATUS_PENDING   = 'PENDING'                   # Naqd / kredit: yangi buyurtma
+    STATUS_CONFIRMED = 'CONFIRMED'                 # Admin tasdiqladi
+    STATUS_PACKING   = 'PACKING'                   # Yig'ilmoqda
+    STATUS_SHIPPING  = 'SHIPPING'                  # Kuryerda / Yo'lda
+    STATUS_DELIVERED = 'DELIVERED'                 # Kuryer manzilga yetdi (eshikda)
+    STATUS_RECEIVED  = 'RECEIVED'                  # Xaridorga topshirildi (yakuniy)
+    # ── Bekor qilish holatlari ────────────────────────────────────────────────────
+    STATUS_CANCELLED_BY_USER   = 'CANCELLED_BY_USER'
+    STATUS_CANCELLED_BY_ADMIN  = 'CANCELLED_BY_ADMIN'
+    STATUS_SYSTEM_AUTO_CANCEL  = 'SYSTEM_AUTO_CANCEL'
 
     STATUS_CHOICES = [
-        (STATUS_PENDING, "To'lov kutilmoqda / Yangi"),
-        (STATUS_CONFIRMED, 'Rasmiylashtirildi'),
-        (STATUS_PACKING, "Yig'ilmoqda"),
-        (STATUS_SHIPPING, "Yo'lda"),
-        (STATUS_DELIVERED, 'Yetib keldi'),
-        (STATUS_CANCELLED_BY_USER, 'Foydalanuvchi bekor qildi'),
-        (STATUS_CANCELLED_BY_ADMIN, 'Admin bekor qildi'),
-        (STATUS_SYSTEM_AUTO_CANCEL, 'Tizim avtomatik bekor qildi'),
+        (STATUS_AWAITING_PAYMENT,  "To'lov kutilmoqda (karta)"),
+        (STATUS_PENDING,           "Yangi buyurtma"),
+        (STATUS_CONFIRMED,         "Tasdiqlandi"),
+        (STATUS_PACKING,           "Yig'ilmoqda"),
+        (STATUS_SHIPPING,          "Yo'lda (kuryerda)"),
+        (STATUS_DELIVERED,         "Yetkazildi (eshikda)"),
+        (STATUS_RECEIVED,          "Xaridorga topshirildi"),
+        (STATUS_CANCELLED_BY_USER,  "Foydalanuvchi bekor qildi"),
+        (STATUS_CANCELLED_BY_ADMIN, "Admin bekor qildi"),
+        (STATUS_SYSTEM_AUTO_CANCEL, "Tizim avtomatik bekor qildi"),
     ]
 
+    # Faol buyurtmalar: hali yakunlanmagan va bekor qilinmagan
     ACTIVE_STATUSES = {
+        STATUS_AWAITING_PAYMENT,  # karta to'lovi kutilmoqda
         STATUS_PENDING,
         STATUS_CONFIRMED,
         STATUS_PACKING,
         STATUS_SHIPPING,
+        STATUS_DELIVERED,         # kuryer eshikda — hali xaridorga topshirilmagan
     }
     CANCELLATION_STATUSES = {
         STATUS_CANCELLED_BY_USER,
         STATUS_CANCELLED_BY_ADMIN,
         STATUS_SYSTEM_AUTO_CANCEL,
     }
-    # Foydalanuvchi bekor qila oladigan statuslar (PACKING va undan keyingisi bekor qilinmaydi)
+    # Foydalanuvchi faqat PENDING va CONFIRMED ni bekor qila oladi
     CANCELLABLE_STATUSES = {
         STATUS_PENDING,
         STATUS_CONFIRMED,
+        STATUS_AWAITING_PAYMENT,
     }
-    # Admin barcha faol buyurtmalarni bekor qila oladi
+    # Admin RECEIVED dan oldingi barcha faol holatlarda bekor qila oladi
     ADMIN_CANCELLABLE_STATUSES = {
+        STATUS_AWAITING_PAYMENT,
         STATUS_PENDING,
         STATUS_CONFIRMED,
         STATUS_PACKING,
         STATUS_SHIPPING,
+        STATUS_DELIVERED,         # kuryer yetkazolmagan holatlarda
     }
 
     PAYMENT_METHOD_CASH = 'cash'
@@ -167,7 +180,7 @@ class OrderHistory(models.Model):
 
     order = models.ForeignKey(Order, on_delete=models.CASCADE, related_name='history')
     from_status = models.CharField(max_length=32, blank=True, default='')
-    to_status = models.CharField(max_length=32, choices=Order.STATUS_CHOICES)
+    to_status = models.CharField(max_length=32)
     actor_type = models.CharField(max_length=10, choices=ACTOR_CHOICES, default=ACTOR_SYSTEM)
     actor = models.ForeignKey(
         settings.AUTH_USER_MODEL,

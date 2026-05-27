@@ -33,6 +33,50 @@ def localized(obj, field, lang):
     return translated or getattr(obj, field, '') or ''
 
 
+def _master_effective_percent(context):
+    """
+    Joriy foydalanuvchining AMALDAGI usta chegirma foizi (faollikka qarab).
+    Bir serializatsiya bo'yicha bir marta hisoblanadi (context'da memoizatsiya) —
+    ro'yxatdagi har bir mahsulot uchun qayta-qayta DB so'rovi yubormaydi.
+    """
+    cached = context.get('_master_pct')
+    if cached is not None:
+        return cached
+    from orders.services import effective_master_percent
+    request = context.get('request')
+    user = getattr(request, 'user', None) if request else None
+    pct = effective_master_percent(user)
+    context['_master_pct'] = pct
+    return pct
+
+
+def get_master_price(obj, context):
+    """
+    Usta uchun narx: faollikka qarab amaldagi foiz amaldagi narxdan chegiriladi.
+    Amaldagi narx = is_discount bo'lsa discount_price, aks holda price.
+    Faqat is_master=True va FAOL (amaldagi foiz > 0) ustalarga qaytariladi —
+    sust usta oddiy narxni ko'radi (master_price = None).
+    """
+    request = context.get('request')
+    if not request:
+        return None
+    user = getattr(request, 'user', None)
+    if not user or not user.is_authenticated or not getattr(user, 'is_master', False):
+        return None
+    pct = _master_effective_percent(context)
+    if pct <= 0:
+        return None  # sust usta — oddiy narx ko'rsatiladi
+    effective = (
+        obj.discount_price
+        if (getattr(obj, 'is_discount', False) and obj.discount_price)
+        else obj.price
+    )
+    if not effective:
+        return None
+    master = (effective * (Decimal('100') - pct) / Decimal('100')).quantize(Decimal('1'))
+    return str(master)
+
+
 class CategorySerializer(serializers.ModelSerializer):
     children = serializers.SerializerMethodField()
     is_catalog = serializers.SerializerMethodField()
@@ -110,13 +154,18 @@ class AdminProductVariantSerializer(ProductVariantSerializer):
 class ProductListSerializer(serializers.ModelSerializer):
     main_image = serializers.SerializerMethodField()
     name = serializers.SerializerMethodField()
+    master_price = serializers.SerializerMethodField()
 
     class Meta:
         model = Product
-        fields = ('id', 'name', 'slug', 'price', 'discount_price', 'stock', 'is_discount', 'is_new', 'is_popular', 'main_image')
+        fields = ('id', 'name', 'slug', 'price', 'discount_price', 'master_price',
+                  'stock', 'is_discount', 'is_new', 'is_popular', 'main_image')
 
     def get_name(self, obj):
         return localized(obj, 'name', get_lang(self.context))
+
+    def get_master_price(self, obj):
+        return get_master_price(obj, self.context)
 
     def get_main_image(self, obj):
         img = obj.images.filter(is_main=True).first() or obj.images.first()
@@ -126,6 +175,7 @@ class ProductSearchSerializer(serializers.ModelSerializer):
     main_image = serializers.SerializerMethodField()
     category_name = serializers.SerializerMethodField()
     name = serializers.SerializerMethodField()
+    master_price = serializers.SerializerMethodField()
 
     class Meta:
         model = Product
@@ -135,12 +185,16 @@ class ProductSearchSerializer(serializers.ModelSerializer):
             'category_name',
             'price',
             'discount_price',
+            'master_price',
             'is_discount',
             'main_image',
         )
 
     def get_name(self, obj):
         return localized(obj, 'name', get_lang(self.context))
+
+    def get_master_price(self, obj):
+        return get_master_price(obj, self.context)
 
     def get_main_image(self, obj):
         img = obj.images.filter(is_main=True).first() or obj.images.first()
@@ -158,12 +212,13 @@ class ProductDetailSerializer(serializers.ModelSerializer):
     name = serializers.SerializerMethodField()
     description = serializers.SerializerMethodField()
     compatible_models = serializers.SerializerMethodField()
+    master_price = serializers.SerializerMethodField()
 
     class Meta:
         model = Product
         fields = (
             'id', 'name', 'slug', 'description',
-            'price', 'discount_price', 'stock',
+            'price', 'discount_price', 'master_price', 'stock',
             'is_discount', 'is_new', 'is_popular',
             'category', 'images', 'variants',
             'compatible_models',
@@ -174,6 +229,9 @@ class ProductDetailSerializer(serializers.ModelSerializer):
 
     def get_description(self, obj):
         return localized(obj, 'description', get_lang(self.context))
+
+    def get_master_price(self, obj):
+        return get_master_price(obj, self.context)
 
     def get_compatible_models(self, obj):
         compat = (
@@ -726,6 +784,7 @@ class AdminPhoneSeriesWriteSerializer(serializers.ModelSerializer):
 class AdminPhoneModelWriteSerializer(serializers.ModelSerializer):
     full_name   = serializers.CharField(read_only=True)
     series_name = serializers.SerializerMethodField()
+    name        = serializers.CharField(allow_blank=True, default='')
 
     class Meta:
         model = PhoneModel
