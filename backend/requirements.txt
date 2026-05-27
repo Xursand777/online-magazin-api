@@ -1,7 +1,8 @@
 Django==4.2.30
 PyJWT==2.12.1
 # Redis kesh: OTP va rate limiting uchun multi-worker muhitda shart (REDIS_URL o'rnatilganda)
-redis>=4.6.0
+async-timeout==5.0.1
+redis==7.0.1
 PyYAML==6.0.3
 asgiref==3.11.1
 attrs==26.1.0
