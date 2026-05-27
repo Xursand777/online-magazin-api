@@ -385,6 +385,31 @@ SIMPLE_JWT = {
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
+# JWT COOKIE — Refresh token httpOnly cookie sozlamalari
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# MUAMMO — localStorage'da refresh token (XSS zaiflik):
+#   localStorage JavaScript tomonidan o'qiladi. Agar saytda XSS zaiflik bo'lsa
+#   (masalan, foydalanuvchi kiritgan matn filtrsiz HTML'ga qo'shilsa), hujumchi
+#   localStorage'ni o'qib tokenni o'g'irlashi mumkin.
+#
+# YECHIM — httpOnly cookie:
+#   • httpOnly=True  → JavaScript (document.cookie) o'qiy olmaydi → XSS'dan himoya
+#   • secure=True    → Faqat HTTPS orqali yuboriladi (production'da)
+#   • samesite='Lax' → Boshqa saytlardan kelgan cross-site POST so'rovlarda
+#                      cookie yuborilmaydi → CSRF'dan qisman himoya
+#   • path=...       → Cookie faqat refresh endpointiga yuboriladi → hujum
+#                      yuzasi kamayadi (login, products va boshqa endpointlarga
+#                      refresh token umuman yuborilmaydi)
+
+REFRESH_TOKEN_COOKIE_NAME     = 'bozor_refresh'
+REFRESH_TOKEN_COOKIE_MAX_AGE  = 7 * 24 * 3600          # 7 kun (SIMPLE_JWT bilan mos)
+REFRESH_TOKEN_COOKIE_HTTPONLY = True
+REFRESH_TOKEN_COOKIE_SECURE   = not DEBUG               # Production'da faqat HTTPS
+REFRESH_TOKEN_COOKIE_SAMESITE = 'Lax'                   # CSRF'dan himoya
+REFRESH_TOKEN_COOKIE_PATH     = '/api/auth/refresh/'    # Faqat refresh endpointiga
+
+# ─────────────────────────────────────────────────────────────────────────────
 # LOGLASH — Xavfsizlik va Xatolarni Kuzatish
 # ─────────────────────────────────────────────────────────────────────────────
 # Fayllar: backend/logs/

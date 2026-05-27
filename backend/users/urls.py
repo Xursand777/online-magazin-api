@@ -1,7 +1,7 @@
 from django.urls import path
-from rest_framework_simplejwt.views import TokenRefreshView
 from .views import (
     RegisterView, SendOTPView, VerifyOTPView, LoginView, PasswordLoginView,
+    CookieTokenRefreshView, CookieLogoutView,
     UserProfileView, AddressListCreateView, AddressDetailView, FeedbackCreateView,
     AdminUserSearchView, AdminUserListView, AdminUserDetailView,
     AdminUserToggleBanView, AdminUserToggleActiveView,
@@ -17,7 +17,10 @@ urlpatterns = [
     path('auth/verify-otp/', VerifyOTPView.as_view(), name='verify_otp'),
     path('auth/login/', LoginView.as_view(), name='login'),
     path('auth/login-password/', PasswordLoginView.as_view(), name='login_password'),
-    path('auth/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
+    # Refresh token cookie'dan o'qiladi (httpOnly) — body'dan emas
+    path('auth/refresh/', CookieTokenRefreshView.as_view(), name='token_refresh'),
+    # Logout: cookie blacklist'ga qo'shiladi va o'chiriladi
+    path('auth/logout/', CookieLogoutView.as_view(), name='token_logout'),
 
     path('profile/', UserProfileView.as_view(), name='profile'),
     path('master/status/', MasterStatusView.as_view(), name='master_status'),

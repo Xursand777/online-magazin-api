@@ -13,8 +13,9 @@ export const verifyLoginOtp = (data: { phone: string; code: string }) =>
 export const loginWithPassword = (data: { phone: string; password: string }) =>
   apiClient.post('/auth/login-password/', data);
 
-export const refreshToken = (refresh: string) =>
-  apiClient.post('/auth/refresh/', { refresh });
+// Refresh token httpOnly cookie'da saqlanadi — body bo'sh, withCredentials brauzer yuboradi.
+export const refreshToken = () =>
+  apiClient.post('/auth/refresh/');
 
 // PROFILE
 export const getProfile = () => apiClient.get('/profile/');

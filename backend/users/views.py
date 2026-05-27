@@ -7,6 +7,8 @@ from rest_framework.response import Response
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.throttling import ScopedRateThrottle
 from rest_framework_simplejwt.tokens import RefreshToken
+from rest_framework_simplejwt.serializers import TokenRefreshSerializer
+from rest_framework_simplejwt.exceptions import TokenError, InvalidToken
 from django.contrib.auth import get_user_model
 from django.core.cache import cache
 
@@ -37,6 +39,33 @@ OTP_MAX_ATTEMPTS = 5           # Bitta kod uchun maksimal tekshirish urinishi
 def generate_otp() -> str:
     """Kriptografik xavfsiz 6 xonali OTP (random emas, secrets)."""
     return f"{secrets.randbelow(1_000_000):06d}"
+
+
+def _set_refresh_cookie(response: Response, refresh_str: str) -> None:
+    """
+    Refresh tokenni httpOnly cookie sifatida response'ga yozadi.
+
+    Nima uchun httpOnly cookie:
+      • JavaScript tomonidan o'qib bo'lmaydi (document.cookie) → XSS hujumidan himoya.
+      • localStorage'ga solishtirganda: localStorage ochiq, cookie — yopiq.
+      • path='/api/auth/refresh/' → cookie faqat SHU endpointga yuboriladi;
+        products, cart, profile kabi endpointlar refresh tokenni hech qachon
+        ko'rmaydi — hujum yuzasi minimal.
+
+    Sozlamalar settings.REFRESH_TOKEN_COOKIE_* dan o'qiladi:
+      SECURE   = not DEBUG  → development'da HTTP, production'da faqat HTTPS
+      SAMESITE = 'Lax'      → cross-site POST so'rovlarda yuborilmaydi (CSRF himoya)
+      MAX_AGE  = 7 * 86400  → SIMPLE_JWT REFRESH_TOKEN_LIFETIME bilan mos (7 kun)
+    """
+    response.set_cookie(
+        key      = settings.REFRESH_TOKEN_COOKIE_NAME,
+        value    = refresh_str,
+        max_age  = settings.REFRESH_TOKEN_COOKIE_MAX_AGE,
+        httponly = settings.REFRESH_TOKEN_COOKIE_HTTPONLY,
+        secure   = settings.REFRESH_TOKEN_COOKIE_SECURE,
+        samesite = settings.REFRESH_TOKEN_COOKIE_SAMESITE,
+        path     = settings.REFRESH_TOKEN_COOKIE_PATH,
+    )
 
 
 class RegisterView(generics.CreateAPIView):
@@ -153,8 +182,9 @@ class VerifyOTPView(views.APIView):
             merge_guest_profile_into_user(user, guest_session_id)
 
         refresh = RefreshToken.for_user(user)
-        return Response({
-            'refresh': str(refresh),
+        # Refresh token response body'ga kiritilmaydi (XSS xavfi).
+        # U faqat httpOnly cookie sifatida yuboriladi → JavaScript o'qiy olmaydi.
+        response = Response({
             'access': str(refresh.access_token),
             'user': {
                 'id': user.id,
@@ -166,6 +196,8 @@ class VerifyOTPView(views.APIView):
                 'is_master': user.is_master,
             }
         })
+        _set_refresh_cookie(response, str(refresh))
+        return response
 
 # LoginView triggers SendOTP for phone-based login (OTP flow)
 class LoginView(SendOTPView):
@@ -203,8 +235,7 @@ class PasswordLoginView(views.APIView):
             merge_guest_profile_into_user(user, guest_session_id)
 
         refresh = RefreshToken.for_user(user)
-        return Response({
-            'refresh': str(refresh),
+        response = Response({
             'access': str(refresh.access_token),
             'user': {
                 'id': user.id,
@@ -216,6 +247,8 @@ class PasswordLoginView(views.APIView):
                 'is_master': user.is_master,
             }
         })
+        _set_refresh_cookie(response, str(refresh))
+        return response
 
 class UserProfileView(generics.RetrieveUpdateAPIView):
     permission_classes = (IsAuthenticated,)
@@ -270,12 +303,9 @@ class FeedbackCreateView(generics.CreateAPIView):
         serializer.save(user=self.request.user)
 
 class AdminUserSearchView(views.APIView):
-    permission_classes = (IsAuthenticated,)
+    permission_classes = (IsAuthenticated, IsAdminOrAbove)
 
     def get(self, request, *args, **kwargs):
-        if not (request.user.is_staff or request.user.is_superuser):
-            return Response({"error": "Admin huquqi talab qilinadi"}, status=status.HTTP_403_FORBIDDEN)
-
         phone = request.query_params.get('phone', '').strip()
         if not phone:
             return Response({"error": "Telefon raqam ko'rsatilmadi"}, status=status.HTTP_400_BAD_REQUEST)
@@ -300,17 +330,18 @@ class UserPagePagination(PageNumberPagination):
     page_size_query_param = 'page_size'
 
 
-def _require_admin(request):
-    return request.user.is_staff or request.user.is_superuser
-
-
 class AdminUserListView(views.APIView):
-    permission_classes = (IsAuthenticated,)
+    """
+    GET /api/admin/users/
+    IsAdminOrAbove DRF permission class ishlatiladi.
+    Eski _require_admin() yordamchi funksiyasi o'chirildi: u
+      1. DRF request lifecycle'dan tashqarida ishlardi (exception handler'ni chetlab o'tardi)
+      2. har bir metodda qo'lda chaqirishni talab qilardi → unutish xavfi
+      3. DRF schema (drf-spectacular) uchun ko'rinmas edi
+    """
+    permission_classes = (IsAuthenticated, IsAdminOrAbove)
 
     def get(self, request):
-        if not _require_admin(request):
-            return Response({"error": "Admin huquqi talab qilinadi"}, status=status.HTTP_403_FORBIDDEN)
-
         q = request.query_params.get('q', '').strip()
         is_active_param = request.query_params.get('is_active', '')
         credit_ban_param = request.query_params.get('credit_ban', '')
@@ -354,12 +385,9 @@ class AdminUserListView(views.APIView):
 
 
 class AdminUserDetailView(views.APIView):
-    permission_classes = (IsAuthenticated,)
+    permission_classes = (IsAuthenticated, IsAdminOrAbove)
 
     def get(self, request, pk):
-        if not _require_admin(request):
-            return Response({"error": "Admin huquqi talab qilinadi"}, status=status.HTTP_403_FORBIDDEN)
-
         try:
             u = User.objects.annotate(
                 order_count=Count('orders', distinct=True),
@@ -394,12 +422,9 @@ class AdminUserDetailView(views.APIView):
 
 
 class AdminUserToggleBanView(views.APIView):
-    permission_classes = (IsAuthenticated,)
+    permission_classes = (IsAuthenticated, IsAdminOrAbove)
 
     def post(self, request, pk):
-        if not _require_admin(request):
-            return Response({"error": "Admin huquqi talab qilinadi"}, status=status.HTTP_403_FORBIDDEN)
-
         try:
             u = User.objects.get(pk=pk)
         except User.DoesNotExist:
@@ -413,12 +438,9 @@ class AdminUserToggleBanView(views.APIView):
 
 
 class AdminUserToggleActiveView(views.APIView):
-    permission_classes = (IsAuthenticated,)
+    permission_classes = (IsAuthenticated, IsAdminOrAbove)
 
     def post(self, request, pk):
-        if not _require_admin(request):
-            return Response({"error": "Admin huquqi talab qilinadi"}, status=status.HTTP_403_FORBIDDEN)
-
         try:
             u = User.objects.get(pk=pk)
         except User.DoesNotExist:
@@ -433,12 +455,9 @@ class AdminUserToggleActiveView(views.APIView):
 
 
 class AdminFeedbackListView(views.APIView):
-    permission_classes = (IsAuthenticated,)
+    permission_classes = (IsAuthenticated, IsAdminOrAbove)
 
     def get(self, request):
-        if not _require_admin(request):
-            return Response({"error": "Admin huquqi talab qilinadi"}, status=status.HTTP_403_FORBIDDEN)
-
         status_filter = request.query_params.get('status', '').strip()
         q = request.query_params.get('q', '').strip()
 
@@ -471,12 +490,9 @@ class AdminFeedbackListView(views.APIView):
 
 
 class AdminFeedbackUpdateView(views.APIView):
-    permission_classes = (IsAuthenticated,)
+    permission_classes = (IsAuthenticated, IsAdminOrAbove)
 
     def patch(self, request, pk):
-        if not _require_admin(request):
-            return Response({"error": "Admin huquqi talab qilinadi"}, status=status.HTTP_403_FORBIDDEN)
-
         try:
             feedback = Feedback.objects.select_related('user').get(pk=pk)
         except Feedback.DoesNotExist:
@@ -493,6 +509,89 @@ class AdminFeedbackUpdateView(views.APIView):
             'status': feedback.status,
             'user_phone': feedback.user.phone,
         })
+
+
+# ── JWT Cookie: Refresh va Logout ────────────────────────────────────────────
+
+class CookieTokenRefreshView(views.APIView):
+    """
+    POST /api/auth/refresh/
+    Refresh token body o'rniga httpOnly cookie'dan o'qiladi.
+
+    ROTATE_REFRESH_TOKENS=True bo'lganda:
+      • Eski refresh token blacklist'ga qo'shiladi (BLACKLIST_AFTER_ROTATION).
+      • Yangi refresh token cookie'ga yoziladi.
+      • Response body'da faqat yangi `access` token qaytariladi.
+
+    Nima uchun oddiy TokenRefreshView yetarli emas:
+      Body'dan refresh token qabul qilib qaytargan bo'lar edi — bu JavaScript
+      orqali ko'rish imkonini beradi va XSS xavfini yo'q qilmaydi.
+    """
+    permission_classes = (AllowAny,)
+    throttle_classes   = [ScopedRateThrottle]
+    throttle_scope     = 'auth'
+
+    def post(self, request):
+        refresh_str = request.COOKIES.get(settings.REFRESH_TOKEN_COOKIE_NAME)
+        if not refresh_str:
+            return Response(
+                {'error': 'Sessiya tugagan. Iltimos, qayta kiring.'},
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
+
+        serializer = TokenRefreshSerializer(data={'refresh': refresh_str})
+        try:
+            serializer.is_valid(raise_exception=True)
+        except (TokenError, InvalidToken):
+            # Yaroqsiz yoki muddati o'tgan token → cookie tozalanadi
+            resp = Response(
+                {'error': 'Sessiya yaroqsiz. Iltimos, qayta kiring.'},
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
+            resp.delete_cookie(
+                key      = settings.REFRESH_TOKEN_COOKIE_NAME,
+                path     = settings.REFRESH_TOKEN_COOKIE_PATH,
+                samesite = settings.REFRESH_TOKEN_COOKIE_SAMESITE,
+            )
+            return resp
+
+        resp = Response({'access': serializer.validated_data['access']})
+
+        # ROTATE_REFRESH_TOKENS=True → yangi refresh cookie
+        new_refresh = serializer.validated_data.get('refresh')
+        if new_refresh:
+            _set_refresh_cookie(resp, new_refresh)
+
+        return resp
+
+
+class CookieLogoutView(views.APIView):
+    """
+    POST /api/auth/logout/
+    Refresh tokenni blacklist'ga qo'shadi va cookie'ni o'chiradi.
+
+    AllowAny: access token muddati tugagan bo'lsa ham logout ishlaydi.
+    Cookie mavjud bo'lmasa yoki yaroqsiz bo'lsa — no-op (xato qaytarmaydi),
+    chunki maqsad seans tozalash, autentifikatsiya tekshirish emas.
+    """
+    permission_classes = (AllowAny,)
+
+    def post(self, request):
+        refresh_str = request.COOKIES.get(settings.REFRESH_TOKEN_COOKIE_NAME)
+        if refresh_str:
+            try:
+                token = RefreshToken(refresh_str)
+                token.blacklist()
+            except TokenError:
+                pass  # Allaqachon bekor yoki yaroqsiz — muhim emas
+
+        resp = Response({'detail': 'Tizimdan muvaffaqiyatli chiqdingiz.'})
+        resp.delete_cookie(
+            key      = settings.REFRESH_TOKEN_COOKIE_NAME,
+            path     = settings.REFRESH_TOKEN_COOKIE_PATH,
+            samesite = settings.REFRESH_TOKEN_COOKIE_SAMESITE,
+        )
+        return resp
 
 
 # ── Xodim boshqaruvi (faqat Super Admin) ─────────────────────────────────────

@@ -16,9 +16,12 @@ const apiClient = axios.create({
   headers: {
     'Content-Type': 'application/json',
   },
+  // withCredentials: true — brauzer httpOnly cookie'larini (bozor_refresh) yuboradi.
+  // Bu CORS sozlamalarida Access-Control-Allow-Credentials: true va aniq origin talab qiladi.
+  withCredentials: true,
 });
 
-// Request interceptor: token, guest-session, and language header
+// Request interceptor: access token, guest-session va til sarlavhasi
 apiClient.interceptors.request.use(
   (config) => {
     const token = localStorage.getItem('access_token');
@@ -44,7 +47,7 @@ apiClient.interceptors.request.use(
   (error) => Promise.reject(error)
 );
 
-// Response interceptor: 401 bo'lsa token yangilash, guest-session-id ni saqlash
+// Response interceptor: 401 → cookie'dan refresh, guest-session-id saqlash
 apiClient.interceptors.response.use(
   (response) => {
     const guestId = response.headers['x-guest-session-id'];
@@ -58,25 +61,31 @@ apiClient.interceptors.response.use(
 
     if (error.response?.status === 401 && !originalRequest._retry) {
       originalRequest._retry = true;
+
       // role_invalidated: rol o'chirilganda server 401 + code='role_invalidated' qaytaradi
       const code = error.response?.data?.code;
       if (code === 'role_invalidated') {
         localStorage.removeItem('access_token');
-        localStorage.removeItem('refresh_token');
         localStorage.removeItem('user');
         window.location.href = '/auth?reason=role_changed';
         return Promise.reject(error);
       }
+
       try {
-        const refreshToken = localStorage.getItem('refresh_token');
-        if (!refreshToken) throw new Error('No refresh token');
-        const res = await axios.post(`${BASE_URL}/auth/refresh/`, { refresh: refreshToken });
-        localStorage.setItem('access_token', res.data.access);
-        originalRequest.headers.Authorization = `Bearer ${res.data.access}`;
+        // Refresh token httpOnly cookie'da — body yo'q, withCredentials brauzer yuboradi.
+        // Server CookieTokenRefreshView cookie'ni o'qib yangi access qaytaradi.
+        const res = await axios.post(
+          `${BASE_URL}/auth/refresh/`,
+          {},                        // body bo'sh — token cookie'da
+          { withCredentials: true }  // httpOnly cookie yuboriladi
+        );
+        const newAccess: string = res.data.access;
+        localStorage.setItem('access_token', newAccess);
+        originalRequest.headers.Authorization = `Bearer ${newAccess}`;
         return apiClient(originalRequest);
       } catch {
+        // Refresh ham muvaffaqiyatsiz → sessiya tugagan, qayta kirish kerak
         localStorage.removeItem('access_token');
-        localStorage.removeItem('refresh_token');
         localStorage.removeItem('user');
         window.location.href = '/auth';
       }
@@ -89,7 +98,6 @@ apiClient.interceptors.response.use(
         const code = error.response?.data?.code;
         if (code === 'role_invalidated' || code === 'permission_denied') {
           localStorage.removeItem('access_token');
-          localStorage.removeItem('refresh_token');
           localStorage.removeItem('user');
           window.location.href = '/auth?reason=role_changed';
           return Promise.reject(error);

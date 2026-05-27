@@ -144,8 +144,9 @@ const Auth = () => {
     resetOtp();
   };
 
-  const completeSession = async (payload: { user: any; access: string; refresh: string }) => {
-    login(payload.user, payload.access, payload.refresh);
+  const completeSession = async (payload: { user: any; access: string }) => {
+    // refresh token cookie'da — body'da yo'q, login() ga uzatilmaydi
+    login(payload.user, payload.access);
     const syncResult = await useCartStore.getState().syncLocalCartToBackend();
     await useCartStore.getState().fetchCart();
     if (syncResult.syncedCount > 0) {

@@ -26,38 +26,61 @@ interface AuthUser {
   is_master?: boolean;
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Muhim: refreshToken endi localStorage'da SAQLANMAYDI.
+// U httpOnly cookie sifatida brauzerda yashaydi — JavaScript tomonidan
+// o'qib bo'lmaydi → XSS hujumlari refresh tokenni o'g'irlay olmaydi.
+//
+// accessToken localStorage'da saqlanishi (qisqa muddatli — 60 daqiqa)
+// amaliy murosadur: SPA sessiyasini sahifa yangilanishidan keyin ham
+// saqlab qolish uchun zarur. Access token muddati qisqa (60 daqiqa)
+// bo'lgani sababli, o'g'irlanish oynasi ham tor.
+// ─────────────────────────────────────────────────────────────────────────────
+
 interface AuthState {
   user: AuthUser | null;
   accessToken: string | null;
-  refreshToken: string | null;
   isAuthenticated: boolean;
-  login: (user: AuthUser, access: string, refresh: string) => void;
+  login: (user: AuthUser, access: string) => void;
   logout: () => void;
   updateUser: (user: Partial<AuthUser>) => void;
 }
 
-const storedUser = localStorage.getItem('user');
+const storedUser   = localStorage.getItem('user');
 const storedAccess = localStorage.getItem('access_token');
-const storedRefresh = localStorage.getItem('refresh_token');
 
 export const useAuthStore = create<AuthState>((set) => ({
-  user: storedUser ? JSON.parse(storedUser) : null,
-  accessToken: storedAccess || null,
-  refreshToken: storedRefresh || null,
+  user:            storedUser ? JSON.parse(storedUser) : null,
+  accessToken:     storedAccess || null,
   isAuthenticated: !!storedAccess,
 
-  login: (user, access, refresh) => {
+  login: (user, access) => {
     localStorage.setItem('user', JSON.stringify(user));
     localStorage.setItem('access_token', access);
-    localStorage.setItem('refresh_token', refresh);
-    set({ user, accessToken: access, refreshToken: refresh, isAuthenticated: true });
+    // refreshToken localStorage'ga YOZILMAYDI — httpOnly cookie'da
+    set({ user, accessToken: access, isAuthenticated: true });
   },
 
   logout: () => {
+    // Server tomonida refresh cookie blacklist'ga qo'shiladi va o'chiriladi.
+    // withCredentials: true → brauzer httpOnly cookie'ni o'zi yuboradi.
+    // Fire-and-forget: tarmoq xatosi bo'lsa ham lokal holat tozalanadi.
+    const BASE_URL = import.meta.env.VITE_API_URL ?? 'http://127.0.0.1:8000/api';
+    const accessToken = localStorage.getItem('access_token');
+    fetch(`${BASE_URL}/auth/logout/`, {
+      method:      'POST',
+      credentials: 'include',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+      },
+    }).catch(() => {
+      // Tarmoq xatosi yoki token muddati o'tgan — lokal tozalash baribir bajariladi
+    });
+
     localStorage.removeItem('user');
     localStorage.removeItem('access_token');
-    localStorage.removeItem('refresh_token');
-    set({ user: null, accessToken: null, refreshToken: null, isAuthenticated: false });
+    set({ user: null, accessToken: null, isAuthenticated: false });
   },
 
   updateUser: (updatedFields) =>

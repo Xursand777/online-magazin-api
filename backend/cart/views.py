@@ -17,6 +17,17 @@ from .serializers import (
     LocalCartSyncSerializer,
 )
 
+# ─────────────────────────────────────────────────────────────────────────────
+# SAVAT CHEKLOVLARI
+# ─────────────────────────────────────────────────────────────────────────────
+# Bir savat elementidagi maksimal miqdor. Bundan ortiq buyurtma uchun sotuv
+# menejeri bilan muzokaralar olib boriladi.
+# Nima uchun kerak:
+#   1. Noto'g'ri foydalanuvchi xatosi: "1000 dona qo'shdim, ekan" → oldini oladi.
+#   2. Stokni to'liq egallash hujumi: bot aksiyani sotib chiqishga urinadi → cheklash.
+#   3. Sahifa ko'rsatishi: savatdagi summa overflow bo'lmasin (Decimal/float limiti).
+MAX_CART_ITEM_QUANTITY = 100
+
 
 def get_or_create_cart(request):
     if request.user.is_authenticated:
@@ -86,8 +97,32 @@ def get_available_stock(product, variant=None):
 
 
 def validate_cart_quantity(product, quantity, variant=None, existing_quantity=0):
-    available_stock = get_available_stock(product, variant)
+    """
+    Savat elementining yakuniy miqdorini tekshiradi.
+
+    `quantity`         — qo'shilayotgan yoki yangi belgilanayotgan miqdor
+    `existing_quantity`— savatda allaqachon mavjud miqdor (upsert uchun)
+
+    ADD (upsert): existing_quantity > 0 → yangi jami = existing + quantity
+    SET (update): existing_quantity = 0 → yangi jami = quantity
+
+    Ikkita qoida:
+      1. Jami ≤ MAX_CART_ITEM_QUANTITY (mutlaq limit)
+      2. Jami ≤ available_stock        (ombor cheklovi)
+    """
     requested_quantity = existing_quantity + quantity
+
+    # 1. Mutlaq yuqori chegara
+    if requested_quantity > MAX_CART_ITEM_QUANTITY:
+        raise serializers.ValidationError({
+            'error': (
+                f"Savatchada bir mahsulotdan ko'pi bilan "
+                f"{MAX_CART_ITEM_QUANTITY} dona bo'lishi mumkin."
+            )
+        })
+
+    # 2. Ombor cheklovi
+    available_stock = get_available_stock(product, variant)
     if requested_quantity > available_stock:
         raise serializers.ValidationError({
             'error': f"{product.name} uchun omborda {available_stock} dona mavjud."
