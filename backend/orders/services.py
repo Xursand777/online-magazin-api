@@ -258,25 +258,70 @@ def ensure_stock_available(product, quantity, variant=None):
         )
 
 
+@transaction.atomic
 def reserve_inventory(product, quantity, variant=None):
-    ensure_stock_available(product, quantity, variant)
-    if variant:
-        variant.stock -= quantity
-        variant.save(update_fields=['stock'])
+    """
+    Tovar zaxirasini atomik kamaytiradi.
+
+    Race condition himoyasi — select_for_update():
+      Ikkita so'rov bir vaqtda bir xil variant/product'ga yetganda,
+      birinchisi DB darajasida qatorni LOCK qiladi; ikkinchisi birinchi
+      transaction tugaguncha KUTADI. Keyin yangilangan (kamaygan) stock
+      bilan ishlaydi → stock hech qachon manfiyga tushmaydi.
+
+    Muhim: stale in-memory object emas, DB'dan YANGI qiymat o'qiladi.
+    Shuning uchun bu funksiya chaqirilishdan oldingi ensure_stock_available()
+    "tez tekshiruv" sifatida qoladi; REAL kafolat esa shu joyda.
+    """
+    from products.models import ProductVariant as _Variant, Product as _Product
+
+    if variant is not None:
+        # DB dan lock bilan yangi qiymat olamiz
+        locked = _Variant.objects.select_for_update().get(pk=variant.pk)
+        if locked.stock < quantity:
+            raise serializers.ValidationError({
+                'error': (
+                    f"'{product.name}' variant stokda yetarli emas. "
+                    f"Mavjud: {locked.stock} dona, siz so'ragan: {quantity} dona."
+                )
+            })
+        locked.stock -= quantity
+        locked.save(update_fields=['stock'])
+        variant.stock = locked.stock   # in-memory ob'ektni yangilaymiz
     else:
-        product.stock -= quantity
-        product.save(update_fields=['stock'])
+        locked = _Product.objects.select_for_update().get(pk=product.pk)
+        if locked.stock < quantity:
+            raise serializers.ValidationError({
+                'error': (
+                    f"'{product.name}' stokda yetarli emas. "
+                    f"Mavjud: {locked.stock} dona, siz so'ragan: {quantity} dona."
+                )
+            })
+        locked.stock -= quantity
+        locked.save(update_fields=['stock'])
+        product.stock = locked.stock   # in-memory ob'ektni yangilaymiz
 
 
+@transaction.atomic
 def restore_inventory(order_item):
-    if order_item.variant_id and order_item.variant:
-        order_item.variant.stock += order_item.quantity
-        order_item.variant.save(update_fields=['stock'])
+    """
+    Buyurtma bekor qilinganda tovar zaxirasini qaytaradi.
+    select_for_update() orqali bir vaqtda bir nechta bekor qilish
+    bir xil mahsulot stockini ikkita xarid orqali yo'qotib qo'ymasligini
+    kafolatlaydi (lost-update himoyasi).
+    """
+    from products.models import ProductVariant as _Variant, Product as _Product
+
+    if order_item.variant_id and order_item.variant_id:
+        locked = _Variant.objects.select_for_update().get(pk=order_item.variant_id)
+        locked.stock += order_item.quantity
+        locked.save(update_fields=['stock'])
         return
 
-    if order_item.product_id and order_item.product:
-        order_item.product.stock += order_item.quantity
-        order_item.product.save(update_fields=['stock'])
+    if order_item.product_id:
+        locked = _Product.objects.select_for_update().get(pk=order_item.product_id)
+        locked.stock += order_item.quantity
+        locked.save(update_fields=['stock'])
 
 
 def create_order_history(order, to_status, actor_type, actor=None, note='', from_status=''):
@@ -637,14 +682,48 @@ def pay_credit_order(*, order, actor=None):
     return order
 
 
-def auto_cancel_expired_orders(minutes=30):
-    """Karta buyurtmalari: 30 daqiqa ichida to'lov bo'lmasa avtomatik bekor qilinadi."""
+# Cache kaliti va throttle muddati (soniyada)
+# 60 soniya yetarli: karta to'lovi 30 DAQIQA muddat, har daqiqada tekshirish
+# DB ni ortiqcha yuklashdan saqlaydi va multi-worker'da bir marta ishlaydi.
+_AUTO_CANCEL_CACHE_KEY = 'bozor:auto_cancel_lock'
+_AUTO_CANCEL_COOLDOWN_SEC = 60
+
+
+def auto_cancel_expired_orders(minutes: int = 30) -> None:
+    """
+    Karta buyurtmalari: 30 daqiqa ichida to'lov bo'lmasa avtomatik bekor qilinadi.
+
+    Throttle mexanizmi (Performance muammosi yechimi):
+    ──────────────────────────────────────────────────
+    Bu funksiya views.py'da 6 ta joyda chaqiriladi. Har bir GET /orders/ so'rovida
+    to'liq DB query ishlagan bo'lar edi. 5000 foydalanuvchi bo'lsa → yuzlab
+    paralel query → DB ning katta qismi faqat shu bilan band bo'ladi.
+
+    cache.add() yordamida ATOMIK distributed lock:
+      • Redis'da SETNX (SET if Not eXists) — atomik operatsiya
+      • Birinchi worker lock'ni oladi va ishlaydi (add → True)
+      • Qolgan workerlar 60 soniya davomida o'tkazib yuboradi (add → False)
+      • LocMemCache da ham ishlaydi (development), lekin workerlar o'rtasida emas
+      • 60 soniya → karta to'lovi 30 DAQIQA, shuning uchun 1 daqiqa juda yetarli
+
+    Nima yo'qolmaydi:
+      Har daqiqada kamida bitta worker bekor qilishni amalga oshiradi.
+      To'lov muddati 30 daqiqa → eng yomon holda 31 daqiqada bekor qilinadi.
+    """
+    from django.core.cache import cache
+
+    # cache.add(): kalit mavjud bo'lmasa True va kalitni qo'yadi (atomik)
+    # Kalit mavjud bo'lsa False qaytaradi — boshqa worker yaqinda bajargan
+    if not cache.add(_AUTO_CANCEL_CACHE_KEY, 1, timeout=_AUTO_CANCEL_COOLDOWN_SEC):
+        return  # throttle: 60 soniya ichida allaqachon bajarilgan
+
     threshold = timezone.now() - timedelta(minutes=minutes)
-    expired_orders = (
-        Order.objects.select_related('payment')
+    expired_orders = list(
+        Order.objects
+        .select_related('payment')
         .prefetch_related('items__product', 'items__variant')
         .filter(
-            status=Order.STATUS_AWAITING_PAYMENT,   # Karta: to'lov kutilmoqda
+            status=Order.STATUS_AWAITING_PAYMENT,    # Karta: to'lov kutilmoqda
             payment_method=Order.PAYMENT_METHOD_CARD,
             payment__status=Payment.STATUS_PENDING,
             created_at__lte=threshold,

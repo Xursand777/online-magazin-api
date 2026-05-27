@@ -1,17 +1,22 @@
-from rest_framework import views, status, generics
-from rest_framework.response import Response
-from rest_framework.permissions import AllowAny, IsAuthenticated
-from rest_framework import serializers
+import uuid
+
+from django.db import transaction
 from django.shortcuts import get_object_or_404
-from .models import Cart, CartItem
+from rest_framework import generics, serializers, status, views
+from rest_framework.permissions import AllowAny, IsAuthenticated
+from rest_framework.response import Response
+
 from products.models import Product, ProductVariant
 from recommendations.services import record_product_event
+
+from .models import Cart, CartItem
 from .serializers import (
-    CartSerializer,
     AddToCartSerializer,
     CartItemSerializer,
+    CartSerializer,
     LocalCartSyncSerializer,
 )
+
 
 def get_or_create_cart(request):
     if request.user.is_authenticated:
@@ -19,31 +24,60 @@ def get_or_create_cart(request):
     else:
         guest_session_id = request.headers.get('X-Guest-Session-Id')
         if not guest_session_id:
-            import uuid
             guest_session_id = str(uuid.uuid4())
         cart, _ = Cart.objects.get_or_create(guest_session_id=guest_session_id)
     return cart
 
-def merge_cart(user, guest_session_id):
+
+@transaction.atomic
+def merge_cart(user, guest_session_id: str) -> None:
+    """
+    Mehmon savat elementlarini foydalanuvchi savatiga birlashtiradi.
+
+    Nima uchun @transaction.atomic:
+      Agar loop o'rtasida xatolik yuz bersa (masalan, DB connection),
+      qisman birlashtirilgan holat qolmasligi uchun barcha o'zgarishlar
+      rollback qilinadi. Savat ma'lumotlari HECH QACHON buzilmaydi.
+
+    Nima uchun select_for_update():
+      Bir foydalanuvchi bir vaqtda ikkita tabdan tizimga kirsa (nadir),
+      ikkala merge'ning ham bitta mehmon savatni o'qib ikkilantirmasligini
+      ta'minlaydi. DB darajasida row lock.
+
+    Miqdor qo'shilish mantig'i:
+      Bir xil product+variant allaqachon foydalanuvchi savatida bo'lsa →
+      miqdorlar qo'shiladi. Yangi bo'lsa → element ko'chiriladi.
+    """
     if not guest_session_id:
         return
-    guest_cart = Cart.objects.filter(guest_session_id=guest_session_id).first()
+
+    # select_for_update: mehmon savatni lock qilib olamiz
+    # Agar bir vaqtda ikki merge talabi kelsa, biri kutadi → takrorlanmaydi
+    guest_cart = (
+        Cart.objects
+        .select_for_update()
+        .filter(guest_session_id=guest_session_id)
+        .first()
+    )
     if not guest_cart:
         return
-    
+
     user_cart, _ = Cart.objects.get_or_create(user=user)
-    
-    for item in guest_cart.items.all():
-        # Check if item with same product/variant already exists in user cart
-        existing_item = user_cart.items.filter(product=item.product, variant=item.variant).first()
-        if existing_item:
-            existing_item.quantity += item.quantity
-            existing_item.save()
+
+    for item in guest_cart.items.select_related('product', 'variant').all():
+        existing = user_cart.items.filter(
+            product=item.product,
+            variant=item.variant,
+        ).first()
+
+        if existing:
+            existing.quantity += item.quantity
+            existing.save(update_fields=['quantity'])
         else:
             item.cart = user_cart
-            item.save()
-    
-    # Optionally delete guest cart or clear its session ID
+            item.save(update_fields=['cart'])
+
+    # Mehmon savati bo'shligi → kaskad o'chirish (qolgan elementlar bilan)
     guest_cart.delete()
 
 
