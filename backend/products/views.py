@@ -1,7 +1,7 @@
 import random
 import re
 
-from django.db.models import Case, IntegerField, Q, Sum, Value, When
+from django.db.models import Case, IntegerField, Min, Max, Q, Sum, Value, When
 from .serializers import absolute_media_url
 from django.utils import timezone
 from rest_framework import generics, views, status, viewsets
@@ -145,6 +145,17 @@ class SectionPagination(PageNumberPagination):
     page_size_query_param = 'page_size'
     max_page_size = 100
 
+# ─────────────────────────────────────────────────────────────────────────────
+# TEZKOR QIDIRUV CHEGARASI — ProductSearchView (autocomplete / dropdown)
+# ─────────────────────────────────────────────────────────────────────────────
+# ProductSearchView'da pagination_class=None (dropdown uchun oddiy ro'yxat).
+# Cheklovsiz bo'lsa: 1M mahsulotli katalogda "telefon" so'zi 50 000 qatorga
+# mos kelishi mumkin — barchasi seriallanadi, response megabaytlarga yetadi.
+#
+# ProductListView (?q=...) esa standart DRF sahifalashdan foydalanadi →
+# u allaqachon cheklangan. Bu qiymat FAQAT tezkor qidiruv uchun.
+_MAX_SEARCH_RESULTS = 50
+
 class CategoryListView(generics.ListAPIView):
     queryset = Category.objects.filter(parent=None, is_active=True) # Only top level categories as tree roots
     serializer_class = CategorySerializer
@@ -249,7 +260,7 @@ class ProductSearchView(generics.ListAPIView):
                 )
                 # fts_rank — _apply_postgres_fts() tomonidan qo'shilgan
                 .order_by('-exact_match', '-starts_match', '-fts_rank', '-is_popular', '-is_new', 'name')
-                .distinct()
+                .distinct()[:_MAX_SEARCH_RESULTS]
             )
 
         # ── SQLite / boshqa DB: icontains (AND-mantig'i) ─────────────────────
@@ -273,7 +284,7 @@ class ProductSearchView(generics.ListAPIView):
                 ),
             )
             .order_by('-exact_match', '-starts_match', '-contains_match', '-is_popular', '-is_new', 'name')
-            .distinct()
+            .distinct()[:_MAX_SEARCH_RESULTS]
         )
 
 class ProductDetailView(generics.RetrieveAPIView):
@@ -421,53 +432,174 @@ class ProductPopularListView(generics.ListAPIView):
     def get_queryset(self):
         return Product.objects.filter(is_active=True, is_popular=True).order_by('-updated_at')
 
-# ── Tasodifiy mahsulotlar: kesh pool sozlamalari ──────────────────────────────
+# ── Tasodifiy tavsiyalar: masshtablanadigan cheklangan pool ───────────────────
 #
-# MUAMMO — order_by('?'):
-#   PostgreSQL'da ORDER BY RANDOM() = FULL TABLE SCAN.
-#   10 000 mahsulot: har so'rovda butun jadval xotirada saralanadi.
-#   Bitta so'rov: O(n log n). 100 ta parallel so'rov: 100 × O(n log n).
+# MUAMMO 1 — order_by('?'):
+#   O(n log n) full table scan. 100k mahsulot × 100 parallel so'rov = falaj.
 #
-# YECHIM — ID pool keshi + Python random.sample():
-#   1. Barcha aktiv mahsulotlarning ID lari Redis'da saqlanadi (faqat integerlar,
-#      minimal xotira: 100 000 ID ≈ 400 KB).
-#   2. Har so'rovda Python random.sample(pool, 8) — O(k), juda tez.
-#   3. Product.objects.filter(id__in=sample) — PK index bo'yicha, O(k log n).
+# MUAMMO 2 — barcha ID larni yuklash (oldingi tuzatma):
+#   1M mahsulot → 8 MB Redis, pool qurish sekin. Katta katalogda o'sadi.
+#   Muhimroq: pool TASODIFIY — sifatsiz, kam maʼlum mahsulotlar ham chiqadi.
 #
-# DB so'rovlari:
-#   Kesh issiq (3 daqiqa)  : 1 ta SELECT id__in (8 element)
-#   Kesh sovuq (birinchi)  : 1 ta values_list('id') + 1 ta SELECT id__in
+# TO'LIQ YECHIM — Cheklangan, Maqsadli, Masshtablanadigan Pool:
 #
-# Eslatma: mahsulot nofaol bo'lib qolsa, kesh ID poolida qoladi, lekin
-#   ikkinchi filter(is_active=True) uni natijadan chiqaradi.
+#   POOL HAJMI: _RECOMMENDED_POOL_SIZE = 10 000 (katalog hajmidan mustaqil)
+#   Xotira: 10 000 × 8 bayt = 80 KB Redis. Doimo shunday.
+#
+#   POOL TARKIBI (ustuvorlik tartibi):
+#     40% (4 000) → is_popular=True  — eng mashhur mahsulotlar, PK indeks
+#     30% (3 000) → is_new=True      — yangi kirimlar, PK indeks
+#     30% (3 000) → Xilma-xil namuna — TASODIFIY PIVOT texnikasi:
+#
+#   TASODIFIY PIVOT texnikasi (ORDER BY RANDOM() o'rniga):
+#     1. SELECT MIN(id), MAX(id)          — O(log n), B-tree indeks
+#     2. pivot = random.randint(min, max) — Python, O(1)
+#     3. SELECT id WHERE id >= pivot ORDER BY id LIMIT k  — O(log n + k)
+#     3 ta turli pivot → 3 ta oyna → katalog bo'ylab vakillik.
+#     ORDER BY RANDOM() dan farq: O(n log n) → O(log n + k).
+#
+#   DB SO'ROVLARI (pool qurishda, 5 daqiqada bir marta):
+#     1. SELECT id WHERE is_popular LIMIT 4000           → PK indeks
+#     2. SELECT id WHERE is_new LIMIT 3000               → PK indeks
+#     3. SELECT MIN(id), MAX(id)                         → O(log n)
+#     4-6. 3× SELECT id WHERE id >= pivot LIMIT 1000     → O(log n + 1000) har biri
+#     Jami: 6 ta so'rov, barchasi tez.
+#
+#   DB SO'ROVLARI (har request'da):
+#     Kesh issiq: 0 DB so'rov (faqat Redis read)
+#     Kesh sovuq: 6 ta yuqoridagi + 1 ta id__in select (8 element)
+#
+#   ESLATMA: Nofaol mahsulot pool'da qolishi mumkin (5 daqiqa TTL).
+#     filter(is_active=True) ni ikkinchi filtr sifatida qo'llash buni qoplaydi.
+# ─────────────────────────────────────────────────────────────────────────────
+_RECOMMENDED_POOL_SIZE = 10_000
+_RECOMMENDED_POOL_POP  = _RECOMMENDED_POOL_SIZE * 40 // 100   # 4 000 — mashhur
+_RECOMMENDED_POOL_NEW  = _RECOMMENDED_POOL_SIZE * 30 // 100   # 3 000 — yangi
+_RECOMMENDED_POOL_DIV  = _RECOMMENDED_POOL_SIZE - _RECOMMENDED_POOL_POP - _RECOMMENDED_POOL_NEW  # 3 000
 _RECOMMENDED_IDS_CACHE_KEY = 'bozor:recommended_ids'
-_RECOMMENDED_IDS_CACHE_TTL = 3 * 60  # 3 daqiqa — yangi mahsulotlar vaqtida ko'rinadi
+_RECOMMENDED_IDS_CACHE_TTL = 5 * 60   # 5 daqiqa
 _RECOMMENDED_LIMIT = 8
 
 
+def _build_recommended_pool() -> list:
+    """
+    Kesh uchun maqsadli ID pool quradi.
+    5 daqiqada bir marta ishlatiladi — har request'da emas.
+
+    Diverse (xilma-xil) qism uchun TASODIFIY PIVOT texnikasi:
+      Har bir pivot uchun: B-tree'da O(log n) lookup + O(chunk) sequential scan.
+      Jami O(log n + k), O(n log n) emas.
+    """
+    # ── 1. Mashhur mahsulotlar ────────────────────────────────────────────
+    pop_ids: list = list(
+        Product.objects
+        .filter(is_active=True, is_popular=True)
+        .order_by('-updated_at')
+        .values_list('id', flat=True)[:_RECOMMENDED_POOL_POP]
+    )
+
+    # ── 2. Yangi mahsulotlar (mashhurlar bilan kesishmasdan) ──────────────
+    pop_set: set = set(pop_ids)
+    new_ids: list = list(
+        Product.objects
+        .filter(is_active=True, is_new=True)
+        .exclude(id__in=pop_set)
+        .order_by('-created_at')
+        .values_list('id', flat=True)[:_RECOMMENDED_POOL_NEW]
+    )
+
+    # ── 3. Xilma-xil katalog — tasodifiy pivot oynalari ──────────────────
+    excluded: set = pop_set | set(new_ids)
+    diverse_base = (
+        Product.objects
+        .filter(is_active=True)
+        .exclude(id__in=excluded)
+        .order_by('id')               # PK indeks — deterministik, tez
+        .values_list('id', flat=True)
+    )
+
+    id_bounds = diverse_base.aggregate(min_id=Min('id'), max_id=Max('id'))
+    min_id = id_bounds.get('min_id')
+    max_id = id_bounds.get('max_id')
+
+    diverse_ids: list = []
+    if min_id is not None and max_id is not None and _RECOMMENDED_POOL_DIV > 0:
+        chunk = max(1, _RECOMMENDED_POOL_DIV // 3)   # 3 ta oyna
+        seen_d: set = set()
+
+        for _ in range(3):
+            pivot = random.randint(min_id, max_id)   # O(1) — Python
+
+            # O(log n) lookup + O(chunk) scan — B-tree PK indeks
+            batch: list = list(
+                Product.objects
+                .filter(is_active=True, id__gte=pivot)
+                .exclude(id__in=excluded | seen_d)
+                .order_by('id')
+                .values_list('id', flat=True)[:chunk]
+            )
+
+            # Pivot juda katta bo'lsa (oxirga yaqin), boshidan to'ldirish
+            if len(batch) < chunk // 2:
+                extra: list = list(
+                    Product.objects
+                    .filter(is_active=True)
+                    .exclude(id__in=excluded | seen_d)
+                    .order_by('id')
+                    .values_list('id', flat=True)[: chunk - len(batch)]
+                )
+                batch.extend(extra)
+
+            for pid in batch:
+                if pid not in seen_d:
+                    seen_d.add(pid)
+                    diverse_ids.append(pid)
+            if len(diverse_ids) >= _RECOMMENDED_POOL_DIV:
+                break
+
+        diverse_ids = diverse_ids[:_RECOMMENDED_POOL_DIV]
+
+    pool: list = pop_ids + new_ids + diverse_ids
+
+    # Failsafe: katalogda popular/new bo'lmasa, eng yangilanganlar
+    if not pool:
+        pool = list(
+            Product.objects.filter(is_active=True)
+            .order_by('-updated_at')
+            .values_list('id', flat=True)[:_RECOMMENDED_POOL_SIZE]
+        )
+
+    random.shuffle(pool)   # Har keshlanishdan keyin turli ketma-ketlik
+    return pool
+
+
+def _get_recommended_pool() -> list:
+    """Pool keshdan qaytaradi; sovuq bo'lsa _build_recommended_pool() chaqiriladi."""
+    from django.core.cache import cache
+    pool = cache.get(_RECOMMENDED_IDS_CACHE_KEY)
+    if pool is None:
+        pool = _build_recommended_pool()
+        cache.set(_RECOMMENDED_IDS_CACHE_KEY, pool, timeout=_RECOMMENDED_IDS_CACHE_TTL)
+    return pool
+
+
 class ProductRecommendedListView(generics.ListAPIView):
+    """
+    GET /api/products/recommended/
+    8 ta tavsiya qilingan mahsulot. Kesh issiq bo'lsa: 1 ta DB so'rov.
+    """
     serializer_class = ProductListSerializer
     permission_classes = (AllowAny,)
 
     def get_queryset(self):
-        from django.core.cache import cache
-
-        # ID pool keshdan yoki DB'dan
-        pool = cache.get(_RECOMMENDED_IDS_CACHE_KEY)
-        if pool is None:
-            pool = list(
-                Product.objects.filter(is_active=True)
-                .values_list('id', flat=True)
-            )
-            cache.set(_RECOMMENDED_IDS_CACHE_KEY, pool, timeout=_RECOMMENDED_IDS_CACHE_TTL)
-
+        pool = _get_recommended_pool()
         if not pool:
             return Product.objects.none()
 
-        # Python darajasida tasodifiy namuna — DB yuklamasi yo'q
+        # O(k) — Python Floyd algoritmi, DB yuklamasi yo'q
         sample_ids = random.sample(pool, min(_RECOMMENDED_LIMIT, len(pool)))
 
-        # PK index bo'yicha tez so'rov + prefetch (N+1 yo'q)
+        # PK indeks — O(k log n), prefetch: N+1 yo'q
         return (
             Product.objects.filter(id__in=sample_ids, is_active=True)
             .select_related('category')
