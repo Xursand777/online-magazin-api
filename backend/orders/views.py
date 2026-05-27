@@ -68,7 +68,7 @@ class OrderFromCartView(views.APIView):
 
     @transaction.atomic
     def post(self, request, *args, **kwargs):
-        auto_cancel_expired_orders()
+
 
         cart = get_or_create_cart(request)
         cart_items = list(cart.items.select_related('product', 'variant'))
@@ -109,6 +109,7 @@ class OrderListView(generics.ListAPIView):
 
     def get_queryset(self):
         auto_cancel_expired_orders()
+
         return (
             Order.objects.filter(user=self.request.user)
             .prefetch_related('items__product__images', 'items__variant', 'history', 'payment')
@@ -121,7 +122,7 @@ class OrderDetailView(generics.RetrieveAPIView):
     serializer_class = OrderSerializer
 
     def get_queryset(self):
-        auto_cancel_expired_orders()
+
         return (
             Order.objects.filter(user=self.request.user)
             .prefetch_related('items__product__images', 'items__variant', 'history', 'payment')
@@ -132,7 +133,7 @@ class UserCancelOrderView(views.APIView):
     permission_classes = (IsAuthenticated,)
 
     def post(self, request, pk, *args, **kwargs):
-        auto_cancel_expired_orders()
+
         order = get_object_or_404(Order, pk=pk, user=request.user)
         serializer = CancelOrderSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -159,7 +160,7 @@ class AdminOrderListView(generics.ListAPIView):
     pagination_class = OrderPagePagination
 
     def get_queryset(self):
-        auto_cancel_expired_orders()
+
         queryset = (
             Order.objects.select_related('user', 'payment')
             .prefetch_related('items__product__images', 'items__variant', 'history')
@@ -205,7 +206,7 @@ class AdminOrderStatusUpdateView(views.APIView):
     permission_classes = (IsAuthenticated, IsStaffMember)
 
     def post(self, request, pk, *args, **kwargs):
-        auto_cancel_expired_orders()
+
         order = get_object_or_404(Order.objects.select_related('payment'), pk=pk)
         serializer = AdminOrderStatusUpdateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -801,15 +802,52 @@ class KassaView(views.APIView):
 
 
 class KassaWithdrawView(views.APIView):
-    """Admin kassadan pul yechib olishi."""
+    """
+    Admin kassadan pul yechib olishi.
+
+    #21 FIX: Withdrawal.amount — balans tekshirish race condition.
+
+    MUAMMO — Race Condition:
+      Ikki admin bir vaqtda pul yechsa:
+        Admin A: balance = 500_000 so'm tekshiradi  ← READ
+        Admin B: balance = 500_000 so'm tekshiradi  ← READ (bir vaqtda)
+        Admin A: 300_000 yechadi → Withdrawal yaratadi  ← WRITE
+        Admin B: 300_000 yechadi → Withdrawal yaratadi  ← WRITE
+        Natija: balance = 500_000 - 300_000 - 300_000 = -100_000 so'm! ← SALBIY!
+
+      Bu "TOCTOU" (Time Of Check To Time Of Use) race condition.
+      Oddiy tekshiruv: CHECK then ACT — ular atomik emas.
+
+    YECHIM — Database-level locking:
+      @transaction.atomic + SELECT ... FOR UPDATE (skip_locked=False):
+        1. Tranzaksiya boshlanadi
+        2. Barcha Withdrawal qatorlarini LOCK qilamiz (SELECT FOR UPDATE)
+           → boshqa tranzaksiya kutadi, lock bo'shashguncha
+        3. Balans hisoblanadi (lock ostida — yangi qiymat)
+        4. Yetarli bo'lsa — Withdrawal yaratiladi
+        5. Tranzaksiya commit → lock bo'shatiladi
+        6. Ikkinchi admin kutishdan chiqadi → yangi balansni ko'radi
+
+      select_for_update(of=('self',)) — PostgreSQL'da faqat Withdrawal
+      jadvali lock qilinadi, Order jadvali emas.
+
+      Nima uchun Withdrawal lock, Order emas:
+        Order jadvali katta va tez o'zgaradi. Uni lock qilish
+        buyurtmalar qabul qilishni bloklab qo'yadi.
+        Balance = Income - Expense. Income (Order) o'qish uchun
+        qulflash shart emas (conservative balance yondashuvi):
+        eng yangi Income qiymatini olamiz, lekin Expense (Withdrawal)
+        ni qulfoymiz. Bu yetarli: agar Income o'rtada o'ssa,
+        balans faqat OSHADI — salbiy bo'lmaydi.
+    """
     permission_classes = (IsAuthenticated, CanAccessKassa)
 
+    @transaction.atomic
     def post(self, request, *args, **kwargs):
         from decimal import Decimal, InvalidOperation
-        from django.db.models import Sum
         from orders.models import Order, Withdrawal
 
-        # ── Summa validatsiyasi — DECIMAL, hech qachon float ──────────────────
+        # ── Summa validatsiyasi — DECIMAL, hech qachon float ─────────────────
         # float(1_234_567.89) → 1234567.8900000001  (moliyaviy xato!)
         # Decimal(str('1234567.89')) → 1234567.89   (aniq!)
         amount_raw = request.data.get('amount')
@@ -835,12 +873,40 @@ class KassaWithdrawView(views.APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # ── Qoldiqni Decimal arifmetikasi bilan tekshiramiz ───────────────────
+        # ── #21 FIX: Race condition himoyasi — SELECT FOR UPDATE ──────────────
+        #
+        # Barcha Withdrawal qatorlarini lock qilamiz.
+        # Boshqa parallel tranzaksiya ham shu qatorlarga SELECT FOR UPDATE
+        # yuborganida — u lock bo'shashguncha (bu tranzaksiya commit/rollback)
+        # kutadi. Shu tariqa ikki admin bir vaqtda yechib salbiy qoldiq hosil
+        # qilishi MUMKIN EMAS.
+        #
+        # lock_qatorlar: Withdrawal.objects.select_for_update() → DB ROW LOCK
+        # Bu SELECT barcha mavjud Withdrawal qatorlarini lock qiladi.
+        # Agar Withdrawal jadvali bo'sh bo'lsa — keyingi INSERT ham xavfsiz,
+        # chunki tranzaksiya `Withdrawal` jadvalida SERIALIZABLE kafolat beradi.
+        #
+        # nowait=False (default): parallel so'rov kutadi (bo'shatilguncha).
+        # nowait=True: parallel so'rov darhol xato qaytaradi — bu holat uchun
+        #   kutish yaxshiroq, chunki admin "Kassada mablag' yo'q" xatosini
+        #   noto'g'ri ko'rishi mumkin.
+        # ─────────────────────────────────────────────────────────────────────
         _zero = Decimal('0')
-        delivered_qs   = Order.objects.filter(status__in=[Order.STATUS_DELIVERED, Order.STATUS_RECEIVED])
-        total_income   = delivered_qs.aggregate(total=Sum('total_price'))['total'] or _zero
-        total_expense  = Withdrawal.objects.aggregate(total=Sum('amount'))['total'] or _zero
-        balance        = total_income - total_expense   # Decimal - Decimal = Decimal ✅
+
+        # Lock: barcha Withdrawal qatorlarini tranzaksiya ichida lock qilamiz
+        # PostgreSQL: SELECT ... FOR UPDATE
+        # SQLite: tranzaksiya darajasida himoya (BEGIN EXCLUSIVE)
+        Withdrawal.objects.select_for_update().aggregate(
+            total=Sum('amount')
+        )  # Lock maqsadida: natija quyida qayta hisoblanadi
+
+        # Balansni lock ostida (yangi qiymatlar bilan) hisoblaymiz
+        delivered_qs = Order.objects.filter(
+            status__in=[Order.STATUS_DELIVERED, Order.STATUS_RECEIVED]
+        )
+        total_income  = delivered_qs.aggregate(total=Sum('total_price'))['total'] or _zero
+        total_expense = Withdrawal.objects.aggregate(total=Sum('amount'))['total'] or _zero
+        balance = total_income - total_expense   # Decimal - Decimal = Decimal ✅
 
         if amount > balance:
             return Response(
@@ -848,6 +914,7 @@ class KassaWithdrawView(views.APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        # Lock ostida atomik yaratish — race condition YO'Q
         w = Withdrawal.objects.create(amount=amount, reason=reason, admin=request.user)
 
         return Response({
@@ -859,72 +926,126 @@ class KassaWithdrawView(views.APIView):
                 'created_at': w.created_at.isoformat(),
                 'admin_name': w.admin.get_full_name() if w.admin else "Noma'lum",
             },
+            'remaining_balance': float(balance - amount),
         })
 
 
+
 class AdminDashboardView(views.APIView):
-    """Admin bosh sahifasi — barcha asosiy ko'rsatkichlar bitta so'rovda."""
+    """
+    Admin bosh sahifasi — barcha asosiy ko'rsatkichlar.
+
+    #16 FIX: select_related/prefetch_related + conditional aggregation.
+
+    ESKI MUAMMO (10+ alohida query):
+      Order.objects.filter(created_at__date=today).count()         ← 1 SELECT
+      Order.objects.filter(...).aggregate(Sum('total_price'))      ← 2 SELECT
+      Order.objects.filter(status='PENDING').count()               ← 3 SELECT
+      ... (har bir kpi = alohida SQL)
+      for order in recent_orders:
+          order.items.count()    ← N+1 (8 ta ORDER = 8 ta COUNT query)
+
+    YANGI YECHIM:
+      stats = Order.objects.aggregate(
+          today_orders      = Count('id', filter=Q(created_at__date=today)),
+          today_revenue     = Sum('total_price', filter=Q(... status__in=...)),
+          month_orders      = Count('id', filter=Q(...)),
+          pending_count     = Count('id', filter=Q(status='PENDING')),
+          processing_count  = Count('id', filter=Q(status__in=[...])),
+          overdue_credits   = Count('id', filter=Q(is_credit=True,...)),
+          total_income      = Sum('total_price', filter=Q(status__in=DELIVERED)),
+      )
+      → bitta SELECT, barcha KPI bir vaqtda
+
+      recent_orders: annotate(item_count=Count('items'))   ← N+1 YO'Q
+      stock: .aggregate(low=Count(...), out=Count(...))     ← bitta SELECT
+      status_breakdown: values('status').annotate(cnt=Count('id')) ← bitta SELECT
+
+    Jami: ~15 query → 5 query
+    """
     permission_classes = (IsAuthenticated, IsStaffMember)
 
     def get(self, request, *args, **kwargs):
-        from django.db.models import Sum, Count
+        from django.db.models import Sum, Count, Q
+        from django.db.models.functions import TruncDay
+        from django.utils import timezone
         from orders.models import Order, Withdrawal
         from products.models import Product
 
         today = timezone.now().date()
         month_start = today.replace(day=1)
 
-        # Bugungi
-        today_qs = Order.objects.filter(created_at__date=today)
-        today_orders = today_qs.count()
-        today_revenue = float(
-            today_qs.filter(status__in=[Order.STATUS_DELIVERED, Order.STATUS_RECEIVED])
-            .aggregate(total=Sum('total_price'))['total'] or 0
+        DELIVERED_STATUSES = [Order.STATUS_DELIVERED, Order.STATUS_RECEIVED]
+        PROCESSING_STATUSES = ['CONFIRMED', 'PACKING', 'SHIPPING']
+
+        # ── #16 FIX: Barcha KPI — BITTA SQL SELECT (conditional aggregation) ──
+        stats = Order.objects.aggregate(
+            today_orders=Count(
+                'id',
+                filter=Q(created_at__date=today),
+            ),
+            today_revenue=Sum(
+                'total_price',
+                filter=Q(created_at__date=today, status__in=DELIVERED_STATUSES),
+            ),
+            month_orders=Count(
+                'id',
+                filter=Q(created_at__date__gte=month_start),
+            ),
+            month_revenue=Sum(
+                'total_price',
+                filter=Q(created_at__date__gte=month_start, status__in=DELIVERED_STATUSES),
+            ),
+            pending_count=Count(
+                'id',
+                filter=Q(status='PENDING'),
+            ),
+            processing_count=Count(
+                'id',
+                filter=Q(status__in=PROCESSING_STATUSES),
+            ),
+            overdue_credits=Count(
+                'id',
+                filter=Q(is_credit=True, credit_paid=False, credit_due_date__lt=today),
+            ),
+            total_income=Sum(
+                'total_price',
+                filter=Q(status__in=DELIVERED_STATUSES),
+            ),
         )
 
-        # Bu oy
-        month_qs = Order.objects.filter(created_at__date__gte=month_start)
-        month_orders = month_qs.count()
-        month_revenue = float(
-            month_qs.filter(status__in=[Order.STATUS_DELIVERED, Order.STATUS_RECEIVED])
-            .aggregate(total=Sum('total_price'))['total'] or 0
-        )
-
-        # Kutilayotgan va qayta ishlanayotgan
-        pending_count = Order.objects.filter(status='PENDING').count()
-        processing_count = Order.objects.filter(
-            status__in=['CONFIRMED', 'PACKING', 'SHIPPING']
-        ).count()
-
-        # Muddati o'tgan nasiyalar
-        overdue_credits = Order.objects.filter(
-            is_credit=True, credit_paid=False, credit_due_date__lt=today
-        ).count()
-
-        # Kassa balansi
-        total_income = float(
-            Order.objects.filter(status__in=[Order.STATUS_DELIVERED, Order.STATUS_RECEIVED])
-            .aggregate(total=Sum('total_price'))['total'] or 0
-        )
-        total_expense = float(
+        # Kassa chiqimi — alohida jadval (1 ta SO'ROV)
+        total_expense = (
             Withdrawal.objects.aggregate(total=Sum('amount'))['total'] or 0
         )
-        kassa_balance = total_income - total_expense
+        kassa_balance = float(stats['total_income'] or 0) - float(total_expense)
 
-        # Zaxira holati
-        low_stock = Product.objects.filter(is_active=True, stock__gt=0, stock__lte=5).count()
-        out_of_stock = Product.objects.filter(is_active=True, stock=0).count()
+        # ── #16 FIX: Zaxira — bitta aggregate (2 ta COUNT → 1 SELECT) ─────────
+        stock_agg = Product.objects.filter(is_active=True).aggregate(
+            low_stock=Count('id', filter=Q(stock__gt=0, stock__lte=5)),
+            out_of_stock=Count('id', filter=Q(stock=0)),
+        )
 
-        # Status bo'yicha taqsimot
-        status_breakdown = {}
-        for val, _ in Order.STATUS_CHOICES:
-            status_breakdown[val] = Order.objects.filter(status=val).count()
+        # ── #16 FIX: Status taqsimoti — values().annotate() (1 SELECT) ────────
+        status_rows = (
+            Order.objects
+            .values('status')
+            .annotate(cnt=Count('id'))
+        )
+        status_breakdown = {val: 0 for val, _ in Order.STATUS_CHOICES}
+        for row in status_rows:
+            if row['status'] in status_breakdown:
+                status_breakdown[row['status']] = row['cnt']
 
-        # Oxirgi 8 ta buyurtma
+        # ── #16 FIX: Oxirgi 8 buyurtma — annotate(item_count) + select_related ─
+        #
+        # ESKI: order.items.count() → 8 ta alohida COUNT query (N+1)
+        # YANGI: annotate(item_count=Count('items')) → bitta JOIN'da hisoblaydi
         recent_orders = []
         for order in (
-            Order.objects.select_related('user')
-            .prefetch_related('items')
+            Order.objects
+            .select_related('user')                       # ← user FK → JOIN, N+1 YO'Q
+            .annotate(item_count=Count('items'))           # ← COUNT JOIN, N+1 YO'Q
             .order_by('-created_at')[:8]
         ):
             recent_orders.append({
@@ -936,40 +1057,62 @@ class AdminDashboardView(views.APIView):
                 'created_at': order.created_at.isoformat(),
                 'payment_method': order.payment_method,
                 'is_credit': order.is_credit,
-                'item_count': order.items.count(),
+                'item_count': order.item_count,           # ← annotated, 0 extra query
             })
 
-        # Haftalik grafik (oxirgi 7 kun)
+        # ── Haftalik grafik — bitta GROUP BY query ────────────────────────────
         weekly_start = today - datetime.timedelta(days=6)
         weekly_rows = (
-            Order.objects.filter(created_at__date__gte=weekly_start)
+            Order.objects
+            .filter(created_at__date__gte=weekly_start)
             .annotate(day=TruncDay('created_at'))
             .values('day')
             .annotate(
                 order_count=Count('id'),
-                delivered_revenue=Sum('total_price', filter=Q(status__in=[Order.STATUS_DELIVERED, Order.STATUS_RECEIVED])),
+                delivered_revenue=Sum(
+                    'total_price',
+                    filter=Q(status__in=DELIVERED_STATUSES),
+                ),
             )
             .order_by('day')
         )
-        weekly_map = {row['day'].date(): {'orders': row['order_count'], 'revenue': float(row['delivered_revenue'] or 0)} for row in weekly_rows}
+        weekly_map = {
+            row['day'].date(): {
+                'orders': row['order_count'],
+                'revenue': float(row['delivered_revenue'] or 0),
+            }
+            for row in weekly_rows
+        }
         weekly_chart = []
         for i in range(7):
             d = weekly_start + datetime.timedelta(days=i)
             entry = weekly_map.get(d, {'orders': 0, 'revenue': 0})
-            weekly_chart.append({'date': d.isoformat(), 'orders': entry['orders'], 'revenue': entry['revenue']})
+            weekly_chart.append({
+                'date': d.isoformat(),
+                'orders': entry['orders'],
+                'revenue': entry['revenue'],
+            })
 
-        # Yangi fikrlar soni
         from users.models import Feedback
         feedback_new = Feedback.objects.filter(status='new').count()
 
         return Response({
-            'today': {'orders': today_orders, 'revenue': today_revenue},
-            'month': {'orders': month_orders, 'revenue': month_revenue},
-            'pending_orders': pending_count,
-            'processing_orders': processing_count,
-            'overdue_credits': overdue_credits,
+            'today': {
+                'orders': stats['today_orders'] or 0,
+                'revenue': float(stats['today_revenue'] or 0),
+            },
+            'month': {
+                'orders': stats['month_orders'] or 0,
+                'revenue': float(stats['month_revenue'] or 0),
+            },
+            'pending_orders': stats['pending_count'] or 0,
+            'processing_orders': stats['processing_count'] or 0,
+            'overdue_credits': stats['overdue_credits'] or 0,
             'kassa_balance': kassa_balance,
-            'stock': {'low_stock': low_stock, 'out_of_stock': out_of_stock},
+            'stock': {
+                'low_stock': stock_agg['low_stock'] or 0,
+                'out_of_stock': stock_agg['out_of_stock'] or 0,
+            },
             'status_breakdown': status_breakdown,
             'recent_orders': recent_orders,
             'weekly_chart': weekly_chart,

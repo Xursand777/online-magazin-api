@@ -27,60 +27,55 @@ interface AuthUser {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Muhim: refreshToken endi localStorage'da SAQLANMAYDI.
-// U httpOnly cookie sifatida brauzerda yashaydi — JavaScript tomonidan
-// o'qib bo'lmaydi → XSS hujumlari refresh tokenni o'g'irlay olmaydi.
-//
-// accessToken localStorage'da saqlanishi (qisqa muddatli — 60 daqiqa)
-// amaliy murosadur: SPA sessiyasini sahifa yangilanishidan keyin ham
-// saqlab qolish uchun zarur. Access token muddati qisqa (60 daqiqa)
-// bo'lgani sababli, o'g'irlanish oynasi ham tor.
+// Muhim: access va refresh tokenlar localStorage'da SAQLANMAYDI.
+// Ular httpOnly cookie sifatida brauzerda yashaydi — JavaScript tomonidan
+// o'qib bo'lmaydi → XSS hujumlari tokenlarni o'g'irlay olmaydi.
 // ─────────────────────────────────────────────────────────────────────────────
 
 interface AuthState {
   user: AuthUser | null;
-  accessToken: string | null;
   isAuthenticated: boolean;
-  login: (user: AuthUser, access: string) => void;
+  login: (user: AuthUser) => void;
   logout: () => void;
   updateUser: (user: Partial<AuthUser>) => void;
 }
 
-const storedUser   = localStorage.getItem('user');
-const storedAccess = localStorage.getItem('access_token');
+let initialUser = null;
+try {
+  const storedUser = localStorage.getItem('user');
+  if (storedUser) {
+    initialUser = JSON.parse(storedUser);
+  }
+} catch (e) {
+  console.error("Failed to parse user from localStorage", e);
+  localStorage.removeItem('user');
+}
 
 export const useAuthStore = create<AuthState>((set) => ({
-  user:            storedUser ? JSON.parse(storedUser) : null,
-  accessToken:     storedAccess || null,
-  isAuthenticated: !!storedAccess,
+  user:            initialUser,
+  isAuthenticated: !!initialUser,
 
-  login: (user, access) => {
+  login: (user) => {
     localStorage.setItem('user', JSON.stringify(user));
-    localStorage.setItem('access_token', access);
-    // refreshToken localStorage'ga YOZILMAYDI — httpOnly cookie'da
-    set({ user, accessToken: access, isAuthenticated: true });
+    set({ user, isAuthenticated: true });
   },
 
   logout: () => {
     // Server tomonida refresh cookie blacklist'ga qo'shiladi va o'chiriladi.
-    // withCredentials: true → brauzer httpOnly cookie'ni o'zi yuboradi.
-    // Fire-and-forget: tarmoq xatosi bo'lsa ham lokal holat tozalanadi.
+    // bilan birga access cookie ham o'chiriladi.
     const BASE_URL = import.meta.env.VITE_API_URL ?? 'http://127.0.0.1:8000/api';
-    const accessToken = localStorage.getItem('access_token');
     fetch(`${BASE_URL}/auth/logout/`, {
       method:      'POST',
       credentials: 'include',
       headers: {
         'Content-Type': 'application/json',
-        ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
       },
     }).catch(() => {
       // Tarmoq xatosi yoki token muddati o'tgan — lokal tozalash baribir bajariladi
     });
 
     localStorage.removeItem('user');
-    localStorage.removeItem('access_token');
-    set({ user: null, accessToken: null, isAuthenticated: false });
+    set({ user: null, isAuthenticated: false });
   },
 
   updateUser: (updatedFields) =>

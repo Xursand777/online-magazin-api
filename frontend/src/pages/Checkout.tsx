@@ -84,7 +84,9 @@ const Checkout = () => {
   }, [fetchCart, isAuthenticated, navigate]);
 
   const items = cart?.items || [];
-  const totalPrice = Number(cart?.total_price || 0);
+  const itemsTotalPrice = Number(cart?.total_price || 0);
+  const deliveryCost = itemsTotalPrice > 500_000 ? 0 : 30_000;
+  const finalPrice = itemsTotalPrice + deliveryCost;
 
   if (!isAuthenticated) {
     return null;
@@ -114,6 +116,13 @@ const Checkout = () => {
     e.preventDefault();
     if (!formData.receiver_name || !formData.receiver_phone || !formData.delivery_address) {
       toast.error(t.checkout.allFieldsRequired);
+      return;
+    }
+
+    const cleanPhone = formData.receiver_phone.replace(/\s+/g, '');
+    const phoneRegex = /^\+998[0-9]{9}$/;
+    if (!phoneRegex.test(cleanPhone)) {
+      toast.error(t.auth?.errors?.phoneRequired || "Telefon raqami +998XXXXXXXXX formatida bo'lishi kerak");
       return;
     }
 
@@ -174,10 +183,10 @@ const Checkout = () => {
               </div>
               <div className="flex flex-col md:col-span-2">
                 <label className="font-label-md text-label-md text-on-surface-variant mb-xs" htmlFor="receiver_phone">{t.checkout.receiverPhone} *</label>
-                <input 
-                  className="border border-outline-variant rounded-lg px-sm py-sm focus:ring-primary focus:border-primary bg-surface-bright outline-none" 
-                  id="receiver_phone" 
-                  placeholder="+998 90 123 45 67" 
+                <input
+                  className="border border-outline-variant rounded-lg px-sm py-sm focus:ring-primary focus:border-primary bg-surface-bright outline-none"
+                  id="receiver_phone"
+                  placeholder="+998901234567"
                   required
                   type="tel"
                   value={formData.receiver_phone}
@@ -332,17 +341,19 @@ const Checkout = () => {
             <div className="space-y-sm mb-md pb-md border-b border-outline-variant">
               <div className="flex justify-between items-center">
                 <span className="font-body-md text-body-md text-on-surface-variant">{t.cart.products} ({cart?.items.length})</span>
-                <span className="font-body-md text-body-md text-on-surface">{formatPrice(totalPrice)}</span>
+                <span className="font-body-md text-body-md text-on-surface">{formatPrice(itemsTotalPrice)}</span>
               </div>
               <div className="flex justify-between items-center">
                 <span className="font-body-md text-body-md text-on-surface-variant">{t.checkout.delivery}</span>
-                <span className="font-body-md text-body-md text-primary font-medium">{t.checkout.free}</span>
+                <span className="font-body-md text-body-md text-primary font-medium">
+                  {deliveryCost === 0 ? t.checkout.free : formatPrice(deliveryCost)}
+                </span>
               </div>
             </div>
 
             <div className="flex justify-between items-center mb-lg">
               <span className="font-h3 text-h3 text-on-surface">{t.checkout.total}</span>
-              <span className="font-price text-price text-primary">{formatPrice(totalPrice)}</span>
+              <span className="font-price text-price text-primary">{formatPrice(finalPrice)}</span>
             </div>
 
             <button

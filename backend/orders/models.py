@@ -95,6 +95,7 @@ class Order(models.Model):
         max_length=32,
         choices=STATUS_CHOICES,
         default=STATUS_PENDING,
+        db_index=True,
     )
 
     delivery_price = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
@@ -105,9 +106,9 @@ class Order(models.Model):
     cancelled_at = models.DateTimeField(null=True, blank=True)
 
     # Kredit maydonlari
-    is_credit = models.BooleanField(default=False)
+    is_credit = models.BooleanField(default=False, db_index=True)
     credit_days = models.PositiveSmallIntegerField(null=True, blank=True)
-    credit_due_date = models.DateField(null=True, blank=True)
+    credit_due_date = models.DateField(null=True, blank=True, db_index=True)
     credit_paid = models.BooleanField(default=False)
     credit_paid_at = models.DateTimeField(null=True, blank=True)
     credit_overdue_counted = models.BooleanField(
@@ -115,11 +116,55 @@ class Order(models.Model):
         help_text="Muddati o'tganligi foydalanuvchi hisobiga qo'shilganmi."
     )
 
-    created_at = models.DateTimeField(auto_now_add=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     def __str__(self):
         return f"Order #{self.id} by {self.receiver_name}"
+
+    class Meta:
+        # ── #17 & #22 FIX: DB Indexes ────────────────────────────────────────
+        #
+        # MUAMMO:
+        #   Order.objects.filter(status='PENDING')          → FULL TABLE SCAN
+        #   Order.objects.filter(created_at__date=today)    → FULL TABLE SCAN
+        #   AdminOrderListView filtri status+created_at birga → ikki marta scan
+        #
+        # YECHIM — Composite + alohida indexlar:
+        #
+        #   1. (status, created_at) composite index:
+        #      AdminOrderListView ?status=PENDING&date_from=... → INDEX SCAN
+        #      Composite muhim: WHERE status='PENDING' ORDER BY created_at DESC
+        #      → bitta B-tree traversal. Alohida indexlar kamroq samarali.
+        #
+        #   2. created_at alohida index:
+        #      date_from/date_to filtri status filtrisiz ham tez ishlashi uchun.
+        #      AdminDashboardView today/month filtrlari uchun ham muhim.
+        #
+        # SQLite: Bu indexlar SQLite'da ham ishlaydi.
+        # PostgreSQL: BRIN index created_at uchun yanada samaraliroq bo'lardi,
+        #   lekin models.Index (B-tree) barcha DB uchun universal.
+        # ─────────────────────────────────────────────────────────────────────
+        indexes = [
+            # #17 FIX: status bo'yicha filter → O(log n) instead of O(n)
+            models.Index(fields=['status'], name='order_status_idx'),
+
+            # #22 FIX: created_at bo'yicha sort/filter → O(log n) instead of O(n)
+            models.Index(fields=['-created_at'], name='order_created_at_idx'),
+
+            # Composite: status + created_at (AdminOrderListView, AdminDashboardView)
+            # WHERE status='PENDING' ORDER BY created_at DESC → bitta B-tree traversal
+            models.Index(fields=['status', '-created_at'], name='order_status_created_idx'),
+
+            # Kredit filtrlari (UserCreditStatusView, KassaView)
+            models.Index(
+                fields=['is_credit', 'credit_paid', 'credit_due_date'],
+                name='order_credit_idx',
+            ),
+
+            # Foydalanuvchi buyurtmalari (OrderListView)
+            models.Index(fields=['user', '-created_at'], name='order_user_created_idx'),
+        ]
 
 
 class OrderItem(models.Model):

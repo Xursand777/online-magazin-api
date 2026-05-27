@@ -193,8 +193,15 @@ const ProductCard = ({ product, onToggleFavorite, isFavorite: propIsFavorite, la
       <article className="bg-surface-container-lowest rounded-lg border border-outline-variant p-4 flex gap-4 items-center hover:border-primary/45 hover:bg-primary-container/5 hover:shadow-sm dark:hover:border-outline dark:hover:bg-surface-container-high transition-all cursor-pointer">
         <div className="w-24 h-24 bg-surface-bright rounded border border-outline-variant p-2 flex-shrink-0 relative overflow-hidden">
           {imageUrl ? (
-            <img alt={product.name} className="w-full h-full object-contain mix-blend-multiply dark:mix-blend-normal" src={imageUrl} />
+            <img alt={product.name} className="w-full h-full object-contain mix-blend-multiply dark:mix-blend-normal" src={imageUrl} loading="lazy" />
           ) : <NoImage />}
+          {isOutOfStock && (
+            <div className="absolute inset-0 bg-surface/60 backdrop-blur-[1px] flex items-center justify-center z-10">
+              <span className="bg-error text-on-error px-1 py-0.5 rounded text-[8px] font-bold shadow-sm text-center leading-none">
+                Stock<br/>yo'q
+              </span>
+            </div>
+          )}
           {product.is_discount && (
             <span className="absolute top-1 left-1 bg-secondary-container text-on-secondary-container px-1 rounded text-[9px] font-bold tracking-wide">
               -{calculateDiscountPercent()}%
@@ -237,10 +244,20 @@ const ProductCard = ({ product, onToggleFavorite, isFavorite: propIsFavorite, la
               alt={product.name}
               className="w-full h-full object-contain group-hover:scale-105 transition-transform duration-300"
               src={imageUrl}
+              loading="lazy"
               onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
             />
           ) : <NoImage />}
         </div>
+
+        {isOutOfStock && (
+          <div className="absolute inset-0 bg-surface/50 backdrop-blur-[2px] flex items-center justify-center z-10">
+            <span className="bg-error text-on-error px-3 py-1.5 rounded-full text-xs font-bold shadow-md flex items-center gap-1">
+              <span className="material-symbols-outlined text-[14px]">cancel</span>
+              Stock yo'q
+            </span>
+          </div>
+        )}
 
         {/* Discount badge */}
         {product.is_discount && calculateDiscountPercent() > 0 && (

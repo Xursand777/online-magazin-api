@@ -21,15 +21,13 @@ const apiClient = axios.create({
   withCredentials: true,
 });
 
-// Request interceptor: access token, guest-session va til sarlavhasi
+// Request interceptor: guest-session va til sarlavhasi
+// Eslatma: Access token endi httpOnly cookie orqali avtomatik yuboriladi
 apiClient.interceptors.request.use(
   (config) => {
-    const token = localStorage.getItem('access_token');
-    if (token) {
-      config.headers.Authorization = `Bearer ${token}`;
-    }
+    const user = localStorage.getItem('user');
     const guestSessionId = localStorage.getItem('guest_session_id');
-    if (guestSessionId && !token) {
+    if (guestSessionId && !user) {
       config.headers['X-Guest-Session-Id'] = guestSessionId;
     }
     try {
@@ -65,7 +63,6 @@ apiClient.interceptors.response.use(
       // role_invalidated: rol o'chirilganda server 401 + code='role_invalidated' qaytaradi
       const code = error.response?.data?.code;
       if (code === 'role_invalidated') {
-        localStorage.removeItem('access_token');
         localStorage.removeItem('user');
         window.location.href = '/auth?reason=role_changed';
         return Promise.reject(error);
@@ -73,19 +70,16 @@ apiClient.interceptors.response.use(
 
       try {
         // Refresh token httpOnly cookie'da — body yo'q, withCredentials brauzer yuboradi.
-        // Server CookieTokenRefreshView cookie'ni o'qib yangi access qaytaradi.
-        const res = await axios.post(
+        // Server CookieTokenRefreshView cookie'ni o'qib yangi access (va refresh) cookieni qaytaradi.
+        await axios.post(
           `${BASE_URL}/auth/refresh/`,
           {},                        // body bo'sh — token cookie'da
           { withCredentials: true }  // httpOnly cookie yuboriladi
         );
-        const newAccess: string = res.data.access;
-        localStorage.setItem('access_token', newAccess);
-        originalRequest.headers.Authorization = `Bearer ${newAccess}`;
+        // Requestni qayta yuboramiz (yangi access cookie avtomatik ilova qilinadi)
         return apiClient(originalRequest);
       } catch {
         // Refresh ham muvaffaqiyatsiz → sessiya tugagan, qayta kirish kerak
-        localStorage.removeItem('access_token');
         localStorage.removeItem('user');
         window.location.href = '/auth';
       }
@@ -97,7 +91,6 @@ apiClient.interceptors.response.use(
       if (url.startsWith('/admin/') || url.startsWith('admin/')) {
         const code = error.response?.data?.code;
         if (code === 'role_invalidated' || code === 'permission_denied') {
-          localStorage.removeItem('access_token');
           localStorage.removeItem('user');
           window.location.href = '/auth?reason=role_changed';
           return Promise.reject(error);

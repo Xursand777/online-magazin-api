@@ -607,11 +607,80 @@ class ProductRecommendedListView(generics.ListAPIView):
         )
 
 class CategoryProductListView(generics.ListAPIView):
+    """
+    Kategoriya mahsulotlari ro'yxati.
+
+    #18 FIX: Subkategoriya mahsulotlari ko'rsatilmaydi.
+
+    ESKI MUAMMO:
+      filter(category_id=category_id)
+      → Faqat TO'G'RIDAN-TO'G'RI mahsulotlarni ko'rsatadi.
+      → Agar foydalanuvchi "Smartfonlar" kategoriyasini ochsa va
+        mahsulotlar "Apple", "Samsung" (subkategoriyalar)ga ulangan bo'lsa,
+        natija: 0 mahsulot.
+
+    YANGI YECHIM — Recursive category descendants:
+      1. Berilgan kategoriyadan boshlab BARCHA avlod kategoriyalar yig'iladi
+         (cheksiz darajali daraxt — ota → farzand → nevaralar...).
+      2. Natija: ota kategoriya va BARCHA avlodlaridagi mahsulotlar.
+
+    Algoritm:
+      visited set + BFS (breadth-first) — aylanib ketishdan himoya bor.
+      DB so'rovlari: 1 ta dastlabki SELECT + har bir darajada 1 ta SELECT.
+      Odatda katalog 3-4 darajali bo'lgani uchun 3-4 ta SELECT.
+
+    PostgreSQL'da yanada optimal yechim: recursive CTE
+      WITH RECURSIVE cats AS (
+        SELECT id FROM category WHERE id = ?
+        UNION ALL
+        SELECT c.id FROM category c JOIN cats ON c.parent_id = cats.id
+      )
+      SELECT * FROM product WHERE category_id IN (SELECT id FROM cats);
+
+    Lekin Django ORM recursive CTE'ni to'g'ridan-to'g'ri qo'llab-quvvatlamaydi
+    (django-cte uchinchi tomon paketi talab qiladi). BFS yechimi SQLite va
+    PostgreSQL'da to'g'ri ishlaydi va barcha ishlatilish holatlari uchun
+    yetarli tezlikda.
+    """
     serializer_class = ProductListSerializer
     permission_classes = (AllowAny,)
+    pagination_class = SectionPagination
+
     def get_queryset(self):
         category_id = self.kwargs.get('pk')
-        return Product.objects.filter(is_active=True, category_id=category_id)
+
+        # ── #18 FIX: Barcha avlod kategoriyalar yig'ish (BFS) ────────────────
+        #
+        # BFS (Breadth-First Search) — daraxtni qavat-qavat aylanadi:
+        #   Boshlang'ich: {category_id}
+        #   1-qavat:  Category.objects.filter(parent_id=category_id).values_list('id')
+        #   2-qavat:  Har bir 1-qavatning farzandlari
+        #   ...toki yangi avlod topilmaguncha
+        #
+        # visited: aylanma aloqalardan himoya (masalan, admin tasodifan ota=farzand qo'ysa)
+        # ─────────────────────────────────────────────────────────────────────
+        all_category_ids = set()
+        queue = [category_id]
+
+        while queue:
+            current_batch = queue
+            # Har bir batchi farzandlarini bitta query'da olamiz
+            children_ids = list(
+                Category.objects
+                .filter(parent_id__in=current_batch, is_active=True)
+                .values_list('id', flat=True)
+            )
+            all_category_ids.update(current_batch)
+            # Yangi farzandlar — avval ko'rilmaganlar (aylanma himoya)
+            queue = [cid for cid in children_ids if cid not in all_category_ids]
+
+        return (
+            Product.objects
+            .filter(is_active=True, category_id__in=all_category_ids)
+            .select_related('category')
+            .prefetch_related('images')
+            .order_by('-updated_at', '-id')
+        )
 
 _SAFE = ('GET', 'HEAD', 'OPTIONS')
 
@@ -679,6 +748,116 @@ class AdminProductViewSet(viewsets.ModelViewSet):
             queryset = queryset.filter(is_popular=True)
 
         return queryset.distinct()
+
+
+class AdminBulkImportView(views.APIView):
+    """
+    CSV/Excel orqali mahsulotlarni bulk import qilish.
+
+    #23 FIX: 10,000+ mahsulot uchun optimallashtirilgan import.
+
+    POST /api/products/admin/bulk-import/
+    Content-Type: multipart/form-data
+
+    PARAMETRLAR (form-data):
+      file:                   CSV yoki Excel (.xlsx/.xls) fayl [MAJBURIY]
+      format:                 'csv' yoki 'excel' (default: 'csv')
+      translate:              'true'/'false' — auto tarjima (default: 'true')
+      default_category_id:    Kategoriya ko'rsatilmagan mahsulotlar uchun
+
+    CSV USTUNLARI:
+      name [MAJBURIY]        — mahsulot nomi
+      price_usd              — USD narxi (price_usd yoki price biri majburiy)
+      price                  — So'm narxi
+      category_id            — Kategoriya ID
+      stock                  — Zaxira miqdori (default: 0)
+      description            — Tavsif
+      is_active              — true/false (default: true)
+      is_new                 — true/false (default: true)
+      is_popular             — true/false (default: false)
+      is_discount            — avtomatik (discount_price bo'lsa)
+      discount_price_usd     — Chegirma narxi (USD)
+      discount_price         — Chegirma narxi (So'm)
+      cost_price             — Tannarx (So'm)
+
+    JAVOB:
+      {
+        "created_count": 9850,
+        "skipped_count": 100,
+        "error_count": 50,
+        "errors": [{"row": 5, "error": "..."}, ...],
+        "warnings": ["..."]
+      }
+
+    PERFORMANCE:
+      10,000 mahsulot ≈ 30-60 soniya (bulk_create + batch translation)
+      Brauzer timeout bo'lishi mumkin — katta importlar uchun Celery task
+      orqali async ishlash tavsiya etiladi (kelajak versiyada).
+    """
+    permission_classes = (IsAuthenticated, IsAdminOrAbove)
+    parser_classes = (MultiPartParser, FormParser)
+
+    def post(self, request, *args, **kwargs):
+        file_obj = request.FILES.get('file')
+        if not file_obj:
+            return Response(
+                {'error': 'file yuklanmadi.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Fayl hajmi tekshiruvi (10MB)
+        MAX_SIZE = 10 * 1024 * 1024
+        if file_obj.size > MAX_SIZE:
+            return Response(
+                {'error': f'Fayl hajmi {file_obj.size // 1024 // 1024}MB. Maksimal: 10MB.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        import_format = (request.data.get('format') or 'csv').lower()
+        translate = str(request.data.get('translate', 'true')).lower() != 'false'
+        default_category_id = request.data.get('default_category_id') or None
+        if default_category_id:
+            try:
+                default_category_id = int(default_category_id)
+            except (ValueError, TypeError):
+                default_category_id = None
+
+        from products.bulk_import import import_products_from_csv, import_products_from_excel
+
+        file_bytes = file_obj.read()
+
+        if import_format == 'excel' or file_obj.name.endswith(('.xlsx', '.xls')):
+            result = import_products_from_excel(
+                file_bytes=file_bytes,
+                translate=translate,
+                default_category_id=default_category_id,
+            )
+        else:
+            # Encoding aniqlaymiz
+            encoding = 'utf-8'
+            try:
+                file_bytes.decode('utf-8')
+            except UnicodeDecodeError:
+                encoding = 'utf-8-sig'   # BOM bilan UTF-8
+                try:
+                    file_bytes.decode('utf-8-sig')
+                except UnicodeDecodeError:
+                    encoding = 'cp1251'  # Windows-1251 (Cyrillic)
+
+            result = import_products_from_csv(
+                file_content=file_bytes,
+                encoding=encoding,
+                translate=translate,
+                default_category_id=default_category_id,
+            )
+
+        resp_data = result.to_dict()
+        http_status = (
+            status.HTTP_201_CREATED
+            if result.created_count > 0
+            else status.HTTP_400_BAD_REQUEST
+        )
+        return Response(resp_data, status=http_status)
 
 
 class AdminHomeBannerViewSet(viewsets.ModelViewSet):

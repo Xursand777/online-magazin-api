@@ -53,6 +53,10 @@ class RecommendationEvent(models.Model):
 
     class Meta:
         ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['user', 'event_type', '-created_at']),
+            models.Index(fields=['guest_session_id', 'event_type', '-created_at']),
+        ]
 
     def __str__(self):
         owner = self.user_id or self.guest_session_id or 'anonymous'

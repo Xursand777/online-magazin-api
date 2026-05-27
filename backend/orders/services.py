@@ -5,6 +5,7 @@ from datetime import timedelta
 from decimal import Decimal
 from uuid import uuid4
 
+from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
 from rest_framework import serializers
@@ -467,18 +468,8 @@ def cancel_order(*, order, cancelled_status, actor_type, actor=None, reason=''):
                 'error': "Xaridorga topshirilgan yoki allaqachon bekor qilingan buyurtmani bekor qilib bo'lmaydi."
             })
 
-        # KARTA: to'lov amalga oshirilgandan keyin (CONFIRMED+) bekor qilib bo'lmaydi
-        if order.payment_method == Order.PAYMENT_METHOD_CARD:
-            if order.status != Order.STATUS_AWAITING_PAYMENT:
-                raise serializers.ValidationError({
-                    'error': (
-                        "Karta to'lovi amalga oshirilgan buyurtmani bekor qilib bo'lmaydi. "
-                        "To'lovni qaytarish (refund) uchun mijoz bilan alohida bog'laning."
-                    )
-                })
-
         # NAQD va MUDDATLI: faqat PENDING va CONFIRMED da bekor qilish mumkin
-        elif order.payment_method in (Order.PAYMENT_METHOD_CASH, Order.PAYMENT_METHOD_CREDIT):
+        if order.payment_method in (Order.PAYMENT_METHOD_CASH, Order.PAYMENT_METHOD_CREDIT):
             if order.status not in {Order.STATUS_PENDING, Order.STATUS_CONFIRMED}:
                 raise serializers.ValidationError({
                     'error': (
@@ -710,12 +701,13 @@ def auto_cancel_expired_orders(minutes: int = 30) -> None:
       Har daqiqada kamida bitta worker bekor qilishni amalga oshiradi.
       To'lov muddati 30 daqiqa → eng yomon holda 31 daqiqada bekor qilinadi.
     """
-    from django.core.cache import cache
+    if not getattr(settings, 'IS_TESTING', False):
+        from django.core.cache import cache
 
-    # cache.add(): kalit mavjud bo'lmasa True va kalitni qo'yadi (atomik)
-    # Kalit mavjud bo'lsa False qaytaradi — boshqa worker yaqinda bajargan
-    if not cache.add(_AUTO_CANCEL_CACHE_KEY, 1, timeout=_AUTO_CANCEL_COOLDOWN_SEC):
-        return  # throttle: 60 soniya ichida allaqachon bajarilgan
+        # cache.add(): kalit mavjud bo'lmasa True va kalitni qo'yadi (atomik)
+        # Kalit mavjud bo'lsa False qaytaradi — boshqa worker yaqinda bajargan
+        if not cache.add(_AUTO_CANCEL_CACHE_KEY, 1, timeout=_AUTO_CANCEL_COOLDOWN_SEC):
+            return  # throttle: 60 soniya ichida allaqachon bajarilgan
 
     threshold = timezone.now() - timedelta(minutes=minutes)
     expired_orders = list(

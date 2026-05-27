@@ -7,6 +7,7 @@ from .views import (
     ProductSimilarListView, RecentlyViewedView,
     AdminCategoryViewSet, AdminHomeBannerViewSet, AdminProductViewSet,
     HomeBannerListView, AdminExchangeRateView, AdminStockReportView,
+    AdminBulkImportView,
     # Compat — public
     PhoneBrandListView, PhoneModelSearchView, ProductCompatibleModelsView,
     # Compat — admin
@@ -26,6 +27,11 @@ urlpatterns = [
     # ── Katalog ──────────────────────────────────────────────────────────────
     path('admin/exchange-rate/', AdminExchangeRateView.as_view(), name='admin_exchange_rate'),
     path('admin/stock-report/',  AdminStockReportView.as_view(),  name='admin_stock_report'),
+
+    # #23 FIX: Bulk CSV/Excel import (10,000+ mahsulot)
+    # POST /api/products/admin/bulk-import/
+    # Body: multipart/form-data: file=<csv/xlsx>, format=csv|excel, translate=true|false
+    path('admin/bulk-import/', AdminBulkImportView.as_view(), name='admin_bulk_import'),
 
     path('search/products/', ProductSearchView.as_view(),     name='product_search'),
     path('categories/',      CategoryListView.as_view(),      name='category_list'),

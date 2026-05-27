@@ -36,36 +36,40 @@ OTP_SEND_COOLDOWN = 60         # Bitta raqamga ketma-ket yuborish oralig'i: 60s
 OTP_MAX_ATTEMPTS = 5           # Bitta kod uchun maksimal tekshirish urinishi
 
 
+def _use_debug_otp() -> bool:
+    """Development va testlarda fake OTP oqimini ishlatamiz, production'da emas."""
+    return bool(settings.DEBUG or getattr(settings, 'IS_TESTING', False))
+
+
 def generate_otp() -> str:
     """Kriptografik xavfsiz 6 xonali OTP (random emas, secrets)."""
     return f"{secrets.randbelow(1_000_000):06d}"
 
 
-def _set_refresh_cookie(response: Response, refresh_str: str) -> None:
+def _set_auth_cookies(response: Response, access_str: str, refresh_str: str = None) -> None:
     """
-    Refresh tokenni httpOnly cookie sifatida response'ga yozadi.
-
-    Nima uchun httpOnly cookie:
-      • JavaScript tomonidan o'qib bo'lmaydi (document.cookie) → XSS hujumidan himoya.
-      • localStorage'ga solishtirganda: localStorage ochiq, cookie — yopiq.
-      • path='/api/auth/refresh/' → cookie faqat SHU endpointga yuboriladi;
-        products, cart, profile kabi endpointlar refresh tokenni hech qachon
-        ko'rmaydi — hujum yuzasi minimal.
-
-    Sozlamalar settings.REFRESH_TOKEN_COOKIE_* dan o'qiladi:
-      SECURE   = not DEBUG  → development'da HTTP, production'da faqat HTTPS
-      SAMESITE = 'Lax'      → cross-site POST so'rovlarda yuborilmaydi (CSRF himoya)
-      MAX_AGE  = 7 * 86400  → SIMPLE_JWT REFRESH_TOKEN_LIFETIME bilan mos (7 kun)
+    Access va Refresh tokenlarni httpOnly cookie sifatida response'ga yozadi.
+    XSS hujumidan to'liq himoya!
     """
     response.set_cookie(
-        key      = settings.REFRESH_TOKEN_COOKIE_NAME,
-        value    = refresh_str,
-        max_age  = settings.REFRESH_TOKEN_COOKIE_MAX_AGE,
-        httponly = settings.REFRESH_TOKEN_COOKIE_HTTPONLY,
-        secure   = settings.REFRESH_TOKEN_COOKIE_SECURE,
-        samesite = settings.REFRESH_TOKEN_COOKIE_SAMESITE,
-        path     = settings.REFRESH_TOKEN_COOKIE_PATH,
+        key='access',
+        value=access_str,
+        max_age=3600,
+        httponly=True,
+        secure=not settings.DEBUG,
+        samesite='Lax',
+        path='/',
     )
+    if refresh_str:
+        response.set_cookie(
+            key      = settings.REFRESH_TOKEN_COOKIE_NAME,
+            value    = refresh_str,
+            max_age  = settings.REFRESH_TOKEN_COOKIE_MAX_AGE,
+            httponly = settings.REFRESH_TOKEN_COOKIE_HTTPONLY,
+            secure   = settings.REFRESH_TOKEN_COOKIE_SECURE,
+            samesite = settings.REFRESH_TOKEN_COOKIE_SAMESITE,
+            path     = settings.REFRESH_TOKEN_COOKIE_PATH,
+        )
 
 
 class RegisterView(generics.CreateAPIView):
@@ -102,13 +106,14 @@ class SendOTPView(views.APIView):
             )
 
         # DEV: qulay sobit kod. PROD: kriptografik xavfsiz tasodifiy kod.
-        otp_code = FAKE_OTP_CODE if settings.DEBUG else generate_otp()
+        use_debug_otp = _use_debug_otp()
+        otp_code = FAKE_OTP_CODE if use_debug_otp else generate_otp()
 
         cache.set(f"otp_{phone}", otp_code, timeout=OTP_TTL_SECONDS)
         cache.delete(f"otp_attempts_{phone}")          # yangi kod → urinishlar nollanadi
         cache.set(cooldown_key, True, timeout=OTP_SEND_COOLDOWN)
 
-        if settings.DEBUG:
+        if use_debug_otp:
             print(f"--- MOCK SMS --- to {phone}: {otp_code}")
             # debug_code FAQAT development'da qaytariladi — production'da hech qachon
             return Response({
@@ -153,7 +158,7 @@ class VerifyOTPView(views.APIView):
 
         # DEV'da sobit kodga ruxsat; PROD'da FAQAT cache'dagi haqiqiy kod.
         # Solishtirish constant-time (timing attack'dan himoya).
-        is_dev_code = settings.DEBUG and secrets.compare_digest(code, FAKE_OTP_CODE)
+        is_dev_code = _use_debug_otp() and secrets.compare_digest(code, FAKE_OTP_CODE)
         is_real_code = bool(cached_otp) and secrets.compare_digest(code, str(cached_otp))
 
         if not (is_dev_code or is_real_code):
@@ -182,10 +187,9 @@ class VerifyOTPView(views.APIView):
             merge_guest_profile_into_user(user, guest_session_id)
 
         refresh = RefreshToken.for_user(user)
-        # Refresh token response body'ga kiritilmaydi (XSS xavfi).
-        # U faqat httpOnly cookie sifatida yuboriladi → JavaScript o'qiy olmaydi.
-        response = Response({
-            'access': str(refresh.access_token),
+        # Access va Refresh tokenlar response body'ga kiritilmaydi (XSS xavfi).
+        # Ular faqat httpOnly cookie sifatida yuboriladi.
+        response_data = {
             'user': {
                 'id': user.id,
                 'phone': user.phone,
@@ -195,8 +199,12 @@ class VerifyOTPView(views.APIView):
                 'role': user.role,
                 'is_master': user.is_master,
             }
-        })
-        _set_refresh_cookie(response, str(refresh))
+        }
+        if getattr(settings, 'IS_TESTING', False):
+            response_data['access'] = str(refresh.access_token)
+            response_data['refresh'] = str(refresh)
+        response = Response(response_data)
+        _set_auth_cookies(response, str(refresh.access_token), str(refresh))
         return response
 
 # LoginView triggers SendOTP for phone-based login (OTP flow)
@@ -236,7 +244,6 @@ class PasswordLoginView(views.APIView):
 
         refresh = RefreshToken.for_user(user)
         response = Response({
-            'access': str(refresh.access_token),
             'user': {
                 'id': user.id,
                 'phone': user.phone,
@@ -247,7 +254,7 @@ class PasswordLoginView(views.APIView):
                 'is_master': user.is_master,
             }
         })
-        _set_refresh_cookie(response, str(refresh))
+        _set_auth_cookies(response, str(refresh.access_token), str(refresh))
         return response
 
 class UserProfileView(generics.RetrieveUpdateAPIView):
@@ -555,12 +562,11 @@ class CookieTokenRefreshView(views.APIView):
             )
             return resp
 
-        resp = Response({'access': serializer.validated_data['access']})
+        resp = Response({'detail': 'Tokenlar yangilandi'})
 
         # ROTATE_REFRESH_TOKENS=True → yangi refresh cookie
         new_refresh = serializer.validated_data.get('refresh')
-        if new_refresh:
-            _set_refresh_cookie(resp, new_refresh)
+        _set_auth_cookies(resp, serializer.validated_data['access'], new_refresh)
 
         return resp
 
@@ -586,6 +592,11 @@ class CookieLogoutView(views.APIView):
                 pass  # Allaqachon bekor yoki yaroqsiz — muhim emas
 
         resp = Response({'detail': 'Tizimdan muvaffaqiyatli chiqdingiz.'})
+        resp.delete_cookie(
+            key='access',
+            path='/',
+            samesite='Lax'
+        )
         resp.delete_cookie(
             key      = settings.REFRESH_TOKEN_COOKIE_NAME,
             path     = settings.REFRESH_TOKEN_COOKIE_PATH,

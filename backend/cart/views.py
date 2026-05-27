@@ -45,6 +45,21 @@ def merge_cart(user, guest_session_id: str) -> None:
     """
     Mehmon savat elementlarini foydalanuvchi savatiga birlashtiradi.
 
+    #19 FIX: Birlashtirishda stok tekshirilmaydi.
+
+    ESKI MUAMMO:
+      existing.quantity += item.quantity   ← ombordagi miqdorni tekshirmaydi!
+      Misol: Foydalanuvchi savatda 8 ta, mehmon savatda 6 ta mavjud.
+             Mahsulot stoki: 10 ta.
+             Birlashtirishdan keyin: 8+6 = 14 ← STOK LIMITDAN OSHDI!
+             Bu holda buyurtma qabul qilinishi mumkin edi.
+
+    YANGI YECHIM:
+      available_stock = get_available_stock(product, variant)
+      max_allowed = min(existing + guest, MAX_CART_ITEM_QUANTITY, available_stock)
+      → Miqdor hech qachon stokdan yoki limit dan oshmaydi.
+      → Agar stok 0 bo'lsa — mehmon elementi o'tkazilmaydi (silently skip).
+
     Nima uchun @transaction.atomic:
       Agar loop o'rtasida xatolik yuz bersa (masalan, DB connection),
       qisman birlashtirilgan holat qolmasligi uchun barcha o'zgarishlar
@@ -57,13 +72,16 @@ def merge_cart(user, guest_session_id: str) -> None:
 
     Miqdor qo'shilish mantig'i:
       Bir xil product+variant allaqachon foydalanuvchi savatida bo'lsa →
-      miqdorlar qo'shiladi. Yangi bo'lsa → element ko'chiriladi.
+      miqdorlar qo'shiladi (stok va limit tekshiriladi). Yangi bo'lsa →
+      element ko'chiriladi (stok tekshiriladi).
     """
+    import logging
+    _logger = logging.getLogger(__name__)
+
     if not guest_session_id:
         return
 
     # select_for_update: mehmon savatni lock qilib olamiz
-    # Agar bir vaqtda ikki merge talabi kelsa, biri kutadi → takrorlanmaydi
     guest_cart = (
         Cart.objects
         .select_for_update()
@@ -76,17 +94,53 @@ def merge_cart(user, guest_session_id: str) -> None:
     user_cart, _ = Cart.objects.get_or_create(user=user)
 
     for item in guest_cart.items.select_related('product', 'variant').all():
+        product = item.product
+        variant = item.variant
+
+        # ── #19 FIX: Stok tekshiruvi ──────────────────────────────────────
+        available_stock = get_available_stock(product, variant)
+
         existing = user_cart.items.filter(
-            product=item.product,
-            variant=item.variant,
+            product=product,
+            variant=variant,
         ).first()
 
+        current_qty = existing.quantity if existing else 0
+
+        # Yangi umumiy miqdor: stok va MAX_CART_ITEM_QUANTITY bilan cheklangan
+        desired_qty = current_qty + item.quantity
+        capped_qty = min(desired_qty, MAX_CART_ITEM_QUANTITY, available_stock)
+
+        if capped_qty <= 0:
+            # Stok tugagan — bu element o'tkazilmaydi
+            _logger.warning(
+                "merge_cart: stok yetarli emas, o'tkazilmadi — "
+                "product_id=%s, variant_id=%s, user_id=%s",
+                product.id if product else None,
+                variant.id if variant else None,
+                user.id,
+            )
+            continue
+
         if existing:
-            existing.quantity += item.quantity
-            existing.save(update_fields=['quantity'])
+            if capped_qty != existing.quantity:
+                existing.quantity = capped_qty
+                existing.save(update_fields=['quantity'])
         else:
-            item.cart = user_cart
-            item.save(update_fields=['cart'])
+            # Yangi element — ko'chirish yoki yangi yaratish
+            if capped_qty == item.quantity:
+                # Hech qanday kesish kerak emas — to'g'ridan-to'g'ri ko'chiramiz
+                item.cart = user_cart
+                item.save(update_fields=['cart'])
+            else:
+                # Miqdor kesildi — yangi element yaratamiz
+                CartItem.objects.create(
+                    cart=user_cart,
+                    product=product,
+                    variant=variant,
+                    quantity=capped_qty,
+                )
+        # ─────────────────────────────────────────────────────────────────
 
     # Mehmon savati bo'shligi → kaskad o'chirish (qolgan elementlar bilan)
     guest_cart.delete()

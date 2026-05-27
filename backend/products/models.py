@@ -478,6 +478,47 @@ class Product(models.Model):
     def __str__(self):
         return self.name
 
+    class Meta:
+        # ── #17 FIX: Product DB Indexes ───────────────────────────────────────
+        #
+        # MUAMMO:
+        #   Product.objects.filter(is_active=True, is_discount=True) → FULL SCAN
+        #   Product.objects.filter(is_active=True, is_new=True)       → FULL SCAN
+        #   ProductListView, ProductDiscountListView, MainPageView — barchasi
+        #   bitta yoki ikki bool field bo'yicha filter qiladi.
+        #
+        # YECHIM — Composite boolean indexes:
+        #   (is_active, is_discount): ProductDiscountListView, MainPageView
+        #   (is_active, is_new):      ProductNewListView, MainPageView
+        #   (is_active, is_popular):  ProductPopularListView, MainPageView
+        # ─────────────────────────────────────────────────────────────────────
+        indexes = [
+            # #17 FIX: is_active + is_discount (ProductDiscountListView)
+            models.Index(
+                fields=['is_active', 'is_discount'],
+                name='product_active_discount_idx',
+            ),
+            # #17 FIX: is_active + is_new (ProductNewListView)
+            models.Index(
+                fields=['is_active', 'is_new'],
+                name='product_active_new_idx',
+            ),
+            # #17 FIX: is_active + is_popular (ProductPopularListView)
+            models.Index(
+                fields=['is_active', 'is_popular'],
+                name='product_active_popular_idx',
+            ),
+            # updated_at (ProductListView ORDER BY -updated_at)
+            models.Index(fields=['-updated_at'], name='product_updated_at_idx'),
+            # created_at (ProductNewListView ORDER BY -created_at)
+            models.Index(fields=['-created_at'], name='product_created_at_idx'),
+            # category_id + is_active (CategoryProductListView)
+            models.Index(
+                fields=['category', 'is_active'],
+                name='product_category_active_idx',
+            ),
+        ]
+
 
 class ProductImage(models.Model):
     product = models.ForeignKey(Product, on_delete=models.CASCADE, related_name='images')

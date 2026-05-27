@@ -12,7 +12,21 @@ class RoleAwareJWTAuthentication(JWTAuthentication):
     - Token chiqarilgan vaqt (iat) < role_invalidated_at bo'lsa → 401 qaytaradi.
     - Bu xodimni "o'chirish" (roldan mahrum qilish) paytida barcha eski
       tokenlarini darhol bekor qiladi, ular muddati tugamaguncha ham.
+    - JWT tokenni HttpOnly cookie orqali ham qabul qiladi (XSS ga qarshi).
     """
+
+    def authenticate(self, request):
+        header = self.get_header(request)
+        if header is None:
+            raw_token = request.COOKIES.get('access')
+        else:
+            raw_token = self.get_raw_token(header)
+
+        if raw_token is None:
+            return None
+
+        validated_token = self.get_validated_token(raw_token)
+        return self.get_user(validated_token), validated_token
 
     def get_user(self, validated_token):
         user = super().get_user(validated_token)

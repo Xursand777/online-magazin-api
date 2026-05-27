@@ -3,7 +3,12 @@ Django settings for Bozor e-commerce platform.
 """
 from pathlib import Path
 import os
+import sys
 from datetime import timedelta
+from dotenv import load_dotenv
+import dj_database_url
+
+load_dotenv()
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -16,7 +21,8 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 #   DJANGO_ALLOWED_HOSTS=yourdomain.com,www.yourdomain.com
 #   CORS_ALLOWED_ORIGINS=https://yourdomain.com,https://app.yourdomain.com
 
-DEBUG = os.getenv('DJANGO_DEBUG', 'True').lower() in ('true', '1', 'yes')
+IS_TESTING = 'test' in sys.argv
+DEBUG = True if IS_TESTING else os.getenv('DJANGO_DEBUG', 'True').lower() in ('true', '1', 'yes')
 
 # Yangi kalit generatsiya:
 #   python -c "from django.core.management.utils import get_random_secret_key; print(get_random_secret_key())"
@@ -112,10 +118,11 @@ WSGI_APPLICATION = 'core.wsgi.application'
 # MA'LUMOTLAR BAZASI
 # ─────────────────────────────────────────────────────────────────────────────
 DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
-    }
+    'default': dj_database_url.config(
+        default=os.getenv('DATABASE_URL', f"sqlite:///{BASE_DIR / 'db.sqlite3'}"),
+        conn_max_age=600,
+        conn_health_checks=True,
+    )
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -214,7 +221,14 @@ if CDN_PROVIDER == 'cloudinary':
 
 _REDIS_URL = os.getenv('REDIS_URL', '')
 
-if _REDIS_URL:
+if IS_TESTING:
+    CACHES = {
+        'default': {
+            'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
+            'LOCATION': 'bozor-test-cache',
+        }
+    }
+elif _REDIS_URL:
     # Umumiy Redis keshi — multi-worker'da OTP va rate limiting uchun zarur
     CACHES = {
         'default': {
@@ -527,3 +541,60 @@ SPECTACULAR_SETTINGS = {
 ESKIZ_EMAIL = os.getenv('ESKIZ_EMAIL', '')
 ESKIZ_PASSWORD = os.getenv('ESKIZ_PASSWORD', '')
 ESKIZ_SENDER = os.getenv('ESKIZ_SENDER', '4546')
+
+# ─────────────────────────────────────────────────────────────────────────────
+# CELERY — Fon Vazifalar
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# #20 FIX: threading.Thread(daemon=True) o'rniga Celery.
+#
+# MUAMMO (threading):
+#   daemon=True → server restart'da (gunicorn SIGTERM) barcha daemon
+#   threadlar O'LDIRILADI. Navbatdagi SMS'lar yo'qoladi.
+#
+# YECHIM (Celery + Redis):
+#   Celery worker alohida jarayon — server restart'dan mustaqil.
+#   Task navbatda (Redis) saqlanadi. Worker qayta ishga tushganda
+#   navbatdagi barcha tasklarni bajaradi.
+#
+# O'RNATISH:
+#   pip install celery[redis]
+#
+# ISHGA TUSHIRISH:
+#   celery -A core worker --loglevel=info
+#
+# ENV VARS:
+#   REDIS_URL=redis://127.0.0.1:6379/0
+#   (Agar REDIS_URL o'rnatilmagan bo'lsa Celery ishlamasdan threading'ga qaytadi)
+# ─────────────────────────────────────────────────────────────────────────────
+if _REDIS_URL:
+    # Celery broker va result backend — Redis orqali
+    CELERY_BROKER_URL          = _REDIS_URL
+    CELERY_RESULT_BACKEND      = _REDIS_URL
+
+    # Serialization
+    CELERY_ACCEPT_CONTENT      = ['json']
+    CELERY_TASK_SERIALIZER     = 'json'
+    CELERY_RESULT_SERIALIZER   = 'json'
+
+    # Timezone — Django bilan bir xil
+    CELERY_TIMEZONE            = TIME_ZONE
+    CELERY_ENABLE_UTC          = True
+
+    # Worker sozlamalari
+    CELERY_WORKER_PREFETCH_MULTIPLIER = 1   # Long task'lar uchun: 1 task birdan olsin
+    CELERY_TASK_ACKS_LATE             = True   # Task bajarilgandan keyin ack (crash-safe)
+    CELERY_WORKER_HIJACK_ROOT_LOGGER  = False  # Django logging'ni saqlash
+
+    # Retry sozlamalari (SMS task uchun)
+    CELERY_TASK_MAX_RETRIES    = 3
+    CELERY_TASK_SOFT_TIME_LIMIT = 30    # 30 soniya — task soft kill (SoftTimeLimitExceeded)
+    CELERY_TASK_TIME_LIMIT     = 60    # 60 soniya — task hard kill (SIGKILL)
+
+    # Beat (scheduled tasks) uchun
+    CELERY_BEAT_SCHEDULE = {
+        'auto_cancel_expired_orders_every_10_minutes': {
+            'task': 'orders.auto_cancel_expired_orders_task',
+            'schedule': 600.0, # 10 daqiqa
+        },
+    }

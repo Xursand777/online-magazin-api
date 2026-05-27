@@ -12,6 +12,8 @@ import AdminPanel from './pages/AdminPanel';
 import SectionProducts from './pages/SectionProducts';
 import Favorites from './pages/Favorites';
 import SearchPage from './pages/SearchPage';
+import NotFound from './pages/NotFound';
+import ProtectedRoute from './components/ProtectedRoute';
 import { useCartStore } from './store/cartStore';
 import { applyThemeMode, useThemeStore } from './store/themeStore';
 
@@ -41,8 +43,10 @@ function App() {
     <BrowserRouter>
       <ScrollToTop />
       <Routes>
-        {/* Admin route - full page, no main layout */}
-        <Route path="/admin" element={<AdminPanel />} />
+        {/* Admin route - protected */}
+        <Route element={<ProtectedRoute />}>
+          <Route path="/admin" element={<AdminPanel />} />
+        </Route>
 
         {/* Main app routes */}
         <Route path="/" element={<MainLayout />}>
@@ -56,6 +60,9 @@ function App() {
           <Route path="auth" element={<Auth />} />
           <Route path="favorites" element={<Favorites />} />
           <Route path="search" element={<SearchPage />} />
+
+          {/* 404 Catch-all Route */}
+          <Route path="*" element={<NotFound />} />
         </Route>
       </Routes>
     </BrowserRouter>
