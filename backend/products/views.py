@@ -1,3 +1,4 @@
+import random
 import re
 
 from django.db.models import Case, IntegerField, Q, Sum, Value, When
@@ -31,31 +32,95 @@ from .models import (
 from decimal import Decimal
 
 
-def build_product_search_filter(query):
+def build_product_search_filter(query: str) -> Q:
+    """
+    SQLite va boshqa DB lar uchun Q-filter quradi.
+    PostgreSQL uchun ProductSearchView alohida _apply_postgres_fts() ishlatadi.
+
+    Ko'p so'zli so'rov mantig'i — NIMA O'ZGARDI:
+      Eski (OR mantiqi):
+        "samsung galaxy" → name LIKE '%samsung%' OR name LIKE '%galaxy%'
+        Natija: "Samsung Printer" ham chiqadi ("samsung" so'zi bor).
+
+      Yangi (AND mantiqi):
+        "samsung galaxy" → to'liq ibora moslik
+                          OR (name LIKE '%samsung%' AND name LIKE '%galaxy%')
+        Natija: faqat ikkala so'z bir vaqtda bo'lgan mahsulotlar.
+
+    Bitta so'z: avvalgidek — name + description + slug + category icontains.
+    Ko'p so'z: barcha tokenlar mahsulot nomida mavjud bo'lishi kerak (AND).
+    """
     query = (query or '').strip()
     if not query:
         return Q(pk__in=[])
 
-    tokens = [token for token in re.split(r'\s+', query) if token]
-    search_filter = (
+    # Raqamli so'rov: ID bo'yicha qidirish
+    if query.isdigit():
+        return Q(id=int(query)) | Q(name__icontains=query)
+
+    # To'liq ibora — har doim qidiriladi (aniq mos kelish)
+    phrase_filter = (
         Q(name__icontains=query)
-        | Q(description__icontains=query)
-        | Q(category__name__icontains=query)
         | Q(slug__icontains=query)
+        | Q(category__name__icontains=query)
     )
 
-    if query.isdigit():
-        search_filter |= Q(id=int(query))
+    # 2+ belgidan iborat tokenlar (qisqa prefikslar kerak emas: "a", "da"…)
+    tokens = [t for t in re.split(r'\s+', query) if len(t) >= 2]
 
+    if len(tokens) <= 1:
+        # Bitta so'z: tavsifda ham qidirish
+        return phrase_filter | Q(description__icontains=query)
+
+    # Ko'p so'z: nomda BARCHA tokenlar bo'lishi kerak (AND)
+    # "samsung galaxy s24" → name contains 'samsung' AND 'galaxy' AND 's24'
+    name_all_tokens = Q()
     for token in tokens:
-        search_filter |= (
-            Q(name__icontains=token)
-            | Q(description__icontains=token)
-            | Q(category__name__icontains=token)
-            | Q(slug__icontains=token)
-        )
+        name_all_tokens &= Q(name__icontains=token)
 
-    return search_filter
+    return phrase_filter | name_all_tokens
+
+
+def _apply_postgres_fts(qs, query: str):
+    """
+    PostgreSQL'da SearchVector + SearchRank orqali to'liq matn qidiruvini qo'llaydi.
+
+    Nima uchun 'simple' konfiguratsiya:
+      Uzbek/Rus/Ingliz tillarida stemming kerak emas — 'simple' oddiy
+      tokenizatsiya va kichik harflarga o'tkazish bilan cheklanadi.
+      'english' config ishlatilsa: "phones" → "phone" (kesish) yaxshi ishlaydi,
+      lekin "Galaxy" → "galaxi" qilishi mumkin — mahsulot nomlarini buzadi.
+
+    Ikki bosqichli filter:
+      1. fts_rank > 0.0  — to'liq matn mosligi (indeksdan foydalanadi)
+      2. name icontains  — qisman moslash uchun (avtoto'ldirish: "iPh" → "iPhone")
+
+    Production'da GIN index qo'shish (bir marta, admin yoki migration orqali):
+      CREATE EXTENSION IF NOT EXISTS pg_trgm;
+      CREATE INDEX CONCURRENTLY idx_products_fts
+        ON products_product
+        USING gin(
+          to_tsvector('simple', name || ' ' || COALESCE(description, ''))
+        );
+    Shundan so'ng SearchVector so'rovlari O(log n) ga tushadi.
+    """
+    from django.contrib.postgres.search import SearchVector, SearchQuery, SearchRank
+
+    sv = (
+        SearchVector('name',        weight='A', config='simple') +
+        SearchVector('description', weight='B', config='simple')
+    )
+    sq = SearchQuery(query, config='simple')
+
+    return (
+        qs
+        .annotate(fts_rank=SearchRank(sv, sq))
+        .filter(
+            Q(fts_rank__gt=0.0) |   # FTS mosligi
+            Q(name__icontains=query) # Qisman moslash (prefiksi bilan)
+        )
+        .distinct()
+    )
 
 
 def active_home_banners():
@@ -136,37 +201,75 @@ class ProductSearchView(generics.ListAPIView):
         return response
 
     def get_queryset(self):
+        """
+        Qidiruv so'rovi: PostgreSQL'da SearchVector+SearchRank (FTS),
+        SQLite'da optimallashtirilgan icontains bilan AND-mantig'i.
+
+        Tartiblash ustuvorligi (ikkala DB uchun):
+          1. exact_match  — aniq mos kelish (iexact)
+          2. starts_match — boshidan boshlanadigan mos kelish (istartswith)
+          3. PostgreSQL: fts_rank (SearchRank) — tegishlilik ball
+             SQLite:     contains_match (icontains) — oddiy mavjudlik
+          4. is_popular, is_new, name — teng ball bo'lganda
+        """
+        from django.db import connection
+
         search_query = (self.request.query_params.get('q') or '').strip()
         if not search_query:
             return Product.objects.none()
 
+        # Aniq mos kelish annotatsiyalari — har ikkala DB'da bir xil
         exact_whens = [
-            When(name__iexact=search_query, then=Value(5)),
-            When(slug__iexact=search_query, then=Value(4)),
+            When(name__iexact=search_query,          then=Value(5)),
+            When(slug__iexact=search_query,           then=Value(4)),
             When(category__name__iexact=search_query, then=Value(3)),
         ]
         if search_query.isdigit():
             exact_whens.insert(0, When(id=int(search_query), then=Value(6)))
 
-        return (
+        base_qs = (
             Product.objects.filter(is_active=True)
             .select_related('category')
             .prefetch_related('images')
+        )
+
+        # ── PostgreSQL: SearchVector + SearchRank ────────────────────────────
+        if connection.vendor == 'postgresql':
+            return (
+                _apply_postgres_fts(base_qs, search_query)
+                .annotate(
+                    exact_match=Case(
+                        *exact_whens, default=Value(0), output_field=IntegerField(),
+                    ),
+                    starts_match=Case(
+                        When(name__istartswith=search_query,          then=Value(3)),
+                        When(category__name__istartswith=search_query, then=Value(2)),
+                        default=Value(0), output_field=IntegerField(),
+                    ),
+                )
+                # fts_rank — _apply_postgres_fts() tomonidan qo'shilgan
+                .order_by('-exact_match', '-starts_match', '-fts_rank', '-is_popular', '-is_new', 'name')
+                .distinct()
+            )
+
+        # ── SQLite / boshqa DB: icontains (AND-mantig'i) ─────────────────────
+        return (
+            base_qs
             .filter(build_product_search_filter(search_query))
             .annotate(
-                exact_match=Case(*exact_whens, default=Value(0), output_field=IntegerField()),
+                exact_match=Case(
+                    *exact_whens, default=Value(0), output_field=IntegerField(),
+                ),
                 starts_match=Case(
-                    When(name__istartswith=search_query, then=Value(3)),
+                    When(name__istartswith=search_query,          then=Value(3)),
                     When(category__name__istartswith=search_query, then=Value(2)),
-                    default=Value(0),
-                    output_field=IntegerField(),
+                    default=Value(0), output_field=IntegerField(),
                 ),
                 contains_match=Case(
-                    When(name__icontains=search_query, then=Value(2)),
+                    When(name__icontains=search_query,        then=Value(2)),
                     When(description__icontains=search_query, then=Value(1)),
                     When(category__name__icontains=search_query, then=Value(1)),
-                    default=Value(0),
-                    output_field=IntegerField(),
+                    default=Value(0), output_field=IntegerField(),
                 ),
             )
             .order_by('-exact_match', '-starts_match', '-contains_match', '-is_popular', '-is_new', 'name')
@@ -318,12 +421,58 @@ class ProductPopularListView(generics.ListAPIView):
     def get_queryset(self):
         return Product.objects.filter(is_active=True, is_popular=True).order_by('-updated_at')
 
+# ── Tasodifiy mahsulotlar: kesh pool sozlamalari ──────────────────────────────
+#
+# MUAMMO — order_by('?'):
+#   PostgreSQL'da ORDER BY RANDOM() = FULL TABLE SCAN.
+#   10 000 mahsulot: har so'rovda butun jadval xotirada saralanadi.
+#   Bitta so'rov: O(n log n). 100 ta parallel so'rov: 100 × O(n log n).
+#
+# YECHIM — ID pool keshi + Python random.sample():
+#   1. Barcha aktiv mahsulotlarning ID lari Redis'da saqlanadi (faqat integerlar,
+#      minimal xotira: 100 000 ID ≈ 400 KB).
+#   2. Har so'rovda Python random.sample(pool, 8) — O(k), juda tez.
+#   3. Product.objects.filter(id__in=sample) — PK index bo'yicha, O(k log n).
+#
+# DB so'rovlari:
+#   Kesh issiq (3 daqiqa)  : 1 ta SELECT id__in (8 element)
+#   Kesh sovuq (birinchi)  : 1 ta values_list('id') + 1 ta SELECT id__in
+#
+# Eslatma: mahsulot nofaol bo'lib qolsa, kesh ID poolida qoladi, lekin
+#   ikkinchi filter(is_active=True) uni natijadan chiqaradi.
+_RECOMMENDED_IDS_CACHE_KEY = 'bozor:recommended_ids'
+_RECOMMENDED_IDS_CACHE_TTL = 3 * 60  # 3 daqiqa — yangi mahsulotlar vaqtida ko'rinadi
+_RECOMMENDED_LIMIT = 8
+
+
 class ProductRecommendedListView(generics.ListAPIView):
     serializer_class = ProductListSerializer
     permission_classes = (AllowAny,)
+
     def get_queryset(self):
-        # In a real scenario, this would use a recommendation engine. For now, random.
-        return Product.objects.filter(is_active=True).order_by('?')
+        from django.core.cache import cache
+
+        # ID pool keshdan yoki DB'dan
+        pool = cache.get(_RECOMMENDED_IDS_CACHE_KEY)
+        if pool is None:
+            pool = list(
+                Product.objects.filter(is_active=True)
+                .values_list('id', flat=True)
+            )
+            cache.set(_RECOMMENDED_IDS_CACHE_KEY, pool, timeout=_RECOMMENDED_IDS_CACHE_TTL)
+
+        if not pool:
+            return Product.objects.none()
+
+        # Python darajasida tasodifiy namuna — DB yuklamasi yo'q
+        sample_ids = random.sample(pool, min(_RECOMMENDED_LIMIT, len(pool)))
+
+        # PK index bo'yicha tez so'rov + prefetch (N+1 yo'q)
+        return (
+            Product.objects.filter(id__in=sample_ids, is_active=True)
+            .select_related('category')
+            .prefetch_related('images')
+        )
 
 class CategoryProductListView(generics.ListAPIView):
     serializer_class = ProductListSerializer

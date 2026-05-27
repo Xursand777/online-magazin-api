@@ -5,25 +5,94 @@ from django.utils.text import slugify
 from decimal import Decimal
 
 class GlobalSetting(models.Model):
-    key = models.CharField(max_length=100, unique=True)
-    value = models.CharField(max_length=255)
+    """
+    Tizim bo'yicha sozlamalar jadvali (kalit → qiymat).
+
+    Kesh arxitekturasi:
+      Har bir yozuv 5 daqiqa Redis/LocMemCache'da saqlanadi.
+
+      Muammo — keshsiz:
+        Product.save() ichida get_usd_rate() chaqiriladi.
+        10 000 mahsulotni importda = 10 000 ta SELECT faqat kurs uchun.
+
+      Yechim — kesh + invalidatsiya:
+        Birinchi o'qish: SELECT → cache.set(key, value, 300)
+        Keyingi 4:59 = cache.get() → DB so'rovi yo'q.
+        save() chaqirilganda: cache.delete() → keyingi o'qish yangi qiymat oladi.
+
+      Chegarasi: QuerySet.update() save() ni chetlab o'tadi — bunday holda
+        cache 5 daqiqadan so'ng avtomatik yangilanadi.
+    """
+    key         = models.CharField(max_length=100, unique=True)
+    value       = models.CharField(max_length=255)
     description = models.TextField(blank=True, default='')
-    updated_at = models.DateTimeField(auto_now=True)
+    updated_at  = models.DateTimeField(auto_now=True)
+
+    # ── Kesh sozlamalari ───────────────────────────────────────────────────────
+    _CACHE_PREFIX = 'bozor:gs:'
+    _CACHE_TTL    = 5 * 60   # 5 daqiqa — bulk import + real-time o'zgarish muvozanati
 
     def __str__(self):
         return f"{self.key}: {self.value}"
 
-    @classmethod
-    def get_usd_rate(cls):
-        setting, _ = cls.objects.get_or_create(key='usd_rate', defaults={'value': '12800', 'description': '1 USD kurs (so\'mda)'})
-        try:
-            return Decimal(setting.value)
-        except:
-            return Decimal('12800')
+    def save(self, *args, **kwargs):
+        super().save(*args, **kwargs)
+        # Sozlama o'zgarganda darhol keshni tozalaymiz.
+        # Keyingi get_usd_rate() / get_master_discount_percent() chaqiruvi
+        # yangi qiymatni DB'dan oladi va qayta keshga yozadi.
+        from django.core.cache import cache
+        cache.delete(f'{self._CACHE_PREFIX}{self.key}')
 
     @classmethod
-    def get_master_discount_percent(cls):
-        """Ustalar uchun chegirma foizi (0–90). Default: 5%."""
+    def get_usd_rate(cls) -> Decimal:
+        """
+        USD kurs (so'mda). Keshlanadi — 5 daqiqa.
+
+        Kesh issiq: 0 DB so'rov.
+        Kesh sovuq (birinchi chaqiruv yoki admin o'zgartirdi):
+          get_or_create → agar yo'q bo'lsa '12800' default bilan yaratadi.
+        """
+        from django.core.cache import cache
+
+        cache_key = f'{cls._CACHE_PREFIX}usd_rate'
+        cached = cache.get(cache_key)
+        if cached is not None:
+            try:
+                return Decimal(str(cached))
+            except Exception:
+                pass   # buzilgan kesh → DB'dan qayta olamiz
+
+        setting, _ = cls.objects.get_or_create(
+            key='usd_rate',
+            defaults={'value': '12800', 'description': "1 USD kurs (so'mda)"},
+        )
+        try:
+            rate = Decimal(setting.value)
+        except Exception:
+            rate = Decimal('12800')
+
+        cache.set(cache_key, str(rate), timeout=cls._CACHE_TTL)
+        return rate
+
+    @classmethod
+    def get_master_discount_percent(cls) -> Decimal:
+        """
+        Ustalar uchun chegirma foizi (0–90). Default: 5%. Keshlanadi — 5 daqiqa.
+        """
+        from django.core.cache import cache
+
+        cache_key = f'{cls._CACHE_PREFIX}master_discount_percent'
+        cached = cache.get(cache_key)
+        if cached is not None:
+            try:
+                pct = Decimal(str(cached))
+                # Diapazon tekshiruvi kesh qiymatiga ham qo'llanadi
+                if pct < 0:  return Decimal('0')
+                if pct > 90: return Decimal('90')
+                return pct
+            except Exception:
+                pass   # buzilgan kesh → DB'dan qayta olamiz
+
         setting, _ = cls.objects.get_or_create(
             key='master_discount_percent',
             defaults={'value': '5', 'description': "Ustalar uchun chegirma foizi (%)"},
@@ -31,11 +100,12 @@ class GlobalSetting(models.Model):
         try:
             pct = Decimal(setting.value)
         except Exception:
-            return Decimal('5')
-        if pct < 0:
-            return Decimal('0')
-        if pct > 90:
-            return Decimal('90')
+            pct = Decimal('5')
+
+        if pct < 0:  pct = Decimal('0')
+        if pct > 90: pct = Decimal('90')
+
+        cache.set(cache_key, str(pct), timeout=cls._CACHE_TTL)
         return pct
 
 
