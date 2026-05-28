@@ -1,9 +1,11 @@
 import os
+import re
 
 from django.contrib import admin
-from django.urls import path, include
+from django.urls import path, include, re_path
 from django.conf import settings
 from django.conf.urls.static import static
+from django.views.static import serve
 from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
 
 urlpatterns = [
@@ -25,9 +27,17 @@ if settings.ENABLE_API_DOCS:
     ]
 
 # Media fayllarini doimo serve qilamiz (dev + production).
-# CDN_PROVIDER != 'local' bo'lganda ushbu URL'lar ishlatilmaydi —
-# rasm URL'lari CDN'dan keladi.
-# Render free tier'da nginx yo'q, shuning uchun Django o'zi serve qiladi.
-# Kichik trafik uchun (< 10k req/kun) bu yetarli.
+# Muhim: Django'ning static() faqat DEBUG=True'da ishlaydi.
+# Shuning uchun django.views.static.serve ni bevosita ishlatamiz —
+# bu production'da ham ishlaydi (Render free tier, nginx yo'q).
+# CDN_PROVIDER='b2' yoki 'cloudinary' bo'lganda MEDIA_URL CDN'ga ko'rsatadi,
+# shuning uchun ushbu pattern faqat 'local' rejimda kerak.
 if os.getenv('CDN_PROVIDER', 'local') == 'local':
-    urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
+    media_url = settings.MEDIA_URL.lstrip('/')
+    urlpatterns += [
+        re_path(
+            r'^%s(?P<path>.*)$' % re.escape(media_url),
+            serve,
+            {'document_root': settings.MEDIA_ROOT},
+        ),
+    ]
