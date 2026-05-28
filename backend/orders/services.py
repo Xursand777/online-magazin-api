@@ -504,7 +504,10 @@ def cancel_order(*, order, cancelled_status, actor_type, actor=None, reason=''):
 
 @transaction.atomic
 def transition_order_status(*, order, new_status, actor_type, actor=None, note=''):
-    auto_cancel_expired_orders()
+    # auto_cancel_expired_orders() bu yerda ortiqcha edi:
+    #   - Celery Beat har 10 daqiqada avtomatik ishga tushiradi.
+    #   - Agar Celery yo'q bo'lsa, 60 soniyalik throttle bilan views orqali ham qo'shimcha chaqirilishi mumkin.
+    #   - @transaction.atomic ichida boshqa order'larni bekor qilish kutilmagan yon ta'sir berishi mumkin.
     order.refresh_from_db(fields=['status', 'cancellation_reason', 'cancelled_at', 'updated_at'])
 
     if new_status == order.status:

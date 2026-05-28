@@ -85,6 +85,7 @@ INSTALLED_APPS = [
 # ─────────────────────────────────────────────────────────────────────────────
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    'whitenoise.middleware.WhiteNoiseMiddleware',   # Statik fayllar (admin CSS/JS) — SecurityMiddleware'dan keyin
     'corsheaders.middleware.CorsMiddleware',        # SecurityMiddleware'dan keyin bo'lishi shart
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
@@ -153,6 +154,10 @@ STATIC_ROOT = BASE_DIR / 'staticfiles'
 
 MEDIA_URL = '/media/'
 MEDIA_ROOT = BASE_DIR / 'media'
+
+# WhiteNoise: statik fayllarni siqadi va content-hash qo'shadi (browser caching uchun)
+# Development'da ham ishlaydi (Django'ning `runserver --nostatic` kerak emas)
+STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
@@ -281,6 +286,11 @@ else:
 
 # Cookie'larni CORS so'rovlarda yuborish (agar kerak bo'lsa)
 CORS_ALLOW_CREDENTIALS = True
+
+# Django 4.0+: CSRF middleware frontend domenini ishonchli hisoblasin.
+# DRF JWT endpointlari csrf_exempt bo'lsa ham Django admin uchun zarur.
+if not DEBUG:
+    CSRF_TRUSTED_ORIGINS = CORS_ALLOWED_ORIGINS  # CORS bilan bir xil ro'yxat
 
 # Ruxsat berilgan HTTP metodlar
 CORS_ALLOW_METHODS = ('DELETE', 'GET', 'OPTIONS', 'PATCH', 'POST', 'PUT')
@@ -420,7 +430,11 @@ REFRESH_TOKEN_COOKIE_NAME     = 'bozor_refresh'
 REFRESH_TOKEN_COOKIE_MAX_AGE  = 7 * 24 * 3600          # 7 kun (SIMPLE_JWT bilan mos)
 REFRESH_TOKEN_COOKIE_HTTPONLY = True
 REFRESH_TOKEN_COOKIE_SECURE   = not DEBUG               # Production'da faqat HTTPS
-REFRESH_TOKEN_COOKIE_SAMESITE = 'Lax'                   # CSRF'dan himoya
+# SameSite:
+#   Development (DEBUG=True)   → 'Lax'  — localhost'da same-origin, CSRF'dan himoya
+#   Production  (DEBUG=False)  → 'None' — Vercel (frontend) ↔ Railway (backend) cross-origin
+#                                          SameSite=None + Secure=True HTTPS talab qiladi
+REFRESH_TOKEN_COOKIE_SAMESITE = 'Lax' if DEBUG else 'None'
 REFRESH_TOKEN_COOKIE_PATH     = '/api/auth/refresh/'    # Faqat refresh endpointiga
 
 # ─────────────────────────────────────────────────────────────────────────────

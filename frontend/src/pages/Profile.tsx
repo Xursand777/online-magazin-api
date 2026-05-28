@@ -14,6 +14,7 @@ import {
 } from '../utils/orderStatus';
 import { toast } from '../utils/toast';
 import { useTranslation } from '../i18n/useTranslation';
+import { useLanguageStore } from '../store/languageStore';
 
 interface ProfileOrderItem {
   id: number;
@@ -201,6 +202,7 @@ const Profile = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const queryClient = useQueryClient();
   const { t } = useTranslation();
+  const language = useLanguageStore((s) => s.language);
   const newOrderId = location.state?.newOrderId;
 
   const activeTab = searchParams.get('tab') || 'profile';
@@ -474,7 +476,8 @@ const Profile = () => {
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const { data: ordersPayload } = useQuery<any>({
-    queryKey: ['orders'],
+    // language: mahsulot nomlari tarjima bo'lib keladi — til almashganda qayta fetch qilish kerak
+    queryKey: ['orders', language],
     queryFn: () => getOrders().then((response) => response.data),
     enabled: isAuthenticated,
   });
@@ -494,7 +497,7 @@ const Profile = () => {
     mutationFn: ({ orderId, reason }: { orderId: number; reason: string }) =>
       cancelOrder(orderId, { cancellation_reason: reason }),
     onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ['orders'] });
+      await queryClient.invalidateQueries({ queryKey: ['orders', language] });
       toast.success(t.profile.toastOrderCancelled);
       setCancelingOrderId(null);
       setCancellationReason('');

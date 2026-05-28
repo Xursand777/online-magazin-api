@@ -7,9 +7,10 @@ import axios from 'axios';
 //   VITE_API_URL=http://127.0.0.1:8000/api
 //
 // DIQQAT: 'http://127.0.0.1:8000/api' — faqat localhost fallback (development).
-// Har bir foydalanuvchi bu URL'ni o'z kompyuteriga yo'naltiradi.
-// Production build'ida bu URL server manziliga o'zgartirilishi SHART.
-const BASE_URL = import.meta.env.VITE_API_URL ?? 'http://127.0.0.1:8000/api';
+// Brauzer HttpOnly (SameSite=Lax) cookie'larni cross-origin zaproslarda o'chirib yubormasligi uchun,
+// frontend qaysi hostda ochilgan bo'lsa (localhost yoki 127.0.0.1), backend API ham xuddi shu hostga yo'naltiriladi.
+const defaultHost = typeof window !== 'undefined' && window.location.hostname === 'localhost' ? 'localhost' : '127.0.0.1';
+const BASE_URL = import.meta.env.VITE_API_URL ?? `http://${defaultHost}:8000/api`;
 
 const apiClient = axios.create({
   baseURL: BASE_URL,
@@ -21,10 +22,14 @@ const apiClient = axios.create({
   withCredentials: true,
 });
 
-// Request interceptor: guest-session va til sarlavhasi
+// Request interceptor: CSRF himoya sarlavhasi, guest-session va til
 // Eslatma: Access token endi httpOnly cookie orqali avtomatik yuboriladi
 apiClient.interceptors.request.use(
   (config) => {
+    // X-Requested-With: cross-site so'rovlarda bu sarlavha yuborib bo'lmaydi
+    // (CORS preflight talab qiladi) — SameSite=None cookielarga qarshi CSRF himoya.
+    config.headers['X-Requested-With'] = 'XMLHttpRequest';
+
     const user = localStorage.getItem('user');
     const guestSessionId = localStorage.getItem('guest_session_id');
     if (guestSessionId && !user) {

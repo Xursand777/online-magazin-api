@@ -51,13 +51,17 @@ def _set_auth_cookies(response: Response, access_str: str, refresh_str: str = No
     Access va Refresh tokenlarni httpOnly cookie sifatida response'ga yozadi.
     XSS hujumidan to'liq himoya!
     """
+    # samesite:
+    #   'Lax'  — development (same-origin localhost)
+    #   'None' — production cross-origin (Vercel ↔ Railway); Secure=True shart
+    _samesite = 'Lax' if settings.DEBUG else 'None'
     response.set_cookie(
         key='access',
         value=access_str,
         max_age=3600,
         httponly=True,
         secure=not settings.DEBUG,
-        samesite='Lax',
+        samesite=_samesite,
         path='/',
     )
     if refresh_str:

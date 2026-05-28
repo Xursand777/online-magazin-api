@@ -1,5 +1,7 @@
 Django==4.2.30
 PyJWT==2.12.1
+gunicorn==23.0.0
+whitenoise==6.9.0
 # Redis kesh: OTP va rate limiting uchun multi-worker muhitda shart (REDIS_URL o'rnatilganda)
 async-timeout==5.0.1
 redis==7.0.1

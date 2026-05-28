@@ -93,19 +93,20 @@ type SlideDirection = 'next' | 'prev';
 // faqat o'qiymiz va istalganda tarixni tozalaymiz.
 //
 const RecentlyViewedSection = () => {
-  const { t } = useTranslation();
+  const { t, language } = useTranslation();
   const qc = useQueryClient();
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
 
   const { data: products = [] } = useQuery<Product[]>({
-    queryKey: ['recently-viewed', isAuthenticated],
+    // language: mahsulot nomlari tarjima bo'lib keladi — til almashganda qayta fetch qilish kerak
+    queryKey: ['recently-viewed', isAuthenticated, language],
     queryFn: () => getRecentlyViewed().then((r) => r.data),
     staleTime: 0,
   });
 
   const clearAll = async () => {
     await clearRecentlyViewed();
-    qc.setQueryData(['recently-viewed', isAuthenticated], []);
+    qc.setQueryData(['recently-viewed', isAuthenticated, language], []);
   };
 
   // Minimal 2 ta ko'rilgan mahsulot bo'lmasа bo'limni ko'rsatmaymiz
