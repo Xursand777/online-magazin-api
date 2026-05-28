@@ -44,6 +44,9 @@ Thumbs.db
 .env.production.local
 
 # Media and logs
-media/
+# media/ — DO NOT ignore: real product/category images are committed to git
+# Only ignore test artifacts and future user-uploaded files
+backend/media/products/gallery/cart-test*.gif
+backend/media/products/gallery/cart-test.gif
 logs/
 *.log

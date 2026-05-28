@@ -165,15 +165,45 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 # CDN — Rasm va Fayl Xizmati
 # ─────────────────────────────────────────────────────────────────────────────
 # CDN_PROVIDER qiymatlari:
-#   'local'      — serverning o'z diski (default, development)
-#   'cloudinary' — Cloudinary CDN (production uchun tavsiya etiladi)
+#   'local'      — serverning o'z diski (default, development uchun)
+#   'b2'         — Backblaze B2 S3-compatible storage (production uchun tavsiya)
+#   'cloudinary' — Cloudinary CDN (Uzbekistonda blok bo'lishi mumkin)
 #
-# Cloudinary bepul reja: 25GB saqlash + 25GB o'tkazish/oy
-# Hisob oching: https://cloudinary.com/users/register/free
+# Backblaze B2 bepul: 10GB saqlash + 1GB/kun yuklab olish
+# Hisob oching: https://www.backblaze.com/sign-up/cloud-storage
+# ─────────────────────────────────────────────────────────────────────────────
 
 CDN_PROVIDER = os.getenv('CDN_PROVIDER', 'local')
 
-if CDN_PROVIDER == 'cloudinary':
+if CDN_PROVIDER == 'b2':
+    # Backblaze B2 — S3-compatible object storage
+    _b2_key_id     = os.getenv('B2_KEY_ID', '')          # Application Key ID
+    _b2_app_key    = os.getenv('B2_APPLICATION_KEY', '')  # Application Key
+    _b2_bucket     = os.getenv('B2_BUCKET_NAME', '')      # Bucket nomi
+    _b2_endpoint   = os.getenv('B2_ENDPOINT_URL', '')     # e.g. https://s3.us-west-004.backblazeb2.com
+
+    if not all([_b2_key_id, _b2_app_key, _b2_bucket, _b2_endpoint]):
+        raise RuntimeError(
+            "[CDN] CDN_PROVIDER=b2 lekin sozlamalar to'liq emas!\n"
+            "  B2_KEY_ID, B2_APPLICATION_KEY, B2_BUCKET_NAME, B2_ENDPOINT_URL\n"
+            "  muhit o'zgaruvchilarini o'rnating."
+        )
+
+    # django-storages S3 backend (Backblaze B2 S3-compatible API)
+    DEFAULT_FILE_STORAGE  = 'storages.backends.s3boto3.S3Boto3Storage'
+    AWS_ACCESS_KEY_ID     = _b2_key_id
+    AWS_SECRET_ACCESS_KEY = _b2_app_key
+    AWS_STORAGE_BUCKET_NAME = _b2_bucket
+    AWS_S3_ENDPOINT_URL   = _b2_endpoint
+    AWS_S3_REGION_NAME    = os.getenv('B2_REGION', 'us-west-004')
+    AWS_DEFAULT_ACL       = 'public-read'
+    AWS_QUERYSTRING_AUTH  = False   # URL'lar ochiq (auth token shart emas)
+    AWS_S3_FILE_OVERWRITE = False   # Fayl ustiga yozmaslik (xavfsiz)
+    AWS_S3_CUSTOM_DOMAIN  = None    # CDN domeni bo'lsa shu yerga (ixtiyoriy)
+    # Media URL: Backblaze public URL formatida
+    MEDIA_URL = f'{_b2_endpoint}/{_b2_bucket}/'
+
+elif CDN_PROVIDER == 'cloudinary':
     _cloud_name   = os.getenv('CLOUDINARY_CLOUD_NAME', '')
     _api_key      = os.getenv('CLOUDINARY_API_KEY', '')
     _api_secret   = os.getenv('CLOUDINARY_API_SECRET', '')
@@ -189,17 +219,10 @@ if CDN_PROVIDER == 'cloudinary':
         'CLOUD_NAME': _cloud_name,
         'API_KEY':    _api_key,
         'API_SECRET': _api_secret,
-        # Fayllar `bozor/` papkasiga yuklanadi (Cloudinary Media Library'da tartibli ko'rinadi)
         'MEDIA_TAG':  'bozor',
-        # Yuklangan fayllarni avtomatik optimallashtirish
         'MAGIC_FILE_PATH': 'cloudinary_storage/magic',
     }
-
-    # Django barcha ImageField va FileField'larni Cloudinary'ga saqlaydi
     DEFAULT_FILE_STORAGE = 'cloudinary_storage.storage.MediaCloudinaryStorage'
-
-    # Cloudinary'dan static fayllar (kerak bo'lsa yoqish mumkin)
-    # STATICFILES_STORAGE = 'cloudinary_storage.storage.StaticHashedCloudinaryStorage'
 
 # ─────────────────────────────────────────────────────────────────────────────
 # KESH — OTP, Rate Limiting va Session ma'lumotlari uchun

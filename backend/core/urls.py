@@ -1,3 +1,5 @@
+import os
+
 from django.contrib import admin
 from django.urls import path, include
 from django.conf import settings
@@ -22,5 +24,10 @@ if settings.ENABLE_API_DOCS:
         path('api/docs/', SpectacularSwaggerView.as_view(url_name='schema'), name='swagger-ui'),
     ]
 
-if settings.DEBUG:
+# Media fayllarini doimo serve qilamiz (dev + production).
+# CDN_PROVIDER != 'local' bo'lganda ushbu URL'lar ishlatilmaydi —
+# rasm URL'lari CDN'dan keladi.
+# Render free tier'da nginx yo'q, shuning uchun Django o'zi serve qiladi.
+# Kichik trafik uchun (< 10k req/kun) bu yetarli.
+if os.getenv('CDN_PROVIDER', 'local') == 'local':
     urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
