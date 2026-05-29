@@ -111,45 +111,22 @@ class AdminDrawer extends StatelessWidget {
 
             const Divider(height: 1),
 
-            // ── Footer ──
+            // ── Footer: faqat "Chiqish" ──
             Padding(
               padding: const EdgeInsets.all(12),
-              child: Column(
-                children: [
-                  Row(
-                    children: [
-                      Expanded(
-                        child: OutlinedButton.icon(
-                          onPressed: () {
-                            Navigator.pop(context);
-                            context.go('/');
-                          },
-                          icon: const Icon(Icons.open_in_new_rounded, size: 16),
-                          label: const Text('Sayt'),
-                          style: OutlinedButton.styleFrom(
-                            foregroundColor: theme.colorScheme.onSurfaceVariant,
-                            side: BorderSide(color: theme.colorScheme.outlineVariant),
-                            padding: const EdgeInsets.symmetric(vertical: 12),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: OutlinedButton.icon(
-                          onPressed: () => _confirmLogout(context),
-                          icon: const Icon(Icons.logout_rounded, size: 16),
-                          label: const Text('Chiqish'),
-                          style: OutlinedButton.styleFrom(
-                            foregroundColor: theme.colorScheme.error,
-                            side: BorderSide(
-                                color: theme.colorScheme.error.withValues(alpha: 0.4)),
-                            padding: const EdgeInsets.symmetric(vertical: 12),
-                          ),
-                        ),
-                      ),
-                    ],
+              child: SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed: () => _confirmLogout(context),
+                  icon: const Icon(Icons.logout_rounded, size: 18),
+                  label: const Text('Chiqish'),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: theme.colorScheme.error,
+                    side: BorderSide(
+                        color: theme.colorScheme.error.withValues(alpha: 0.4)),
+                    padding: const EdgeInsets.symmetric(vertical: 14),
                   ),
-                ],
+                ),
               ),
             ),
           ],

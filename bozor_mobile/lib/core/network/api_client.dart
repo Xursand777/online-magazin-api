@@ -30,29 +30,53 @@ class ApiClient {
           return handler.next(options);
         },
 
+        onResponse: (response, handler) {
+          // ── Muvaffaqiyatli javob — URL affinity ─────────────────────────
+          // Qaysi server muvaffaqiyatli javob bergan bo'lsa, refresh ham
+          // o'sha serverga borishini ta'minlaymiz. Bu ROTATE_REFRESH_TOKENS
+          // muhitida cross-server token blacklist muammosini hal qiladi.
+          final baseUrl = response.requestOptions.baseUrl;
+          if (baseUrl.isNotEmpty) {
+            tokenService.setSuccessfulBaseUrl(baseUrl);
+          }
+          return handler.next(response);
+        },
+
         onError: (DioException e, handler) async {
           // ── 1. Local URL → production URL fallback ───────────────────────
+          // Faqat tarmoq/ulanish xatosi bo'lsa boshqa URL'larga o'tamiz.
+          // Fallback URL 4xx (jumladan 401) qaytarsa, uni 401 oqimi bilan
+          // qayta ishlaymiz (eski kodda bu o'tkazib yuborilardi).
+          DioException workingError = e;
           try {
             final fallback = await _retryWithUrlFallback(e);
-            if (fallback != null) return handler.resolve(fallback);
+            if (fallback != null) {
+              // Fallback muvaffaqiyatli — bu URL'ni affinity sifatida eslaymiz.
+              final fallbackBase = fallback.requestOptions.baseUrl;
+              if (fallbackBase.isNotEmpty) {
+                tokenService.setSuccessfulBaseUrl(fallbackBase);
+              }
+              return handler.resolve(fallback);
+            }
           } on DioException catch (fallbackErr) {
-            // Server HTTP xato berdi (4xx/5xx) — bu xatoni ko'rsatamiz
-            return handler.next(fallbackErr);
+            // Fallback URL HTTP xato qaytardi (badResponse, masalan 401).
+            // Buni asosiy xato sifatida olamiz va 401 refresh oqimiga uzatamiz.
+            workingError = fallbackErr;
           }
 
           // ── 2. 401 → token yangilash ──────────────────────────────────────
-          if (e.response?.statusCode == 401 &&
-              e.requestOptions.extra['_refreshTried'] != true) {
+          if (workingError.response?.statusCode == 401 &&
+              workingError.requestOptions.extra['_refreshTried'] != true) {
             final newAccess = await tokenService.refreshAccessToken();
             if (newAccess != null) {
-              final opts = e.requestOptions.copyWith(
+              final opts = workingError.requestOptions.copyWith(
                 headers: {
-                  ...e.requestOptions.headers,
+                  ...workingError.requestOptions.headers,
                   'Authorization':  'Bearer $newAccess',
                   'X-Client-Type': 'mobile',
                 },
                 extra: {
-                  ...e.requestOptions.extra,
+                  ...workingError.requestOptions.extra,
                   '_refreshTried': true,
                 },
               );
@@ -63,11 +87,11 @@ class ApiClient {
                 return handler.next(retryErr);
               }
             }
-            // refreshAccessToken ichida forceLogout allaqachon chaqirildi
-            return handler.next(e);
+            // refreshAccessToken ichida forceLogout (kerak bo'lsa) chaqirilgan
+            return handler.next(workingError);
           }
 
-          return handler.next(e);
+          return handler.next(workingError);
         },
       ),
     );
