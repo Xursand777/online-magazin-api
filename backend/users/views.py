@@ -200,8 +200,9 @@ class VerifyOTPView(views.APIView):
             merge_guest_profile_into_user(user, guest_session_id)
 
         refresh = RefreshToken.for_user(user)
-        # Access va Refresh tokenlar response body'ga kiritilmaydi (XSS xavfi).
-        # Ular faqat httpOnly cookie sifatida yuboriladi.
+        access_token_str  = str(refresh.access_token)
+        refresh_token_str = str(refresh)
+
         response_data = {
             'user': {
                 'id': user.id,
@@ -213,11 +214,17 @@ class VerifyOTPView(views.APIView):
                 'is_master': user.is_master,
             }
         }
-        if getattr(settings, 'IS_TESTING', False):
-            response_data['access'] = str(refresh.access_token)
-            response_data['refresh'] = str(refresh)
+
+        # Web (brauzer): tokenlar httpOnly cookie'da — XSS'dan himoya.
+        # Mobile (Flutter/React Native): X-Client-Type: mobile header yuborsa
+        #   YOKI IS_TESTING=True bo'lsa — tokenlar body'da ham qaytariladi.
+        is_mobile = request.headers.get('X-Client-Type', '').lower() == 'mobile'
+        if is_mobile or getattr(settings, 'IS_TESTING', False):
+            response_data['access']  = access_token_str
+            response_data['refresh'] = refresh_token_str
+
         response = Response(response_data)
-        _set_auth_cookies(response, str(refresh.access_token), str(refresh))
+        _set_auth_cookies(response, access_token_str, refresh_token_str)
         return response
 
 # LoginView triggers SendOTP for phone-based login (OTP flow)
