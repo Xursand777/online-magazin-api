@@ -543,52 +543,77 @@ class AdminFeedbackUpdateView(views.APIView):
 class CookieTokenRefreshView(views.APIView):
     """
     POST /api/auth/refresh/
-    Refresh token body o'rniga httpOnly cookie'dan o'qiladi.
 
-    ROTATE_REFRESH_TOKENS=True bo'lganda:
+    WEB (brauzer):
+      Refresh token httpOnly cookie'dan o'qiladi — JavaScript ko'ra olmaydi.
+      Yangi tokenlar ham cookie'ga yoziladi.
+
+    MOBILE (X-Client-Type: mobile):
+      Refresh token request body'dan o'qiladi: {'refresh': '<token>'}.
+      Yangi tokenlar response body'da qaytariladi: {'access': '...', 'refresh': '...'}.
+      Cookie ishlatilmaydi — mobil ilovalar httpOnly cookie'ni o'qiy olmaydi.
+
+    ROTATE_REFRESH_TOKENS=True bo'lganda (har ikkala holatda):
       • Eski refresh token blacklist'ga qo'shiladi (BLACKLIST_AFTER_ROTATION).
-      • Yangi refresh token cookie'ga yoziladi.
-      • Response body'da faqat yangi `access` token qaytariladi.
-
-    Nima uchun oddiy TokenRefreshView yetarli emas:
-      Body'dan refresh token qabul qilib qaytargan bo'lar edi — bu JavaScript
-      orqali ko'rish imkonini beradi va XSS xavfini yo'q qilmaydi.
+      • Yangi access + refresh token qaytariladi.
     """
     permission_classes = (AllowAny,)
     throttle_classes   = [ScopedRateThrottle]
     throttle_scope     = 'auth'
 
     def post(self, request):
-        refresh_str = request.COOKIES.get(settings.REFRESH_TOKEN_COOKIE_NAME)
-        if not refresh_str:
-            return Response(
-                {'error': 'Sessiya tugagan. Iltimos, qayta kiring.'},
-                status=status.HTTP_401_UNAUTHORIZED,
-            )
+        is_mobile = request.headers.get('X-Client-Type', '').lower() == 'mobile'
 
+        # ── Refresh token'ni olish ────────────────────────────────────────────
+        if is_mobile:
+            # Mobile: body'dan o'qiymiz
+            refresh_str = request.data.get('refresh')
+            if not refresh_str:
+                return Response(
+                    {'error': 'Refresh token taqdim etilmadi.'},
+                    status=status.HTTP_401_UNAUTHORIZED,
+                )
+        else:
+            # Web: httpOnly cookie'dan o'qiymiz
+            refresh_str = request.COOKIES.get(settings.REFRESH_TOKEN_COOKIE_NAME)
+            if not refresh_str:
+                return Response(
+                    {'error': 'Sessiya tugagan. Iltimos, qayta kiring.'},
+                    status=status.HTTP_401_UNAUTHORIZED,
+                )
+
+        # ── Token yangilash ───────────────────────────────────────────────────
         serializer = TokenRefreshSerializer(data={'refresh': refresh_str})
         try:
             serializer.is_valid(raise_exception=True)
         except (TokenError, InvalidToken):
-            # Yaroqsiz yoki muddati o'tgan token → cookie tozalanadi
             resp = Response(
                 {'error': 'Sessiya yaroqsiz. Iltimos, qayta kiring.'},
                 status=status.HTTP_401_UNAUTHORIZED,
             )
-            resp.delete_cookie(
-                key      = settings.REFRESH_TOKEN_COOKIE_NAME,
-                path     = settings.REFRESH_TOKEN_COOKIE_PATH,
-                samesite = settings.REFRESH_TOKEN_COOKIE_SAMESITE,
-            )
+            if not is_mobile:
+                # Web: cookie'ni tozalaymiz
+                resp.delete_cookie(
+                    key      = settings.REFRESH_TOKEN_COOKIE_NAME,
+                    path     = settings.REFRESH_TOKEN_COOKIE_PATH,
+                    samesite = settings.REFRESH_TOKEN_COOKIE_SAMESITE,
+                )
             return resp
 
-        resp = Response({'detail': 'Tokenlar yangilandi'})
-
-        # ROTATE_REFRESH_TOKENS=True → yangi refresh cookie
+        new_access  = serializer.validated_data['access']
         new_refresh = serializer.validated_data.get('refresh')
-        _set_auth_cookies(resp, serializer.validated_data['access'], new_refresh)
 
-        return resp
+        if is_mobile:
+            # Mobile: tokenlar body'da qaytariladi
+            data = {'access': str(new_access)}
+            if new_refresh:
+                data['refresh'] = str(new_refresh)
+            return Response(data)
+        else:
+            # Web: tokenlar cookie'ga yoziladi
+            resp = Response({'detail': 'Tokenlar yangilandi'})
+            _set_auth_cookies(resp, str(new_access), str(new_refresh) if new_refresh else None)
+            return resp
 
 
 class CookieLogoutView(views.APIView):

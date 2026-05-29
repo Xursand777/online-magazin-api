@@ -1,0 +1,101 @@
+import 'package:dio/dio.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:get_it/get_it.dart';
+import '../auth/auth_token_service.dart';
+import '../network/api_client.dart';
+import '../router/app_router.dart';
+import '../../features/auth/data/repositories/auth_repository.dart';
+import '../../features/auth/presentation/bloc/auth_bloc.dart';
+import '../../features/home/data/repositories/home_repository.dart';
+import '../../features/home/presentation/bloc/home_bloc.dart';
+import '../../features/catalog/data/repositories/catalog_repository.dart';
+import '../../features/catalog/presentation/bloc/catalog_bloc.dart';
+import '../../features/cart/data/repositories/cart_repository.dart';
+import '../../features/cart/presentation/bloc/cart_bloc.dart';
+import '../../features/admin/data/repositories/admin_repository.dart';
+import '../../features/admin/presentation/bloc/admin_bloc.dart';
+import '../../features/admin/presentation/bloc/admin_dashboard_bloc.dart';
+import '../../features/admin/presentation/bloc/admin_orders_bloc.dart';
+import '../../features/admin/presentation/bloc/admin_pos_bloc.dart';
+
+final sl = GetIt.instance;
+
+Future<void> init() async {
+  // ── Core: Storage ─────────────────────────────────────────────────────────
+  sl.registerLazySingleton<FlutterSecureStorage>(
+    () => const FlutterSecureStorage(),
+  );
+
+  // ── Core: AuthTokenService ────────────────────────────────────────────────
+  // Barcha token operatsiyalari (saqlash / o'qish / refresh / logout) shu yerda
+  sl.registerLazySingleton<AuthTokenService>(
+    () => AuthTokenService(storage: sl()),
+  );
+
+  // ── Core: Network ─────────────────────────────────────────────────────────
+  sl.registerLazySingleton<Dio>(() => Dio());
+  sl.registerLazySingleton<ApiClient>(
+    () => ApiClient(dio: sl(), secureStorage: sl(), tokenService: sl()),
+  );
+
+  // ── Repositories ──────────────────────────────────────────────────────────
+  sl.registerLazySingleton<AuthRepository>(
+    () => AuthRepository(apiClient: sl(), tokenService: sl()),
+  );
+  sl.registerLazySingleton<HomeRepository>(
+    () => HomeRepository(apiClient: sl()),
+  );
+  sl.registerLazySingleton<CatalogRepository>(
+    () => CatalogRepository(apiClient: sl()),
+  );
+  sl.registerLazySingleton<CartRepository>(
+    () => CartRepository(),
+  );
+  sl.registerLazySingleton<AdminRepository>(
+    () => AdminRepository(apiClient: sl()),
+  );
+
+  // ── Auth: startup state detection ─────────────────────────────────────────
+  // AuthBloc app ishga tushishdan OLDIN to'g'ri state bilan yaratiladi.
+  // Bu flash-of-login-page muammosini bartaraf etadi.
+  final tokenService = sl<AuthTokenService>();
+  final hasTokens    = await tokenService.hasTokens();
+  final isAdmin      = hasTokens ? await tokenService.isAdmin() : false;
+  final initialState = hasTokens
+      ? AuthAuthenticated(isAdmin: isAdmin)
+      : AuthUnauthenticated();
+
+  // AuthBloc — SINGLETON (bir nusxa butun ilova davomida)
+  sl.registerLazySingleton<AuthBloc>(
+    () => AuthBloc(
+      repository:   sl(),
+      tokenService: sl(),
+      initialState: initialState,
+    ),
+  );
+
+  // AppRouter — AuthBloc'ga bog'liq, shuning uchun keyin ro'yxatdan o'tkaziladi
+  sl.registerLazySingleton<AppRouter>(
+    () => AppRouter(authBloc: sl()),
+  );
+
+  // ── Blocs ─────────────────────────────────────────────────────────────────
+  // AuthBloc — singleton (yuqorida), AppRouter — singleton (yuqorida)
+  // Qolgan BLoC'lar factory (har sahifa uchun yangi instance)
+  sl.registerFactory<HomeBloc>(    () => HomeBloc(repository:    sl()));
+  sl.registerFactory<CatalogBloc>( () => CatalogBloc(repository: sl()));
+
+  // AdminBloc — SINGLETON: katalog (mahsulot/kategoriya/banner) sahifalari
+  // navigatsiya orasida bitta holatni baham ko'radi.
+  sl.registerLazySingleton<AdminBloc>(() => AdminBloc(repository: sl()));
+
+  // Dashboard / Buyurtmalar / POS — har sahifa uchun yangi instance (factory)
+  sl.registerFactory<AdminDashboardBloc>(() => AdminDashboardBloc(repository: sl()));
+  sl.registerFactory<AdminOrdersBloc>(   () => AdminOrdersBloc(repository:    sl()));
+  sl.registerFactory<AdminPosBloc>(      () => AdminPosBloc(repository:       sl()));
+
+  // CartBloc — singleton (savatcha butun ilova bo'yicha bir xil)
+  sl.registerLazySingleton<CartBloc>(
+    () => CartBloc(repository: sl())..add(LoadCart()),
+  );
+}
