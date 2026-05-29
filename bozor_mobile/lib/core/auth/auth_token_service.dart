@@ -1,7 +1,14 @@
 import 'dart:async';
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart' show debugPrint, kDebugMode;
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import '../network/api_constants.dart';
+
+// Diagnostic logging — faqat debug rejimida ko'rsatiladi.
+// Production'da nol qiymatga aylanadi, performance ga ta'sir qilmaydi.
+void _authLog(String message) {
+  if (kDebugMode) debugPrint('[AUTH] $message');
+}
 
 /// Storage operatsiyalarini ketma-ket bajarish uchun oddiy lock.
 /// Logout va refresh-writeback yonma-yon ishlaganda race condition'lar
@@ -173,9 +180,12 @@ class AuthTokenService {
     }
 
     if (refreshToken == null) {
+      _authLog('refresh: token storage da yo\'q (epoch=$startEpoch) — force-logout');
       if (_sessionEpoch == startEpoch) await _triggerForceLogout();
       return null;
     }
+
+    _authLog('refresh boshlandi: epoch=$startEpoch, urls=${ApiConstants.localBaseUrls.length}');
 
     final refreshDio = Dio(BaseOptions(
       connectTimeout: const Duration(seconds: 30),
@@ -239,23 +249,29 @@ class AuthTokenService {
         final code = e.response?.statusCode;
         if (code == 401 || code == 403) {
           tokenRejected = true;
+          _authLog('refresh: $baseUrl → REJECTED (HTTP $code)');
         } else {
           anyConnectionError = true;
+          _authLog('refresh: $baseUrl → connection error (${e.type})');
         }
         continue;
       }
     }
 
-    if (_sessionEpoch != startEpoch) return null;
+    if (_sessionEpoch != startEpoch) {
+      _authLog('refresh: epoch o\'zgardi — tashlandi');
+      return null;
+    }
 
     // Force-logout faqat:
     //   1. Kamida bitta server token'ni ANIQ rad etdi (401/403).
     //   2. HECH BIRIDA tarmoq/ulanish xatosi bo'lmadi.
-    //
-    // Agar biror server ulana olmagan bo'lsa — token hali yaroqli bo'lishi mumkin,
-    // shunchaki server vaqtincha ishlamayapti. Sessiyani buzmaymiz.
     if (tokenRejected && !anyConnectionError) {
+      _authLog('refresh: barcha serverlar rad etdi (anyConnectionError=false) → FORCE-LOGOUT');
       await _triggerForceLogout();
+    } else {
+      _authLog('refresh: muvaffaqiyatsiz, lekin force-logout YO\'Q '
+          '(tokenRejected=$tokenRejected, anyConnectionError=$anyConnectionError)');
     }
     return null;
   }
@@ -273,6 +289,7 @@ class AuthTokenService {
   }
 
   Future<void> _triggerForceLogout() async {
+    _authLog('⚠️ FORCE-LOGOUT chaqirildi');
     await clearTokens();
     _forceLogoutCtrl.add(null);
   }

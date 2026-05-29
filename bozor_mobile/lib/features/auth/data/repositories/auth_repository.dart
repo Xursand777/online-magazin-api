@@ -55,6 +55,40 @@ class AuthRepository {
     }
   }
 
+  /// Serverga logout signalini yuboradi — refresh tokenni blacklist'ga qo'shadi.
+  ///
+  /// ── XAVFSIZLIK KRITIK ─────────────────────────────────────────────────────
+  /// Bu metodsiz refresh token serverda yaroqli qoladi (7 kun!). Agar
+  /// telefon o'g'irlansa yoki token sizib chiqsa — hujumchi foydalanuvchi
+  /// "logout" qilgan bo'lsa ham qayta kira oladi.
+  ///
+  /// Serverga POST /api/auth/logout/ yuboriladi, body: `{'refresh': 'TOKEN'}`.
+  /// Server `token.blacklist()` qiladi → keyingi refresh urinishlari 401.
+  ///
+  /// Tarmoq xatosi yoki server javob bermasa — silently ignore qilamiz,
+  /// chunki lokal tokenlar baribir tozalanadi (clearTokens). User experience
+  /// uchun logout har doim "muvaffaqiyatli" bo'lishi kerak.
+  Future<void> logoutOnServer() async {
+    try {
+      final refresh = await tokenService.getRefreshToken();
+      if (refresh == null || refresh.isEmpty) return;
+
+      await apiClient.dio.post(
+        '/api/auth/logout/',
+        data: {'refresh': refresh},
+        options: Options(
+          // Logout xatolarini interceptor 401-refresh oqimiga aralashtirmasin
+          extra: {'_refreshTried': true},
+          // Tarmoq sekin bo'lsa kutib o'tirmaymiz — UX muhim
+          sendTimeout:    const Duration(seconds: 5),
+          receiveTimeout: const Duration(seconds: 5),
+        ),
+      );
+    } catch (_) {
+      // Tarmoq xatosi yoki 401 — muhim emas. Lokal tozalash baribir bo'ladi.
+    }
+  }
+
   // ── Helpers ───────────────────────────────────────────────────────────────
 
   String? _extractDebugCode(dynamic data) {
@@ -73,7 +107,8 @@ class AuthRepository {
       case DioExceptionType.connectionTimeout:
       case DioExceptionType.sendTimeout:
       case DioExceptionType.receiveTimeout:
-        return 'Server javob bermadi. Biroz kutib qayta urinib ko\'ring.';
+        return "Server javob bermadi (60 soniya). Server uyqudan uyg'onmoqda — "
+            "iltimos, 30 soniya kutib qayta urinib ko'ring.";
       case DioExceptionType.connectionError:
         return 'Serverga ulanib bo\'lmadi. Internet aloqasini tekshiring.';
       default:

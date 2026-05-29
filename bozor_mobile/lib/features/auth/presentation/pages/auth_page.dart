@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -10,7 +11,6 @@ class AuthPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // AuthBloc — singleton, BlocProvider.value ishlatiladi (yopmaydi)
     return BlocProvider<AuthBloc>.value(
       value: sl<AuthBloc>(),
       child: const AuthView(),
@@ -29,11 +29,31 @@ class _AuthViewState extends State<AuthView> {
   final TextEditingController _phoneController = TextEditingController();
   final TextEditingController _otpController = TextEditingController();
 
+  // Server uxlab qolgan bo'lishi mumkinligi haqida ogohlantirish uchun timer
+  Timer? _slowServerTimer;
+  bool _showSlowServerHint = false;
+
   @override
   void dispose() {
+    _slowServerTimer?.cancel();
     _phoneController.dispose();
     _otpController.dispose();
     super.dispose();
+  }
+
+  void _startSlowServerTimer() {
+    _slowServerTimer?.cancel();
+    setState(() => _showSlowServerHint = false);
+    _slowServerTimer = Timer(const Duration(seconds: 8), () {
+      if (mounted) setState(() => _showSlowServerHint = true);
+    });
+  }
+
+  void _stopSlowServerTimer() {
+    _slowServerTimer?.cancel();
+    if (_showSlowServerHint) {
+      setState(() => _showSlowServerHint = false);
+    }
   }
 
   @override
@@ -44,9 +64,13 @@ class _AuthViewState extends State<AuthView> {
       body: SafeArea(
         child: BlocConsumer<AuthBloc, AuthState>(
           listener: (context, state) {
+            if (state is AuthLoading) {
+              _startSlowServerTimer();
+            } else {
+              _stopSlowServerTimer();
+            }
+
             if (state is AuthAuthenticated) {
-              // GoRouter redirect ham avtomatik yo'naltiradi,
-              // lekin explicit navigate xavfsizlik uchun qoldirildi
               context.go(state.isAdmin ? '/admin' : '/');
             } else if (state is AuthFailure) {
               ScaffoldMessenger.of(context).showSnackBar(
@@ -59,6 +83,8 @@ class _AuthViewState extends State<AuthView> {
             }
           },
           builder: (context, state) {
+            final isLoading = state is AuthLoading;
+
             return Center(
               child: SingleChildScrollView(
                 padding: const EdgeInsets.all(24.0),
@@ -110,9 +136,39 @@ class _AuthViewState extends State<AuthView> {
                       ),
                       padding: const EdgeInsets.all(24),
                       child: state is AuthOtpSent
-                          ? _buildOtpForm(theme, state.debugCode)
-                          : _buildPhoneForm(theme),
+                          ? _buildOtpForm(theme, state.debugCode, isLoading)
+                          : _buildPhoneForm(theme, isLoading),
                     ),
+
+                    // Server cold start ogohlantirishi
+                    if (_showSlowServerHint && isLoading) ...[
+                      const SizedBox(height: 16),
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: theme.colorScheme.surfaceContainerLow,
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(
+                              color: theme.colorScheme.outlineVariant),
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(Icons.info_outline,
+                                size: 18,
+                                color: theme.colorScheme.onSurfaceVariant),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Text(
+                                "Server uyg'onmoqda... Bu 30 soniyaga cho'zilishi mumkin.",
+                                style: theme.textTheme.bodySmall?.copyWith(
+                                  color: theme.colorScheme.onSurfaceVariant,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
                   ],
                 ),
               ),
@@ -123,7 +179,7 @@ class _AuthViewState extends State<AuthView> {
     );
   }
 
-  Widget _buildPhoneForm(ThemeData theme) {
+  Widget _buildPhoneForm(ThemeData theme, bool isLoading) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -161,6 +217,7 @@ class _AuthViewState extends State<AuthView> {
               Expanded(
                 child: TextField(
                   controller: _phoneController,
+                  enabled: !isLoading,
                   keyboardType: TextInputType.number,
                   inputFormatters: [
                     FilteringTextInputFormatter.digitsOnly,
@@ -179,25 +236,42 @@ class _AuthViewState extends State<AuthView> {
         ),
         const SizedBox(height: 24),
         ElevatedButton(
-          onPressed: () {
-            if (_phoneController.text.length == 9) {
-              context.read<AuthBloc>().add(SendOtpEvent(_phoneController.text));
-            } else {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text('Please enter a valid phone number'),
-                  backgroundColor: theme.colorScheme.error,
-                ),
-              );
-            }
-          },
-          child: const Text('Continue'),
+          // KRITIK: yuklanish paytida tugma o'chiriladi — bu foydalanuvchining
+          // bir nechta marta bosib qo'yishini va serverga ortiqcha so'rovlarni
+          // oldini oladi. Render cold start (50+ soniya) ga kuting.
+          onPressed: isLoading
+              ? null
+              : () {
+                  if (_phoneController.text.length == 9) {
+                    context
+                        .read<AuthBloc>()
+                        .add(SendOtpEvent(_phoneController.text));
+                  } else {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: const Text(
+                            "Telefon raqami 9 ta raqamdan iborat bo'lishi kerak"),
+                        backgroundColor: theme.colorScheme.error,
+                      ),
+                    );
+                  }
+                },
+          child: isLoading
+              ? const SizedBox(
+                  height: 22,
+                  width: 22,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2.5,
+                    color: Colors.white,
+                  ),
+                )
+              : const Text('Continue'),
         ),
       ],
     );
   }
 
-  Widget _buildOtpForm(ThemeData theme, String? debugCode) {
+  Widget _buildOtpForm(ThemeData theme, String? debugCode, bool isLoading) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -221,6 +295,7 @@ class _AuthViewState extends State<AuthView> {
         ],
         TextField(
           controller: _otpController,
+          enabled: !isLoading,
           keyboardType: TextInputType.number,
           textAlign: TextAlign.center,
           inputFormatters: [
@@ -236,24 +311,35 @@ class _AuthViewState extends State<AuthView> {
         ),
         const SizedBox(height: 24),
         ElevatedButton(
-          onPressed: () {
-            final otp = _otpController.text.trim();
-            if (otp.length >= 4 && otp.length <= 6) {
-              context.read<AuthBloc>().add(
-                VerifyOtpEvent(_phoneController.text, otp),
-              );
-            } else {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: const Text(
-                    "Kod 4 dan 6 tagacha raqamdan iborat bo'lishi kerak",
+          onPressed: isLoading
+              ? null
+              : () {
+                  final otp = _otpController.text.trim();
+                  if (otp.length >= 4 && otp.length <= 6) {
+                    context.read<AuthBloc>().add(
+                          VerifyOtpEvent(_phoneController.text, otp),
+                        );
+                  } else {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: const Text(
+                          "Kod 4 dan 6 tagacha raqamdan iborat bo'lishi kerak",
+                        ),
+                        backgroundColor: theme.colorScheme.error,
+                      ),
+                    );
+                  }
+                },
+          child: isLoading
+              ? const SizedBox(
+                  height: 22,
+                  width: 22,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2.5,
+                    color: Colors.white,
                   ),
-                  backgroundColor: theme.colorScheme.error,
-                ),
-              );
-            }
-          },
-          child: const Text('Verify & Login'),
+                )
+              : const Text('Verify & Login'),
         ),
       ],
     );
