@@ -37,8 +37,17 @@ OTP_MAX_ATTEMPTS = 5           # Bitta kod uchun maksimal tekshirish urinishi
 
 
 def _use_debug_otp() -> bool:
-    """Development va testlarda fake OTP oqimini ishlatamiz, production'da emas."""
-    return bool(settings.DEBUG or getattr(settings, 'IS_TESTING', False))
+    """
+    Debug OTP (sobit 121212 kod) qachon ishlatiladi:
+    - DEBUG=True  (local development)
+    - OTP_DEBUG=True  (Render'da Eskiz.uz sozlanmagan bo'lsa)
+    - IS_TESTING=True (test suite)
+    """
+    return bool(
+        settings.DEBUG
+        or getattr(settings, 'OTP_DEBUG', False)
+        or getattr(settings, 'IS_TESTING', False)
+    )
 
 
 def generate_otp() -> str:

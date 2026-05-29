@@ -24,6 +24,11 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 IS_TESTING = 'test' in sys.argv
 DEBUG = True if IS_TESTING else os.getenv('DJANGO_DEBUG', 'True').lower() in ('true', '1', 'yes')
 
+# OTP debug rejimi: DEBUG=False bo'lsa ham debug OTP (121212) ishlatish uchun.
+# Haqiqiy SMS (Eskiz.uz) sozlanmagan bo'lsa True qo'ying.
+# Render env: OTP_DEBUG=True
+OTP_DEBUG = os.getenv('OTP_DEBUG', 'False').lower() in ('true', '1', 'yes')
+
 # Yangi kalit generatsiya:
 #   python -c "from django.core.management.utils import get_random_secret_key; print(get_random_secret_key())"
 _SECRET_KEY_DEFAULT = 'dev-only-insecure-key-MUST-be-changed-in-production'
