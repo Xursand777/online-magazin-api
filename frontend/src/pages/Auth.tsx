@@ -4,6 +4,7 @@ import axios from 'axios';
 import { useAuthStore } from '../store/authStore';
 import { useCartStore } from '../store/cartStore';
 import { registerUser, requestLoginOtp, verifyLoginOtp } from '../api/endpoints';
+import { recordTokenIssued } from '../api/client';
 import { toast } from '../utils/toast';
 import { useTranslation } from '../i18n/useTranslation';
 
@@ -144,8 +145,17 @@ const Auth = () => {
     resetOtp();
   };
 
-  const completeSession = async (payload: { user: any }) => {
-    // refresh va access tokenlar cookie'da — body'da yo'q
+  const completeSession = async (payload: { user: any; access?: string; refresh?: string }) => {
+    // local dev SameSite fallback: agar body'da tokenlar kelsa saqlab qo'yamiz
+    if (payload.access) {
+      localStorage.setItem('access_token', payload.access);
+      if (payload.refresh) {
+        localStorage.setItem('refresh_token', payload.refresh);
+      }
+    }
+    // Token yangilanish vaqtini qayd etamiz — proaktiv refresh timer uchun.
+    // Har ikkala holatda ham (cookie yoki localStorage) vaqtni saqlaymiz.
+    recordTokenIssued();
     login(payload.user);
     const syncResult = await useCartStore.getState().syncLocalCartToBackend();
     await useCartStore.getState().fetchCart();
