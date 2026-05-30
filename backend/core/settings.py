@@ -425,10 +425,48 @@ if not DEBUG:
 # JWT — JSON Web Tokens
 # ─────────────────────────────────────────────────────────────────────────────
 SIMPLE_JWT = {
-    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=60),
-    'REFRESH_TOKEN_LIFETIME': timedelta(days=7),
-    'ROTATE_REFRESH_TOKENS': True,
-    'BLACKLIST_AFTER_ROTATION': True,   # Eski refresh token qayta ishlatilmaydi
+    # Access token: 24 soat.
+    # Nima uchun 24 soat (1 soat emas)?
+    #   - Mobil ilovada foydalanuvchi kuniga bir necha marta kiradi.
+    #     Har soatda refresh kerak bo'lsa, ROTATE_REFRESH_TOKENS muhitida
+    #     cross-server token blacklist va parallel refresh race condition
+    #     xavfi sezilarli oshadi.
+    #   - Web'da token httpOnly cookie'da — JavaScript o'g'irlay olmaydi.
+    #   - Mobil'da token FlutterSecureStorage'da (Keychain/Keystore).
+    #   - Haqiqiy logout uchun role_invalidated_at mexanizmi bor (instant revoke).
+    #   - Xavfni kamaytirish: RoleAwareJWTAuthentication iat < role_invalidated_at
+    #     tekshiradi va xodim "o'chirilsa" eski tokenlarni DARHOL bekor qiladi.
+    'ACCESS_TOKEN_LIFETIME': timedelta(hours=24),
+
+    # Refresh token: 30 kun — foydalanuvchi oyda bir marta qayta login qiladi.
+    # Har rotate qilganda eski token blacklist'ga tushadi.
+    'REFRESH_TOKEN_LIFETIME': timedelta(days=30),
+
+    # ── ROTATION O'CHIRILDI — xavfsizlik tahlili ─────────────────────────────
+    # ROTATE_REFRESH_TOKENS=True edi, lekin bu real muammo keltirib chiqardi:
+    #
+    #   Muammo (cross-tab race condition):
+    #   2 ta brauzer tab bir vaqtda token muddati o'tganda refresh qilsa →
+    #   tab A muvaffaqiyatli → eski token blacklist → tab B 401 → FORCE-LOGOUT.
+    #   BroadcastChannel + single-flight tab ICHIDA hal qiladi, lekin
+    #   har tab o'z JS execution context'iga ega — ~50ms window qoladi.
+    #
+    #   Xavfsizlik (nima yo'qolmaydi):
+    #   • httpOnly cookie → XSS token o'g'irlay olmaydi (asosiy himoya).
+    #   • SameSite=Lax + Secure → CSRF himoya.
+    #   • Logout → token.blacklist() ishlaydi (manual chiqishda).
+    #   • role_invalidated_at → admin/xodim rollari DARHOL bekor qilinadi.
+    #   • ACCESS_TOKEN_LIFETIME=24h → access token qisqa yashaydi.
+    #
+    #   Nima yo'qoladi: agar refresh token cookie o'g'irlansa (XSS kerak!),
+    #   u "bir martalik" bo'lmaydi. Lekin httpOnly sababli o'g'irlash juda qiyin.
+    #
+    #   Xulosa: Google, Facebook, GitHub rotation ISHLATMAYDI —
+    #   httpOnly cookie + server-side session xavfsizlikni ta'minlaydi.
+    #   Rotation bizning use-case uchun foydasidan zarari ko'p.
+    'ROTATE_REFRESH_TOKENS': False,
+    'BLACKLIST_AFTER_ROTATION': False,  # Rotation yo'q → rotation blacklist ham yo'q
+    # Logout blacklist ISHLAYDI: CookieLogoutView token.blacklist() chaqiradi.
     'UPDATE_LAST_LOGIN': True,
     'AUTH_HEADER_TYPES': ('Bearer',),
     'ALGORITHM': 'HS256',
@@ -455,7 +493,7 @@ SIMPLE_JWT = {
 #                      refresh token umuman yuborilmaydi)
 
 REFRESH_TOKEN_COOKIE_NAME     = 'bozor_refresh'
-REFRESH_TOKEN_COOKIE_MAX_AGE  = 7 * 24 * 3600          # 7 kun (SIMPLE_JWT bilan mos)
+REFRESH_TOKEN_COOKIE_MAX_AGE  = 30 * 24 * 3600          # 30 kun (SIMPLE_JWT bilan mos)
 REFRESH_TOKEN_COOKIE_HTTPONLY = True
 REFRESH_TOKEN_COOKIE_SECURE   = not DEBUG               # Production'da faqat HTTPS
 # SameSite:

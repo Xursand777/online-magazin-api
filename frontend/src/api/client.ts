@@ -2,63 +2,144 @@ import axios from 'axios';
 
 // Production'da VITE_API_URL muhit o'zgaruvchisini frontend/.env faylida o'rnating:
 //   VITE_API_URL=https://api.yourdomain.com/api
-//
-// Development uchun .env.local faylida ham yozish mumkin (git'ga qo'shilmaydi):
+// Development uchun .env.local (git'ga qo'shilmaydi):
 //   VITE_API_URL=http://127.0.0.1:8000/api
-//
-// DIQQAT: 'http://127.0.0.1:8000/api' — faqat localhost fallback (development).
-// Brauzer HttpOnly (SameSite=Lax) cookie'larni cross-origin zaproslarda o'chirib yubormasligi uchun,
-// frontend qaysi hostda ochilgan bo'lsa (localhost yoki 127.0.0.1), backend API ham xuddi shu hostga yo'naltiriladi.
-const defaultHost = typeof window !== 'undefined' && window.location.hostname === 'localhost' ? 'localhost' : '127.0.0.1';
+const defaultHost =
+  typeof window !== 'undefined' && window.location.hostname === 'localhost'
+    ? 'localhost'
+    : '127.0.0.1';
 const BASE_URL = import.meta.env.VITE_API_URL ?? `http://${defaultHost}:8000/api`;
 
 const apiClient = axios.create({
   baseURL: BASE_URL,
-  headers: {
-    'Content-Type': 'application/json',
-  },
-  // withCredentials: true — brauzer httpOnly cookie'larini (bozor_refresh) yuboradi.
-  withCredentials: true,
+  headers: { 'Content-Type': 'application/json' },
+  withCredentials: true, // httpOnly cookie'larni yuboradi
 });
 
-// ── Single-flight refresh + proaktiv yangilash ───────────────────────────────
+// ═══════════════════════════════════════════════════════════════════════════════
+// PROFESSIONAL SESSION MANAGEMENT
 //
-// MUAMMO 1 — Double-spend (asosiy logout sababi):
-//   ROTATE_REFRESH_TOKENS=True + bir vaqtda bir nechta 401 →
-//   har biri alohida refresh qiladi → birinchisi muvaffaqiyatli → token blacklist →
-//   ikkinchisi blacklisted token bilan refresh → server 401 → FORCE-LOGOUT!
-//   YECHIM: _refreshInFlight lock — hammasi BITTA refresh kutadi.
+// Google, Facebook, GitHub qanday ishlaydi:
+//   1. Single-flight refresh   — bir vaqtda BITTA HTTP refresh so'rovi
+//   2. Proaktiv yangilash       — 401 ni kutmasdan, muddatdan oldin refresh
+//   3. BroadcastChannel        — bir tab refresh qilsa, boshqalarga xabar
+//   4. Visibility listener      — tab qayta ochilganda token tekshiruvi
+//   5. Online listener          — internet tiklanganda token tekshiruvi
+//   6. Tarmoq xatosi = logout YO'Q — faqat server 401/403 = haqiqiy logout
 //
-// MUAMMO 2 — Render cold start logout:
-//   Render uyquda → refresh so'rovi timeout → hozirgi kod: window.location.href='/auth'
-//   Token aslida to'g'ri edi, faqat server uyquda! — ASOSSIZ LOGOUT.
-//   YECHIM: faqat server ANIQ 401/403 bersa logout, tarmoq xatosida SAQLAYMIZ.
-//
-// MUAMMO 3 — Proaktiv refresh yo'q:
-//   24 soat o'tib foydalanuvchi qaytsa → bir vaqtda ko'p 401 → muammo 1 qayta.
-//   YECHIM: expiry dan 10 daqiqa oldin background refresh (timer).
+// Backend: ROTATE_REFRESH_TOKENS=False — cross-tab race condition yo'q.
+// Xavfsizlik saqlanadi: httpOnly cookie, SameSite=Lax, logout blacklist.
+// ═══════════════════════════════════════════════════════════════════════════════
 
-let _refreshInFlight: Promise<void> | null = null;
+// ── Konstantalar ─────────────────────────────────────────────────────────────
+// Django settings bilan mos: ACCESS_TOKEN_LIFETIME=24h
+const ACCESS_LIFETIME_MS  = 24 * 60 * 60 * 1000; // 24 soat
+const PROACTIVE_LEAD_MS   =  5 * 60 * 1000;       // Muddatdan 5 daqiqa oldin refresh
+const REFRESH_TIMEOUT_MS  = 25_000;                // Render cold start uchun 25s
+const RETRY_AFTER_FAIL_MS =  3 * 60 * 1000;       // Muvaffaqiyatsiz bo'lsa 3 daqiqadan keyin
+
+// ── State ─────────────────────────────────────────────────────────────────────
+let _refreshInFlight: Promise<void> | null = null; // Single-flight lock
 let _proactiveTimer: ReturnType<typeof setTimeout> | null = null;
 
-// Django settings bilan mos: ACCESS_TOKEN_LIFETIME=24h
-const ACCESS_LIFETIME_MS  = 24 * 60 * 60 * 1000;
-// 10 daqiqa oldin proaktiv yangilash
-const PROACTIVE_LEAD_MS   = 10 * 60 * 1000;
-// Refresh timeout: Render cold start ~50s, biz 25s beramiz (ular uyg'onmaguncha)
-const REFRESH_TIMEOUT_MS  = 25_000;
+// ── BroadcastChannel: Multi-tab sinxronizatsiya ───────────────────────────────
+// Gmail, Notion, GitHub kabi saytlar bu mexanizmdan foydalanadi.
+// Bir tab refresh qilsa yoki logout bo'lsa — barcha tab biladi.
+const _bc =
+  typeof BroadcastChannel !== 'undefined'
+    ? new BroadcastChannel('bozor_auth_v1')
+    : null;
 
-// ── Yordamchi funksiyalar ────────────────────────────────────────────────────
+type BcMsg =
+  | { type: 'TOKEN_REFRESHED'; issuedAt: number }
+  | { type: 'LOGGED_OUT' };
 
-/** Token yangilangach yoki login muvaffaqiyatli bo'lgach chaqiriladi. */
-export function recordTokenIssued(): void {
-  const now = Date.now();
-  localStorage.setItem('_token_issued_at', String(now));
-  _scheduleProactiveRefresh(now);
+if (_bc) {
+  _bc.onmessage = (e: MessageEvent<BcMsg>) => {
+    if (e.data.type === 'TOKEN_REFRESHED') {
+      // Boshqa tab refresh qildi — bizning timerini yangilaymiz, o'zimiz
+      // refresh qilmaymiz (double-spend xavfi yo'q, rotation off bo'lsa ham)
+      _applyIssuedAt(e.data.issuedAt);
+    } else if (e.data.type === 'LOGGED_OUT') {
+      // Boshqa tab logout qildi — biz ham tozalaymiz (broadcast YO'Q — loop oldini olish)
+      _clearLocalOnly();
+      if (typeof window !== 'undefined' && window.location.pathname !== '/auth') {
+        window.location.href = '/auth';
+      }
+    }
+  };
 }
 
-/** Barcha auth ma'lumotlarini tozalash (localStorage + proaktiv timer). */
-function _clearSession(): void {
+// ── Page Visibility: Foydalanuvchi tabga qaytganda ───────────────────────────
+// Brauzer background tab'da timerlarni sekinlashtiradi yoki to'xtatadi.
+// visibilitychange — bu muammoni hal qiladi: tab aktiv bo'lganda tekshiruvz.
+if (typeof document !== 'undefined') {
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState !== 'visible') return;
+    if (!localStorage.getItem('user')) return;
+    _checkAndRefreshIfNeeded();
+  });
+}
+
+// ── Online Event: Internet tiklanganda ───────────────────────────────────────
+// Foydalanuvchi offline bo'lib qaytsa — token yangimi tekshiramiz.
+if (typeof window !== 'undefined') {
+  window.addEventListener('online', () => {
+    if (!localStorage.getItem('user')) return;
+    _checkAndRefreshIfNeeded();
+  });
+}
+
+// ── Ichki yordamchilar ────────────────────────────────────────────────────────
+
+/** issuedAt ni localStorage'ga yozadi va proaktiv timerni sozlaydi. */
+function _applyIssuedAt(issuedAt: number): void {
+  localStorage.setItem('_token_issued_at', String(issuedAt));
+  _scheduleProactiveRefresh(issuedAt);
+}
+
+/**
+ * Proaktiv refresh timerini o'rnatadi.
+ * Token muddati tugashidan PROACTIVE_LEAD_MS oldin background refresh qiladi.
+ * Foydalanuvchi hech qachon 401 ko'rmaydi — sessiya uzluksiz.
+ */
+function _scheduleProactiveRefresh(issuedAtMs: number): void {
+  if (_proactiveTimer) clearTimeout(_proactiveTimer);
+
+  const expiresAt = issuedAtMs + ACCESS_LIFETIME_MS;
+  const refreshAt = expiresAt - PROACTIVE_LEAD_MS;
+  const delay     = Math.max(refreshAt - Date.now(), 60_000); // min 1 daqiqa
+
+  _proactiveTimer = setTimeout(async () => {
+    if (!localStorage.getItem('user')) return; // Logout bo'lgan
+    try {
+      await _ensureRefreshed();
+    } catch {
+      // Proaktiv refresh muvaffaqiyatsiz (Render uyquda?) — 3 daqiqadan keyin qayta
+      // Sessiyani buzmaymiz.
+      _proactiveTimer = setTimeout(async () => {
+        if (!localStorage.getItem('user')) return;
+        _ensureRefreshed().catch(() => {});
+      }, RETRY_AFTER_FAIL_MS);
+    }
+  }, delay);
+}
+
+/** Token muddati tugashiga yaqin bo'lsa — darhol refresh. */
+function _checkAndRefreshIfNeeded(): void {
+  const issuedAt = Number(localStorage.getItem('_token_issued_at') || 0);
+  if (issuedAt <= 0) return;
+  const age = Date.now() - issuedAt;
+  if (age >= ACCESS_LIFETIME_MS - PROACTIVE_LEAD_MS) {
+    _ensureRefreshed().catch(() => {});
+  }
+}
+
+/**
+ * LocalStorage va timerlarni tozalaydi. Broadcast YO'Q (loop oldini olish).
+ * Faqat bu tabda tozalash kerak bo'lganda ishlatiladi.
+ */
+function _clearLocalOnly(): void {
   localStorage.removeItem('user');
   localStorage.removeItem('access_token');
   localStorage.removeItem('refresh_token');
@@ -67,40 +148,45 @@ function _clearSession(): void {
 }
 
 /**
- * Proaktiv refresh uchun timer o'rnatish.
- * Token muddatidan 10 daqiqa oldin background refresh qiladi.
- * Foydalanuvchi 401 ko'rmaydi — sessiya uzluksiz davom etadi.
+ * Hamma narsani tozalaydi VA barcha tablarni xabardor qiladi.
+ * Faqat haqiqiy auth xatosida (server 401/403) chaqiriladi.
  */
-function _scheduleProactiveRefresh(issuedAtMs: number): void {
-  if (_proactiveTimer) clearTimeout(_proactiveTimer);
-
-  const expiresAt = issuedAtMs + ACCESS_LIFETIME_MS;
-  const refreshAt = expiresAt - PROACTIVE_LEAD_MS;
-  const delay     = Math.max(refreshAt - Date.now(), 60_000); // kamida 1 daqiqa
-
-  _proactiveTimer = setTimeout(async () => {
-    // Foydalanuvchi logout qilgan bo'lsa — ishlamaydi
-    if (!localStorage.getItem('user')) return;
-    try {
-      await _ensureRefreshed();
-    } catch {
-      // Proaktiv refresh muvaffaqiyatsiz bo'lsa — sessiyani buzmaymiz.
-      // Keyingi 401 da yana uriniladi.
-    }
-  }, delay);
+function _clearSession(): void {
+  _clearLocalOnly();
+  _bc?.postMessage({ type: 'LOGGED_OUT' } as BcMsg);
 }
 
 /**
- * Tokenni serverdan yangilash (HTTP so'rov).
+ * Faqat BroadcastChannel orqali boshqa tablarni xabardor qiladi.
+ * authStore.logout() dan chaqiriladi — bu tab o'z tozalashini o'zi qiladi.
+ */
+export function broadcastLogout(): void {
+  _bc?.postMessage({ type: 'LOGGED_OUT' } as BcMsg);
+}
+
+/**
+ * Login yoki refresh muvaffaqiyatli bo'lganda chaqiriladi.
+ * Token issue vaqtini saqlaydi + proaktiv timer + boshqa tablarga xabar.
+ */
+export function recordTokenIssued(): void {
+  const now = Date.now();
+  _applyIssuedAt(now);
+  _bc?.postMessage({ type: 'TOKEN_REFRESHED', issuedAt: now } as BcMsg);
+}
+
+/**
+ * Tokenni serverdan yangilaydi.
  *
- * Muvaffaqiyatli bo'lsa:
- *   – Yangi access/refresh tokenlarni localStorage'ga saqlaydi (dev mode).
- *   – Web production'da faqat httpOnly cookie yangilanadi (server tomonida).
- *   – Proaktiv refresh timerini qayta belgilaydi.
+ * Muvaffaqiyatli:
+ *   → Yangi access tokenni localStorage'ga (dev mode), cookie yangilanadi (web).
+ *   → recordTokenIssued() → proaktiv timer + boshqa tablarga xabar.
  *
- * Xato bo'lsa:
- *   – Server ANIQ 401/403 bersa: session tozalanadi + /auth'ga yo'naltiradi.
- *   – Tarmoq xatosi (timeout, Render cold start): sessiya SAQLANADI, xato otiladi.
+ * Server 401/403 (haqiqiy auth rad):
+ *   → _clearSession() → /auth ga yo'naltirish.
+ *
+ * Tarmoq xatosi / timeout (Render uyquda):
+ *   → Sessiya SAQLANADI. Xato otiladi (interceptor ushlab oladi).
+ *   → Foydalanuvchi kirib qolganicha qoladi, faqat joriy so'rov xato.
  */
 async function _doRefresh(): Promise<void> {
   const localRefresh = localStorage.getItem('refresh_token');
@@ -108,118 +194,130 @@ async function _doRefresh(): Promise<void> {
   try {
     const res = await axios.post(
       `${BASE_URL}/auth/refresh/`,
-      // Dev/mobile: body'da token; Web production: body bo'sh, cookie yuboriladi
       localRefresh ? { refresh: localRefresh } : {},
-      {
-        withCredentials: true,
-        timeout: REFRESH_TIMEOUT_MS,
-      },
+      { withCredentials: true, timeout: REFRESH_TIMEOUT_MS },
     );
 
-    // Dev/mobile: body'da yangi tokenlar keladi
+    // Dev/mobile: yangi tokenlar body'da keladi; web prod: faqat cookie yangilanadi
     if (res.data?.access) {
       localStorage.setItem('access_token', res.data.access);
       if (res.data.refresh) {
         localStorage.setItem('refresh_token', res.data.refresh);
       }
     }
-    // Proaktiv timer: yangi token uchun qayta belgilaymiz
-    recordTokenIssued();
+
+    recordTokenIssued(); // Timer + broadcast
 
   } catch (err: unknown) {
-    const isAuthRejected =
+    const isServerRejected =
       axios.isAxiosError(err) &&
-      (err.response?.status === 401 || err.response?.status === 403);
+      err.response != null &&
+      (err.response.status === 401 || err.response.status === 403);
 
-    if (isAuthRejected) {
-      // Server token'ni ANIQ rad etdi → haqiqiy sessiya tugagan → logout
+    if (isServerRejected) {
+      // Server ANIQ rad etdi → haqiqiy logout (barcha tablarga)
       _clearSession();
-      window.location.href = '/auth';
+      if (typeof window !== 'undefined') {
+        window.location.href = '/auth';
+      }
     }
-    // Tarmoq xatosi / timeout / Render cold start:
-    // Sessiyani BUZMAYMIZ — foydalanuvchi kirib qolganicha qoladi.
-    // Tarmoq tiklanganda keyingi so'rov muvaffaqiyatli bo'ladi.
+    // Tarmoq/timeout: sessiyani buzmaymiz → xatoni yuqoriga otamiz
     throw err;
   }
 }
 
 /**
- * Single-flight wrapper: bir vaqtda bir nechta chaqiruv kelsa,
- * hammasi BITTA refresh so'rovini kutadi.
+ * Single-flight wrapper.
+ * Bir vaqtda nechta chaqiruv kelmasin — BITTA HTTP so'rov yuboriladi.
+ * Hammasi o'sha bitta Promise'ni kutadi.
  *
- * Bu ROTATE_REFRESH_TOKENS muhitida "double-spend" ni to'liq bartaraf etadi:
- *   - 2-chi refresh eski (blacklisted) token bilan bormaydi.
- *   - Barcha 401 lar birgalikda yangi tokenni oladi.
+ * Bu hatto ROTATE_REFRESH_TOKENS=True bo'lgan vaqtda ham double-spend'dan
+ * himoya qiladi (tab ichida). Cross-tab himoyasi: BroadcastChannel + rotation off.
  */
 async function _ensureRefreshed(): Promise<void> {
-  if (_refreshInFlight) return _refreshInFlight;
+  if (_refreshInFlight !== null) return _refreshInFlight;
   _refreshInFlight = _doRefresh().finally(() => { _refreshInFlight = null; });
   return _refreshInFlight;
 }
 
-// ── Ilova ochilganda: mavjud sessiya uchun proaktiv timerni tiklash ──────────
-// Foydalanuvchi tab'ni yopib qayta ochsa — timer qayta belgilanadi.
-{
+// ── Ilova ochilganda: mavjud sessiyani tiklash ────────────────────────────────
+// Foydalanuvchi tabni yopib qayta ochsa — timerlar o'chadi.
+// Bu blok ularni localStorage'dan tiklaydi.
+if (typeof localStorage !== 'undefined') {
   const storedIssued = Number(localStorage.getItem('_token_issued_at') || 0);
-  if (storedIssued > 0 && localStorage.getItem('user')) {
-    _scheduleProactiveRefresh(storedIssued);
+  const hasUser      = Boolean(localStorage.getItem('user'));
+
+  if (storedIssued > 0 && hasUser) {
+    const age = Date.now() - storedIssued;
+    if (age >= ACCESS_LIFETIME_MS) {
+      // Token allaqachon eskirgan — 1 soniyadan keyin darhol refresh
+      // (Ilova to'liq yuklanguncha kutamiz)
+      setTimeout(() => { _ensureRefreshed().catch(() => {}); }, 1_000);
+    } else if (age >= ACCESS_LIFETIME_MS - PROACTIVE_LEAD_MS) {
+      // Muddatga 5 daqiqa qolgan — tezda refresh
+      setTimeout(() => { _ensureRefreshed().catch(() => {}); }, 5_000);
+    } else {
+      // Token sog'lom — timerini qayta sozlaymiz
+      _scheduleProactiveRefresh(storedIssued);
+    }
   }
 }
 
-// ── Request interceptor ──────────────────────────────────────────────────────
-// CSRF himoya sarlavhasi, guest-session va til
-// Eslatma: Access token httpOnly cookie orqali yuboriladi, ammo local dev/IP-address
-// SameSite fallback uchun localStorage'dan ham Authorization header orqali yuboriladi.
+// ═══════════════════════════════════════════════════════════════════════════════
+// AXIOS INTERCEPTORS
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// ── Request interceptor ───────────────────────────────────────────────────────
 apiClient.interceptors.request.use(
   (config) => {
-    // X-Requested-With: cross-site so'rovlarda bu sarlavha yuborib bo'lmaydi
+    // CSRF himoya: cross-site so'rovlarda bu sarlavha yuborib bo'lmaydi
     config.headers['X-Requested-With'] = 'XMLHttpRequest';
 
-    // Local dev SameSite fallback: localStorage'dagi access token
+    // Dev/local SameSite fallback: localStorage'dagi access token
     const token = localStorage.getItem('access_token');
     if (token) {
       config.headers['Authorization'] = `Bearer ${token}`;
     }
 
+    // Guest session (tizimga kirmagan foydalanuvchi savati)
     const user = localStorage.getItem('user');
     const guestSessionId = localStorage.getItem('guest_session_id');
     if (guestSessionId && !user) {
       config.headers['X-Guest-Session-Id'] = guestSessionId;
     }
 
+    // Til sarlavhasi (Accept-Language)
     try {
       const langState = localStorage.getItem('bozor-language');
       if (langState) {
         const parsed = JSON.parse(langState);
-        const lang = parsed?.state?.language || 'uz';
-        config.headers['Accept-Language'] = lang;
+        config.headers['Accept-Language'] = parsed?.state?.language || 'uz';
       }
     } catch {
-      // ignore
+      // ignore — tilsiz ishlayveradi
     }
+
     return config;
   },
-  (error) => Promise.reject(error)
+  (error) => Promise.reject(error),
 );
 
-// ── Response interceptor ─────────────────────────────────────────────────────
+// ── Response interceptor ──────────────────────────────────────────────────────
 apiClient.interceptors.response.use(
   (response) => {
-    // Guest session ID'ni saqlash
+    // Guest session ID'ni saqlash (server yuborsa)
     const guestId = response.headers['x-guest-session-id'];
-    if (guestId) {
-      localStorage.setItem('guest_session_id', guestId);
-    }
+    if (guestId) localStorage.setItem('guest_session_id', guestId);
     return response;
   },
   async (error) => {
     const originalRequest = error.config;
 
-    // ── 401: Token muddati tugagan yoki yaroqsiz ─────────────────────────────
+    // ── 401: Token muddati tugagan yoki yaroqsiz ──────────────────────────────
     if (error.response?.status === 401 && !originalRequest._retry) {
-      originalRequest._retry = true;
+      originalRequest._retry = true; // Cheksiz loop oldini olish
 
-      // role_invalidated: administrator foydalanuvchi rolini o'chirgan
+      // role_invalidated: admin xodim rolini olib tashlagan
       const code = error.response?.data?.code;
       if (code === 'role_invalidated') {
         _clearSession();
@@ -228,22 +326,19 @@ apiClient.interceptors.response.use(
       }
 
       try {
-        // ✅ SINGLE-FLIGHT: bir vaqtda faqat BITTA refresh so'rovi
-        // Boshqalar shu promise'ni kutadi — eski token double-spend bo'lmaydi
+        // ✅ Single-flight: bir vaqtda faqat BITTA refresh so'rovi
         await _ensureRefreshed();
-
-        // Refresh muvaffaqiyatli → so'rovni qayta yuboramiz
+        // Refresh muvaffaqiyatli → asl so'rovni qayta yuboramiz
         return apiClient(originalRequest);
-
-      } catch (refreshErr: unknown) {
-        // _doRefresh() muvaffaqiyatsiz bo'ldi.
-        // Server 401/403 bergan bo'lsa — _doRefresh() allaqachon logout qilgan.
-        // Tarmoq xatosi bo'lsa — sessiya saqlanadi, faqat joriy so'rov xato qaytaradi.
+      } catch {
+        // _doRefresh() xato berdi:
+        // - Server 401/403: _doRefresh() allaqachon redirect qildi
+        // - Tarmoq xatosi: sessiya saqlangan, joriy so'rov xato qaytaradi
         return Promise.reject(error);
       }
     }
 
-    // ── 403: Admin endpoint — ruxsat yo'q ────────────────────────────────────
+    // ── 403: Admin endpoint — ruxsat yo'q ─────────────────────────────────────
     if (error.response?.status === 403) {
       const url: string = originalRequest?.url || '';
       if (url.startsWith('/admin/') || url.startsWith('admin/')) {
@@ -257,7 +352,7 @@ apiClient.interceptors.response.use(
     }
 
     return Promise.reject(error);
-  }
+  },
 );
 
 export default apiClient;
