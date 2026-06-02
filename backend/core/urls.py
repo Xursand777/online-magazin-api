@@ -8,9 +8,24 @@ from django.conf.urls.static import static
 from django.views.static import serve
 from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
 
+from core.health import HealthCheckView
+from core.views import MobileConfigView
+
 urlpatterns = [
+    # ── Health check (external monitoring) ───────────────────────────────────
+    # UptimeRobot, Render Health Check, Kubernetes liveness/readiness uchun.
+    #   GET /healthz/         → shallow (faqat process tirik)
+    #   GET /healthz/?deep=1  → deep (DB + Cache tekshiruvi)
+    # Public, authsiz. Rate limit qo'llanmaydi (DRF view emas).
+    path('healthz/', HealthCheckView.as_view(), name='healthz'),
+
     # Admin yo'li sozlanadigan (production'da DJANGO_ADMIN_URL bilan maxfiy qilinadi)
     path(settings.ADMIN_URL, admin.site.urls),
+
+    # ── Phase 1.2: App version check ─────────────────────────────────────────
+    # Mobil ilova ochilganda chaqiriladi. Min versiya, maintenance rejimi va
+    # store URL'ini qaytaradi. 5 daqiqa cache'lanadi.
+    path('api/app-config/', MobileConfigView.as_view(), name='app_config'),
 
     # API Endpoints
     path('api/', include('users.urls')),

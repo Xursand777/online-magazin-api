@@ -48,9 +48,16 @@ dependencies:
   json_annotation: ^4.9.0
   intl: ^0.20.2
   image_picker: ^1.1.2
+  # Sentry — production xato kuzatish (free 5,000 event/oy)
+  sentry_flutter: ^8.10.1
+  package_info_plus: ^8.0.0  # Sentry release identifier uchun
+  url_launcher: ^6.3.0  # Phase 1.2: force-update Play Store URL ochish uchun
 
 dev_dependencies:
   flutter_test:
+    sdk: flutter
+  # Phase 1.6 — Integration smoke testlar (E2E flow)
+  integration_test:
     sdk: flutter
 
   # The "flutter_lints" package below contains a set of recommended lints to

@@ -8,3 +8,6 @@
 key.properties
 **/*.keystore
 **/*.jks
+
+# Phase 1.3 — Sentry auth token (NEVER commit — sentry.properties.example bo'lsa OK)
+sentry.properties

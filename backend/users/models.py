@@ -1,3 +1,4 @@
+from django.conf import settings
 from django.db import models
 from django.contrib.auth.models import AbstractUser
 from django.utils.translation import gettext_lazy as _
@@ -148,3 +149,89 @@ class Feedback(models.Model):
 
     def __str__(self):
         return f"Feedback from {self.user.phone} - {self.status}"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# AUDIT LOG — Admin amallarini kuzatuv
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# NIMA UCHUN:
+#   Mijoz "men buyurtmani bekor qilganman edi-ku" deyishi mumkin.
+#   Admin "men mahsulotni o'chirmaganman" deyishi mumkin.
+#   Bug: stock 0 ga tushdi — kim o'zgartirgan?
+#
+#   AuditLog bularning hammasini kuzatib boradi: kim, qachon, qaysi resurs,
+#   qaysi amal, qaysi IP'dan.
+#
+# QACHON YOZILADI:
+#   • Admin POST/PATCH/PUT/DELETE so'rovi muvaffaqiyatli (2xx)
+#   • AuditMiddleware avtomat yozadi (core/middleware.py)
+#   • Yoki views ichidan explicit: users/audit.py::audit(...) chaqirish
+#
+# QACHON YOZILMAYDI:
+#   • GET so'rovlari (faqat o'qish)
+#   • Mehmon va oddiy mijoz amallari (faqat staff/superuser)
+#   • Health check, refresh token kabi noisy yo'llar
+#   • 4xx/5xx javoblari (xato yoki noruxsat amal)
+#
+# RETENTION:
+#   180 kun saqlanadi. Eski yozuvlar:
+#     python manage.py purge_old_audit_logs
+class AuditLog(models.Model):
+    """Admin amallarini kuzatuv jadvali."""
+
+    # Kim — User o'chsa NULL bo'ladi, lekin actor_phone_snapshot saqlanadi
+    actor = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='audit_logs',
+        help_text="Amalni bajargan foydalanuvchi",
+    )
+    # Denormalize: User o'chsa ham kim qilgani saqlanadi
+    actor_phone_snapshot = models.CharField(
+        max_length=15,
+        blank=True,
+        default='',
+        help_text="Actor telefoni (User o'chsa ham saqlanadi)",
+    )
+
+    # Amal turi — "admin.products.create", "admin.orders.cancel"
+    action = models.CharField(max_length=100, db_index=True)
+
+    # Maqsad resursi — "product", "order", "user"
+    target_type = models.CharField(max_length=50, blank=True, default='', db_index=True)
+    target_id = models.PositiveIntegerField(null=True, blank=True, db_index=True)
+
+    # Qo'shimcha ma'lumot — diff, snapshot, request body
+    # Misol: {"method": "DELETE", "path": "/api/admin/products/123/", "status_code": 204}
+    # Yoki: {"old_role": "seller", "new_role": "admin"}
+    data = models.JSONField(default=dict, blank=True)
+
+    # Where va how
+    ip = models.GenericIPAddressField(null=True, blank=True)
+    user_agent = models.CharField(max_length=500, blank=True, default='')
+
+    # Qachon
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        indexes = [
+            # Foydalanuvchi bo'yicha: "Bu admin oxirgi haftada nima qildi"
+            models.Index(fields=['actor', '-created_at'], name='auditlog_actor_idx'),
+            # Resurs bo'yicha: "Mahsulot #123 tarixi"
+            models.Index(
+                fields=['target_type', 'target_id', '-created_at'],
+                name='auditlog_target_idx',
+            ),
+            # Amal turi bo'yicha: "Barcha o'chirilgan mahsulotlar"
+            models.Index(fields=['action', '-created_at'], name='auditlog_action_idx'),
+        ]
+        verbose_name = 'Audit log'
+        verbose_name_plural = 'Audit log yozuvlari'
+
+    def __str__(self):
+        actor_str = self.actor_phone_snapshot or (self.actor.phone if self.actor else 'unknown')
+        return f'{self.action} by {actor_str} at {self.created_at:%Y-%m-%d %H:%M}'

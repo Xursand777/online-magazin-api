@@ -67,7 +67,7 @@ def _set_auth_cookies(response: Response, access_str: str, refresh_str: str = No
     response.set_cookie(
         key='access',
         value=access_str,
-        max_age=3600,
+        max_age=86400,              # 24 soat — SIMPLE_JWT ACCESS_TOKEN_LIFETIME bilan mos
         httponly=True,
         secure=not settings.DEBUG,
         samesite=_samesite,
@@ -88,12 +88,14 @@ def _set_auth_cookies(response: Response, access_str: str, refresh_str: str = No
 class RegisterView(generics.CreateAPIView):
     queryset = User.objects.all()
     permission_classes = (AllowAny,)
+    authentication_classes = ()
     serializer_class = RegisterSerializer
     throttle_classes = [ScopedRateThrottle]
     throttle_scope = 'auth'
 
 class SendOTPView(views.APIView):
     permission_classes = (AllowAny,)
+    authentication_classes = ()
     serializer_class = LoginRequestSerializer
     throttle_classes = [ScopedRateThrottle]
     throttle_scope = 'otp'
@@ -147,6 +149,7 @@ class SendOTPView(views.APIView):
 
 class VerifyOTPView(views.APIView):
     permission_classes = (AllowAny,)
+    authentication_classes = ()
     serializer_class = VerifyOTPSerializer
     throttle_classes = [ScopedRateThrottle]
     throttle_scope = 'auth'
@@ -216,10 +219,10 @@ class VerifyOTPView(views.APIView):
         }
 
         # Web (brauzer): tokenlar httpOnly cookie'da — XSS'dan himoya.
-        # Mobile (Flutter/React Native): X-Client-Type: mobile header yuborsa
-        #   YOKI IS_TESTING=True bo'lsa — tokenlar body'da ham qaytariladi.
+        # Mobile (Flutter/React Native) yoki Development (DEBUG=True):
+        #   tokenlar body'da ham qaytariladi.
         is_mobile = request.headers.get('X-Client-Type', '').lower() == 'mobile'
-        if is_mobile or getattr(settings, 'IS_TESTING', False):
+        if is_mobile or settings.DEBUG or getattr(settings, 'IS_TESTING', False):
             response_data['access']  = access_token_str
             response_data['refresh'] = refresh_token_str
 
@@ -234,6 +237,7 @@ class LoginView(SendOTPView):
 # Password-based login (while SMS is not integrated)
 class PasswordLoginView(views.APIView):
     permission_classes = (AllowAny,)
+    authentication_classes = ()
     serializer_class = PasswordLoginSerializer
     throttle_classes = [ScopedRateThrottle]
     throttle_scope = 'auth'
@@ -263,7 +267,10 @@ class PasswordLoginView(views.APIView):
             merge_guest_profile_into_user(user, guest_session_id)
 
         refresh = RefreshToken.for_user(user)
-        response = Response({
+        access_token_str  = str(refresh.access_token)
+        refresh_token_str = str(refresh)
+
+        response_data = {
             'user': {
                 'id': user.id,
                 'phone': user.phone,
@@ -273,8 +280,16 @@ class PasswordLoginView(views.APIView):
                 'role': user.role,
                 'is_master': user.is_master,
             }
-        })
-        _set_auth_cookies(response, str(refresh.access_token), str(refresh))
+        }
+
+        # Mobile yoki Development (DEBUG=True): tokenlar body'da ham qaytariladi.
+        is_mobile = request.headers.get('X-Client-Type', '').lower() == 'mobile'
+        if is_mobile or settings.DEBUG or getattr(settings, 'IS_TESTING', False):
+            response_data['access']  = access_token_str
+            response_data['refresh'] = refresh_token_str
+
+        response = Response(response_data)
+        _set_auth_cookies(response, access_token_str, refresh_token_str)
         return response
 
 class UserProfileView(generics.RetrieveUpdateAPIView):
@@ -558,29 +573,33 @@ class CookieTokenRefreshView(views.APIView):
       • Yangi access + refresh token qaytariladi.
     """
     permission_classes = (AllowAny,)
+    authentication_classes = ()
     throttle_classes   = [ScopedRateThrottle]
     throttle_scope     = 'auth'
 
     def post(self, request):
-        is_mobile = request.headers.get('X-Client-Type', '').lower() == 'mobile'
-
         # ── Refresh token'ni olish ────────────────────────────────────────────
-        if is_mobile:
-            # Mobile: body'dan o'qiymiz
+        # 1. Avval request body'dan izlaymiz (mobile yoki frontend fallback)
+        refresh_str = None
+        if isinstance(request.data, dict):
             refresh_str = request.data.get('refresh')
-            if not refresh_str:
-                return Response(
-                    {'error': 'Refresh token taqdim etilmadi.'},
-                    status=status.HTTP_401_UNAUTHORIZED,
-                )
-        else:
-            # Web: httpOnly cookie'dan o'qiymiz
+        
+        # 2. Agar body'da bo'lmasa, cookie'dan qidiramiz (web standard)
+        if not refresh_str:
             refresh_str = request.COOKIES.get(settings.REFRESH_TOKEN_COOKIE_NAME)
-            if not refresh_str:
-                return Response(
-                    {'error': 'Sessiya tugagan. Iltimos, qayta kiring.'},
-                    status=status.HTTP_401_UNAUTHORIZED,
-                )
+            is_mobile = False
+        else:
+            is_mobile = True
+
+        # Qo'shimcha X-Client-Type tekshiruvi (agar header kelgan bo'lsa)
+        if not is_mobile:
+            is_mobile = request.headers.get('X-Client-Type', '').lower() == 'mobile'
+
+        if not refresh_str:
+            return Response(
+                {'error': 'Sessiya tugagan yoki refresh token topilmadi. Qayta kiring.'},
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
 
         # ── Token yangilash ───────────────────────────────────────────────────
         serializer = TokenRefreshSerializer(data={'refresh': refresh_str})
@@ -603,14 +622,18 @@ class CookieTokenRefreshView(views.APIView):
         new_access  = serializer.validated_data['access']
         new_refresh = serializer.validated_data.get('refresh')
 
-        if is_mobile:
-            # Mobile: tokenlar body'da qaytariladi
+        if is_mobile or settings.DEBUG:
+            # Mobile / Dev Fallback: tokenlar body'da qaytariladi
             data = {'access': str(new_access)}
             if new_refresh:
                 data['refresh'] = str(new_refresh)
-            return Response(data)
+            
+            resp = Response(data)
+            # Cookie ham baribir yoziladi (ikkala mexanizm parallel ishlaydi)
+            _set_auth_cookies(resp, str(new_access), str(new_refresh) if new_refresh else None)
+            return resp
         else:
-            # Web: tokenlar cookie'ga yoziladi
+            # Web: tokenlar faqat cookie'ga yoziladi
             resp = Response({'detail': 'Tokenlar yangilandi'})
             _set_auth_cookies(resp, str(new_access), str(new_refresh) if new_refresh else None)
             return resp
@@ -621,14 +644,33 @@ class CookieLogoutView(views.APIView):
     POST /api/auth/logout/
     Refresh tokenni blacklist'ga qo'shadi va cookie'ni o'chiradi.
 
+    WEB (brauzer):
+      Refresh token httpOnly cookie'dan o'qiladi va cookielar o'chiriladi.
+
+    MOBILE (X-Client-Type: mobile yoki body bor):
+      Refresh token request body'dan o'qiladi: {'refresh': '<token>'}.
+      Token blacklist'ga qo'shiladi → eski sessiya QAYTA ISHLAY OLMAYDI
+      (xavfsizlik #1: o'g'irlangan token sotrudligi tugatiladi).
+
     AllowAny: access token muddati tugagan bo'lsa ham logout ishlaydi.
-    Cookie mavjud bo'lmasa yoki yaroqsiz bo'lsa — no-op (xato qaytarmaydi),
+    Token mavjud bo'lmasa yoki yaroqsiz bo'lsa — no-op (xato qaytarmaydi),
     chunki maqsad seans tozalash, autentifikatsiya tekshirish emas.
     """
     permission_classes = (AllowAny,)
+    authentication_classes = ()
 
     def post(self, request):
-        refresh_str = request.COOKIES.get(settings.REFRESH_TOKEN_COOKIE_NAME)
+        # ── Refresh tokenni topish ────────────────────────────────────────────
+        # 1. Avval request body (mobile)
+        refresh_str = None
+        if isinstance(request.data, dict):
+            refresh_str = request.data.get('refresh')
+
+        # 2. Body'da bo'lmasa cookie (web)
+        if not refresh_str:
+            refresh_str = request.COOKIES.get(settings.REFRESH_TOKEN_COOKIE_NAME)
+
+        # ── Blacklist (mobile va web uchun bir xil) ──────────────────────────
         if refresh_str:
             try:
                 token = RefreshToken(refresh_str)
@@ -637,6 +679,7 @@ class CookieLogoutView(views.APIView):
                 pass  # Allaqachon bekor yoki yaroqsiz — muhim emas
 
         resp = Response({'detail': 'Tizimdan muvaffaqiyatli chiqdingiz.'})
+        # Cookie'larni o'chirish — web foydalanuvchilar uchun
         resp.delete_cookie(
             key='access',
             path='/',
@@ -899,3 +942,80 @@ class AdminMasterDiscountView(views.APIView):
             'percent': float(pct),
             'detail':  f"Usta chegirmasi {stored}% ga o'rnatildi.",
         })
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Phase 1.1 — AuditLog API endpoint (admin tomonidan ko'rish)
+# ─────────────────────────────────────────────────────────────────────────────
+
+class AuditLogPagination(PageNumberPagination):
+    page_size = 50
+    page_size_query_param = 'page_size'
+    max_page_size = 200
+
+
+class AuditLogListView(generics.ListAPIView):
+    """
+    GET /api/admin/audit-logs/
+
+    Faqat SUPER_ADMIN ko'ra oladi (oddiy admin emas).
+
+    Filtrlar (query params):
+      ?actor=<user_id>            faqat shu foydalanuvchi amallari
+      ?action=<substring>          action nomida shu so'z bor (LIKE)
+      ?target_type=<type>          'product', 'order', 'user', ...
+      ?target_id=<id>              faqat shu resursga oid
+      ?date_from=YYYY-MM-DD
+      ?date_to=YYYY-MM-DD
+
+    Tartiblash: doim yangidan eskiga (-created_at).
+
+    XAVFSIZLIK:
+      AuditLog'da PII bor (telefon, IP). Faqat SUPER_ADMIN ko'rishi shart.
+    """
+    permission_classes = (IsAuthenticated, IsSuperAdmin)
+    pagination_class = AuditLogPagination
+
+    def get_serializer_class(self):
+        from .serializers import AuditLogSerializer
+        return AuditLogSerializer
+
+    def get_queryset(self):
+        from .models import AuditLog
+        qs = (
+            AuditLog.objects
+            .select_related('actor')
+            .order_by('-created_at')
+        )
+
+        actor = self.request.query_params.get('actor')
+        if actor:
+            try:
+                qs = qs.filter(actor_id=int(actor))
+            except (ValueError, TypeError):
+                pass
+
+        action = self.request.query_params.get('action', '').strip()
+        if action:
+            qs = qs.filter(action__icontains=action)
+
+        target_type = self.request.query_params.get('target_type', '').strip()
+        if target_type:
+            qs = qs.filter(target_type=target_type)
+
+        target_id = self.request.query_params.get('target_id')
+        if target_id:
+            try:
+                qs = qs.filter(target_id=int(target_id))
+            except (ValueError, TypeError):
+                pass
+
+        date_from = self.request.query_params.get('date_from')
+        if date_from:
+            qs = qs.filter(created_at__date__gte=date_from)
+
+        date_to = self.request.query_params.get('date_to')
+        if date_to:
+            qs = qs.filter(created_at__date__lte=date_to)
+
+        return qs
