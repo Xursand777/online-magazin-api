@@ -132,6 +132,17 @@ class Order(models.Model):
         default=False,
         help_text="Muddati o'tganligi foydalanuvchi hisobiga qo'shilganmi."
     )
+    # Phase 2.7 — Admin override: bu kreditli buyurtmaning ban hisobiga
+    # ta'sirini bekor qiladi. `mark_overdue_credits` shu fieldni filterda
+    # exclude qiladi — pardonlangan buyurtmalar cron tomonidan ham
+    # belgilanmaydi. `credit_overdue_counted` dan ajratish kerak chunki ikkalasi
+    # turli semantikaga ega: counted=True (allaqachon hisoblangan),
+    # pardoned=True (admin override). Qayta bosishga idempotent.
+    credit_overdue_pardoned = models.BooleanField(
+        default=False,
+        db_index=True,
+        help_text="Admin tomonidan ban hisobiga kiritilmaslik uchun belgilangan.",
+    )
 
     # ── Phase 2.2 — Qabul kodi va disput muddati ─────────────────────────────
     # `received_code` — kuryer mijozdan so'raydigan 6 xonali kod.
@@ -401,3 +412,107 @@ class Withdrawal(models.Model):
 
     def __str__(self):
         return f"{self.amount} so'm - {self.reason}"
+
+
+# ── Phase 2.6 — Order dispute (mijoz shikoyati) ─────────────────────────────
+#
+# NIMA UCHUN:
+#   Mijoz yetkazib berilgan buyurtma haqida shikoyat qilishi mumkin
+#   ("olmadim", "buzilgan keldi", "boshqa narsa"). Admin uni ko'radi va hal
+#   qiladi. Phase 2.1 dalillari (rasm + GPS + kod) admin tomon obyektiv
+#   qaror qabul qilishga yordam beradi.
+#
+# KREDIT BILAN BOG'LANISH:
+#   Aktiv disput credit_overdue belgilash xulqiga TA'SIR QILMAYDI — Phase 2.5
+#   dispute_deadline (7 kun) bilan himoyalanadi. Disput hal qilinguncha mijoz
+#   boshqa kreditli buyurtma berolmasligi (Phase 4.1 refund) keyingi
+#   phase'da hisobga olinadi.
+class OrderDispute(models.Model):
+    STATUS_OPEN              = 'open'
+    STATUS_UNDER_REVIEW      = 'under_review'
+    STATUS_RESOLVED_CUSTOMER = 'resolved_for_customer'
+    STATUS_RESOLVED_BUSINESS = 'resolved_for_business'
+
+    STATUS_CHOICES = [
+        (STATUS_OPEN,              "Ochiq"),
+        (STATUS_UNDER_REVIEW,      "Ko'rib chiqilmoqda"),
+        (STATUS_RESOLVED_CUSTOMER, "Mijoz foydasiga hal qilindi"),
+        (STATUS_RESOLVED_BUSINESS, "Biznes foydasiga hal qilindi"),
+    ]
+
+    ACTIVE_STATUSES   = frozenset({STATUS_OPEN, STATUS_UNDER_REVIEW})
+    RESOLVED_STATUSES = frozenset({STATUS_RESOLVED_CUSTOMER, STATUS_RESOLVED_BUSINESS})
+
+    order = models.ForeignKey(
+        Order,
+        on_delete=models.CASCADE,
+        related_name='disputes',
+    )
+    reason = models.TextField(
+        help_text="Mijoz shikoyatining tafsiloti",
+    )
+    status = models.CharField(
+        max_length=32,
+        choices=STATUS_CHOICES,
+        default=STATUS_OPEN,
+        db_index=True,
+    )
+    resolution_note = models.TextField(
+        blank=True,
+        default='',
+        help_text="Admin tomonidan qaror sababi va batafsil ma'lumot",
+    )
+    created_at  = models.DateTimeField(auto_now_add=True, db_index=True)
+    resolved_at = models.DateTimeField(null=True, blank=True)
+    resolved_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='disputes_resolved',
+        help_text="Qaror qabul qilgan admin",
+    )
+
+    class Meta:
+        ordering = ['-created_at']
+        indexes = [
+            # Admin dashboard: aktiv disputlarni ro'yxat olish
+            models.Index(fields=['status', '-created_at'], name='dispute_status_created_idx'),
+        ]
+
+    def __str__(self):
+        return f"Dispute #{self.id} — Order #{self.order_id} ({self.status})"
+
+    @property
+    def is_active(self) -> bool:
+        return self.status in self.ACTIVE_STATUSES
+
+    @property
+    def is_resolved(self) -> bool:
+        return self.status in self.RESOLVED_STATUSES
+
+
+def _dispute_image_upload_path(instance, filename):
+    """Cloudinary yo'li: orders/disputes/<year>/<month>/<filename>."""
+    now = timezone.now()
+    return f"orders/disputes/{now:%Y/%m}/{filename}"
+
+
+class OrderDisputeImage(models.Model):
+    """
+    Mijoz tomonidan disputga qo'shilgan dalil rasmlari. Ko'p rasm mumkin
+    (FK reverse: dispute.images.all()).
+    """
+    dispute = models.ForeignKey(
+        OrderDispute,
+        on_delete=models.CASCADE,
+        related_name='images',
+    )
+    image = models.ImageField(upload_to=_dispute_image_upload_path)
+    uploaded_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['id']
+
+    def __str__(self):
+        return f"DisputeImage #{self.id} (dispute #{self.dispute_id})"

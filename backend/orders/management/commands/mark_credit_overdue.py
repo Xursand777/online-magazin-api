@@ -60,6 +60,7 @@ class Command(BaseCommand):
                 orders__is_credit=True,
                 orders__credit_paid=False,
                 orders__credit_overdue_counted=False,
+                orders__credit_overdue_pardoned=False,
                 orders__credit_due_date__lt=today,
             )
             .filter(
@@ -85,6 +86,7 @@ class Command(BaseCommand):
                     is_credit=True,
                     credit_paid=False,
                     credit_overdue_counted=False,
+                    credit_overdue_pardoned=False,
                     credit_due_date__lt=today,
                 )
                 .filter(

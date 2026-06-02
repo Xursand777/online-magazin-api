@@ -3,11 +3,16 @@ from .views import (
     AdminCreditPayView,
     AdminCustomerHistoryView,
     AdminDashboardView,
+    AdminDisputeDetailView,
+    AdminDisputeListView,
     AdminOrderListView,
     AdminOrderStatusUpdateView,
+    AdminPardonCreditOverdueView,
     AdminPOSOrderView,
     AdminReportView,
     CourierConfirmDeliveryView,
+    CustomerCreateDisputeView,
+    CustomerOrderDisputesView,
     QuickOrderView,
     OrderFromCartView,
     OrderListView,
@@ -23,6 +28,8 @@ urlpatterns = [
     path('admin/', AdminOrderListView.as_view(), name='admin_order_list'),
     path('admin/<int:pk>/status/', AdminOrderStatusUpdateView.as_view(), name='admin_order_status_update'),
     path('admin/<int:pk>/pay-credit/', AdminCreditPayView.as_view(), name='admin_credit_pay'),
+    # Phase 2.7 — Admin override: kreditni ban hisobiga kiritmaslik
+    path('admin/<int:pk>/pardon-credit-overdue/', AdminPardonCreditOverdueView.as_view(), name='admin_pardon_credit_overdue'),
     path('admin/report/', AdminReportView.as_view(), name='admin_order_report'),
     path('admin/pos-order/', AdminPOSOrderView.as_view(), name='admin_pos_order'),
     path('admin/customer-history/', AdminCustomerHistoryView.as_view(), name='admin_customer_history'),
@@ -34,6 +41,12 @@ urlpatterns = [
     path('<int:pk>/cancel/', UserCancelOrderView.as_view(), name='order_cancel'),
     # Phase 2.4 — Kuryer qabul kodi + rasm + GPS bilan yetkazib berishni tasdiqlaydi
     path('<int:pk>/courier-confirm/', CourierConfirmDeliveryView.as_view(), name='order_courier_confirm'),
+    # Phase 2.6 — Mijoz shikoyati (Order dispute)
+    path('<int:pk>/dispute/', CustomerCreateDisputeView.as_view(), name='order_dispute_create'),
+    path('<int:pk>/disputes/', CustomerOrderDisputesView.as_view(), name='order_disputes_list'),
+    # Phase 2.6 — Admin disput boshqaruvi
+    path('admin/disputes/', AdminDisputeListView.as_view(), name='admin_disputes_list'),
+    path('admin/disputes/<int:pk>/', AdminDisputeDetailView.as_view(), name='admin_dispute_detail'),
     path('quick/', QuickOrderView.as_view(), name='quick_order'),
     path('from-cart/', OrderFromCartView.as_view(), name='order_from_cart'),
 ]

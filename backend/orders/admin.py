@@ -1,7 +1,9 @@
 from django.contrib import admin, messages
 from django.utils import timezone
 
-from .models import Order, OrderHistory, OrderItem, Payment
+from .models import (
+    Order, OrderDispute, OrderDisputeImage, OrderHistory, OrderItem, Payment,
+)
 from .services import pay_credit_order
 
 
@@ -62,3 +64,23 @@ class OrderAdmin(admin.ModelAdmin):
             f"{success} ta muddatli to'lov buyurtmasi to'langan deb belgilandi.",
             messages.SUCCESS,
         )
+
+
+# ── Phase 2.6 — Order dispute admin ─────────────────────────────────────────
+class OrderDisputeImageInline(admin.TabularInline):
+    model = OrderDisputeImage
+    extra = 0
+    readonly_fields = ('image', 'uploaded_at')
+    can_delete = False
+
+
+@admin.register(OrderDispute)
+class OrderDisputeAdmin(admin.ModelAdmin):
+    list_display = (
+        'id', 'order', 'status', 'created_at',
+        'resolved_at', 'resolved_by',
+    )
+    list_filter   = ('status',)
+    search_fields = ('id', 'order__id', 'reason')
+    readonly_fields = ('created_at', 'resolved_at', 'resolved_by')
+    inlines = [OrderDisputeImageInline]

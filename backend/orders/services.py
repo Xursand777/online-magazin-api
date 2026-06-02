@@ -11,7 +11,7 @@ from django.db.models import Q
 from django.utils import timezone
 from rest_framework import serializers
 
-from .models import Order, OrderHistory, OrderItem, Payment
+from .models import Order, OrderDispute, OrderDisputeImage, OrderHistory, OrderItem, Payment
 
 
 # ────────────────────────────────────────────────────────────────────────────
@@ -717,6 +717,7 @@ def mark_overdue_credits(user) -> dict:
                 is_credit=True,
                 credit_paid=False,
                 credit_overdue_counted=False,
+                credit_overdue_pardoned=False,  # Phase 2.7 — Admin override
                 credit_due_date__lt=today,
             )
             # Phase 2.5 — Disput muddati hali o'tmagan bo'lsa hisobga olmaymiz
@@ -899,3 +900,233 @@ def auto_cancel_expired_orders(minutes: int = 30) -> None:
             actor_type=OrderHistory.ACTOR_SYSTEM,
             reason="To'lov 30 daqiqa ichida amalga oshirilmadi.",
         )
+
+
+# ── Phase 2.6 — Order dispute services ──────────────────────────────────────
+import logging as _disp_logging
+_disp_logger = _disp_logging.getLogger(__name__)
+
+
+def create_order_dispute(
+    *,
+    order,
+    customer,
+    reason: str,
+    evidence_images=None,
+):
+    """
+    Phase 2.6 — Mijoz buyurtma haqida shikoyat ochadi.
+
+    Cheklovlar:
+      1. order.user == customer
+      2. order.status in {DELIVERED, RECEIVED} — yetkazilmagan buyurtmaga
+         shikoyat o'rinli emas (uni avval bekor qilish kerak).
+      3. order.dispute_deadline o'tmagan bo'lsa kerak (mavjud bo'lsa).
+      4. Aktiv (open/under_review) disput allaqachon yo'qligi.
+
+    Yon ta'sirlar:
+      - Telegram admin alert (fire-and-forget).
+
+    Args:
+        order: Shikoyat ochilayotgan buyurtma.
+        customer: Buyurtma egasi (request.user).
+        reason: Shikoyat sababi (matn).
+        evidence_images: List of UploadedFile (ko'p rasm) yoki None.
+
+    Returns:
+        OrderDispute — yaratilgan disput.
+
+    Raises:
+        serializers.ValidationError — biror cheklov buzilsa.
+    """
+    if order.user_id != customer.id:
+        raise serializers.ValidationError(
+            {'error': "Bu sizning buyurtmangiz emas."}
+        )
+
+    if order.status not in {Order.STATUS_DELIVERED, Order.STATUS_RECEIVED}:
+        raise serializers.ValidationError(
+            {'error': "Faqat yetkazilgan buyurtmaga shikoyat qilish mumkin."}
+        )
+
+    if order.dispute_deadline and timezone.now() > order.dispute_deadline:
+        raise serializers.ValidationError(
+            {'error': "Disput muddati o'tdi. Qo'llab-quvvatlash xizmatiga murojaat qiling."}
+        )
+
+    if order.disputes.filter(status__in=OrderDispute.ACTIVE_STATUSES).exists():
+        raise serializers.ValidationError(
+            {'error': "Bu buyurtmada hali yopilmagan disput mavjud."}
+        )
+
+    with transaction.atomic():
+        dispute = OrderDispute.objects.create(
+            order=order,
+            reason=reason,
+        )
+        for img in (evidence_images or []):
+            OrderDisputeImage.objects.create(dispute=dispute, image=img)
+
+    # Telegram alert — fire-and-forget. Tranzaksiyadan tashqarida —
+    # alert xato bo'lsa disput yozuvi rollback bo'lmasligi kerak.
+    try:
+        from core.notifications import alert_warning
+        alert_warning(
+            f"🚨 *Yangi disput*\n"
+            f"Buyurtma: `#{order.id}`\n"
+            f"Mijoz: `{customer.phone}`\n"
+            f"Sabab: {reason[:200]}{'...' if len(reason) > 200 else ''}"
+        )
+    except Exception as exc:
+        _disp_logger.warning("Disput Telegram alert yuborilmadi: %s", exc)
+
+    return dispute
+
+
+def update_order_dispute(
+    *,
+    dispute,
+    admin,
+    new_status: str | None = None,
+    resolution_note: str | None = None,
+):
+    """
+    Phase 2.6 — Admin disput statusini yangilaydi.
+
+    Resolved statuslarga o'tilganda `resolved_at` va `resolved_by` avtomat
+    o'rnatiladi. Allaqachon resolved bo'lgan disputni qayta `open`'ga
+    qaytarib bo'lmaydi (audit yaxlitligi uchun).
+
+    Args:
+        dispute: Yangilanayotgan disput.
+        admin: Qaror qabul qilayotgan admin (request.user).
+        new_status: Yangi status yoki None (o'zgartirmaslik).
+        resolution_note: Yangi izoh yoki None.
+
+    Returns:
+        OrderDispute — yangilangan disput.
+
+    Raises:
+        serializers.ValidationError — invariant buzilsa.
+    """
+    update_fields = []
+
+    if new_status is not None and new_status != dispute.status:
+        # Resolved -> Active qaytish taqiqlangan
+        if dispute.is_resolved and new_status in OrderDispute.ACTIVE_STATUSES:
+            raise serializers.ValidationError(
+                {'error': "Hal qilingan disputni qayta ochib bo'lmaydi."}
+            )
+        # Valid choice ekanligi (extra paranoia — serializer ham tekshiradi)
+        valid_choices = {c[0] for c in OrderDispute.STATUS_CHOICES}
+        if new_status not in valid_choices:
+            raise serializers.ValidationError(
+                {'error': f"Noma'lum status: {new_status}"}
+            )
+        dispute.status = new_status
+        update_fields.append('status')
+
+        if new_status in OrderDispute.RESOLVED_STATUSES:
+            dispute.resolved_at = timezone.now()
+            dispute.resolved_by = admin
+            update_fields.extend(['resolved_at', 'resolved_by'])
+
+    if resolution_note is not None:
+        dispute.resolution_note = resolution_note
+        update_fields.append('resolution_note')
+
+    if update_fields:
+        with transaction.atomic():
+            dispute.save(update_fields=update_fields)
+
+    return dispute
+
+
+# ── Phase 2.7 — Admin override: credit overdue pardon ──────────────────────
+def pardon_credit_overdue(*, order, admin, reason: str = ''):
+    """
+    Phase 2.7 — Admin override: bu kreditli buyurtmaning ban hisobiga
+    ta'sirini bekor qiladi ("bu mijozning kreditini ban hisobiga kiritmang").
+
+    Idempotent: agar allaqachon pardonlangan bo'lsa, no-op (qayta -1 qilmaydi).
+
+    Holatlar:
+      a) credit_overdue_counted=True (allaqachon hisoblangan bo'lib turardi):
+         foydalanuvchi `overdue_credit_count` -1 va kerak bo'lsa
+         `credit_ban=False`.
+      b) credit_overdue_counted=False (hali hisoblanmagan):
+         faqat pardoned=True qo'yiladi -> kelajak cron uni o'tkazib yuboradi.
+
+    Har ikki holatda:
+      - `credit_overdue_pardoned=True` qo'yiladi (idempotency uchun field).
+      - OrderHistory'ga audit yozuv (rejim + sabab).
+      - Phase 1.1 AuditLog middleware HTTP yo'l bo'ylab avtomat yozadi.
+
+    Args:
+        order: Kreditli buyurtma.
+        admin: Admin (request.user).
+        reason: Admin tomonidan kiritilgan sabab (audit'da saqlanadi).
+
+    Returns:
+        Order — yangilangan.
+
+    Raises:
+        serializers.ValidationError — kreditli emas, to'langan yoki
+        allaqachon pardonlangan.
+    """
+    if not order.is_credit:
+        raise serializers.ValidationError(
+            {'error': "Bu kreditli buyurtma emas."}
+        )
+    if order.credit_paid:
+        raise serializers.ValidationError(
+            {'error': "To'langan buyurtmaga pardon kerakmas."}
+        )
+    if order.credit_overdue_pardoned:
+        raise serializers.ValidationError(
+            {'error': "Bu buyurtma allaqachon pardonlangan."}
+        )
+
+    with transaction.atomic():
+        order_locked = Order.objects.select_for_update().get(pk=order.pk)
+
+        # Defense-in-depth: select_for_update'dan keyin yana tekshirish
+        if order_locked.credit_overdue_pardoned:
+            raise serializers.ValidationError(
+                {'error': "Bu buyurtma allaqachon pardonlangan (race)."}
+            )
+
+        was_counted = order_locked.credit_overdue_counted
+        target_user = order_locked.user
+
+        if was_counted and target_user is not None:
+            user_locked = type(target_user).objects.select_for_update().get(pk=target_user.pk)
+            new_count = max(0, (user_locked.overdue_credit_count or 0) - 1)
+            user_locked.overdue_credit_count = new_count
+            # Ban yumshatish: pardonlangandan keyin <3 bo'lsa, ban'ni
+            # olib tashlaymiz (admin admin'da bo'lsa baribir buni shu paytda qiladi)
+            if new_count < 3 and user_locked.credit_ban:
+                user_locked.credit_ban = False
+            user_locked.save(update_fields=['overdue_credit_count', 'credit_ban'])
+            # Caller cached sync
+            target_user.overdue_credit_count = user_locked.overdue_credit_count
+            target_user.credit_ban = user_locked.credit_ban
+
+        order_locked.credit_overdue_pardoned = True
+        order_locked.save(update_fields=['credit_overdue_pardoned', 'updated_at'])
+
+        # Audit history yozuv (OrderHistory — buyurtma sahifasida ko'rinadi)
+        truncated_reason = (reason or '').strip()[:500] or '—'
+        OrderHistory.objects.create(
+            order=order_locked,
+            from_status=order_locked.status,
+            to_status=order_locked.status,  # status o'zgarmaydi
+            actor_type=OrderHistory.ACTOR_ADMIN,
+            actor=admin,
+            note=f"Kredit overdue pardon (admin override). Sabab: {truncated_reason}",
+        )
+
+        # Caller order obyekti cached sync
+        order.credit_overdue_pardoned = True
+
+    return order

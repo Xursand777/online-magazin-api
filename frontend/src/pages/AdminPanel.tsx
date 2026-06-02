@@ -32,6 +32,7 @@ import {
   adminUpdateExchangeRate,
   adminGetStockReport,
   adminPayCreditOrder,
+  adminPardonCreditOverdue,
   adminGetKassa,
   adminWithdrawKassa,
   adminGetDashboard,
@@ -288,6 +289,7 @@ interface AdminOrder {
   credit_paid: boolean;
   credit_paid_at: string | null;
   credit_is_overdue: boolean;
+  credit_overdue_pardoned?: boolean;
   can_admin_cancel?: boolean;
   payment?: { status: string; method: string; amount: string | number } | null;
   items: Array<{
@@ -2350,6 +2352,26 @@ const OrdersTab = () => {
 
   const [creditConfirmOrder, setCreditConfirmOrder] = useState<AdminOrder | null>(null);
 
+  // Phase 2.7 — Admin override: kreditni ban hisobiga kiritmaslik
+  const [pardonTarget, setPardonTarget] = useState<AdminOrder | null>(null);
+  const [pardonReason, setPardonReason] = useState('');
+  const pardonMutation = useMutation({
+    mutationFn: ({ id, reason }: { id: number; reason: string }) =>
+      adminPardonCreditOverdue(id, reason),
+    onSuccess: async () => {
+      await Promise.all([
+        qc.invalidateQueries({ queryKey: ['admin-orders'] }),
+        qc.invalidateQueries({ queryKey: ['orders'] }),
+      ]);
+      setPardonTarget(null);
+      setPardonReason('');
+      toast.success('Kredit ban hisobidan chiqarildi.');
+    },
+    onError: (e: any) => {
+      toast.error(e?.response?.data?.error || "Pardon amalga oshmadi.");
+    },
+  });
+
   const updateDraft = (
     orderId: number,
     field: 'status' | 'note',
@@ -2377,6 +2399,61 @@ const OrdersTab = () => {
         }}
         onCancel={() => !creditPayMutation.isPending && setCreditConfirmOrder(null)}
       />
+
+      {/* Phase 2.7 — Pardon credit overdue dialog */}
+      {pardonTarget && (
+        <div className='fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4'>
+          <div className='w-full max-w-md rounded-2xl bg-white p-6 shadow-xl'>
+            <div className='mb-4 flex items-center gap-3'>
+              <span className='material-symbols-outlined text-[28px] text-amber-600'>shield_person</span>
+              <h3 className='font-h3 text-h3 text-on-surface'>Ban hisobiga kiritmang</h3>
+            </div>
+            <p className='mb-3 text-sm text-on-surface-variant'>
+              <span className='font-semibold text-on-surface'>#{pardonTarget.id}</span> buyurtmasini
+              ushbu mijoz uchun ban hisobiga kiritmaymiz. Agar avval hisoblangan bo'lsa,
+              mijozning overdue soni 1ga kamayadi.
+            </p>
+            <label className='mb-2 block text-xs font-semibold text-on-surface-variant'>
+              Sabab (ixtiyoriy, audit uchun)
+            </label>
+            <textarea
+              value={pardonReason}
+              onChange={(e) => setPardonReason(e.target.value)}
+              rows={3}
+              maxLength={500}
+              placeholder="Mijoz pul to'ladi qo'l bilan, biznes xatosi, ..."
+              className='mb-4 w-full rounded-lg border border-outline-variant bg-surface-container px-3 py-2 text-sm text-on-surface outline-none focus:border-primary'
+              disabled={pardonMutation.isPending}
+            />
+            <div className='flex gap-3'>
+              <button
+                onClick={() => { setPardonTarget(null); setPardonReason(''); }}
+                disabled={pardonMutation.isPending}
+                className='flex-1 rounded-xl border border-outline-variant bg-surface-container px-4 py-2.5 text-sm font-semibold text-on-surface hover:bg-surface-container-high disabled:opacity-50'
+              >
+                Bekor qilish
+              </button>
+              <button
+                onClick={() => pardonMutation.mutate({ id: pardonTarget.id, reason: pardonReason })}
+                disabled={pardonMutation.isPending}
+                className='flex-1 rounded-xl bg-amber-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-amber-700 disabled:opacity-50 flex items-center justify-center gap-2'
+              >
+                {pardonMutation.isPending ? (
+                  <>
+                    <span className='w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin' />
+                    Yuborilmoqda...
+                  </>
+                ) : (
+                  <>
+                    <span className='material-symbols-outlined text-[16px]'>check_circle</span>
+                    Tasdiqlash
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div>
         <h2 className='font-h3 text-h3 text-on-surface'>Buyurtmalar ({totalCount})</h2>
@@ -2852,6 +2929,24 @@ const OrdersTab = () => {
                             <span className='material-symbols-outlined text-[16px]'>payments</span>
                             Muddatli to'lovni qabul qilish
                           </button>
+                        )}
+                        {/* Phase 2.7 — Pardon override */}
+                        {!order.credit_paid && !order.credit_overdue_pardoned && (
+                          <button
+                            type='button'
+                            onClick={() => setPardonTarget(order)}
+                            className='mt-2 flex w-full items-center justify-center gap-2 rounded-lg border border-amber-400 bg-white px-4 py-2 text-sm font-semibold text-amber-700 transition-colors hover:bg-amber-50'
+                            title="Bu mijozning kreditini ban hisobiga kiritmang"
+                          >
+                            <span className='material-symbols-outlined text-[16px]'>shield_person</span>
+                            Ban hisobiga kiritmang
+                          </button>
+                        )}
+                        {order.credit_overdue_pardoned && (
+                          <div className='mt-2 flex items-center justify-center gap-2 rounded-lg bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-700'>
+                            <span className='material-symbols-outlined text-[14px]'>shield_person</span>
+                            Pardonlangan — ban hisobiga kirmaydi
+                          </div>
                         )}
                       </div>
                     )}
