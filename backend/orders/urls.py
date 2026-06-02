@@ -7,6 +7,7 @@ from .views import (
     AdminOrderStatusUpdateView,
     AdminPOSOrderView,
     AdminReportView,
+    CourierConfirmDeliveryView,
     QuickOrderView,
     OrderFromCartView,
     OrderListView,
@@ -31,6 +32,8 @@ urlpatterns = [
     path('', OrderListView.as_view(), name='order_list'),
     path('<int:pk>/', OrderDetailView.as_view(), name='order_detail'),
     path('<int:pk>/cancel/', UserCancelOrderView.as_view(), name='order_cancel'),
+    # Phase 2.4 — Kuryer qabul kodi + rasm + GPS bilan yetkazib berishni tasdiqlaydi
+    path('<int:pk>/courier-confirm/', CourierConfirmDeliveryView.as_view(), name='order_courier_confirm'),
     path('quick/', QuickOrderView.as_view(), name='quick_order'),
     path('from-cart/', OrderFromCartView.as_view(), name='order_from_cart'),
 ]

@@ -66,7 +66,13 @@ def _is_celery_available() -> bool:
         return False
 
 
-def send_order_status_sms_task(phone: str, order_id: int, status: str) -> None:
+def send_order_status_sms_task(
+    phone: str,
+    order_id: int,
+    status: str,
+    *,
+    code: str | None = None,
+) -> None:
     """
     SMS yuborish — Celery task yoki threading fallback.
 
@@ -84,7 +90,9 @@ def send_order_status_sms_task(phone: str, order_id: int, status: str) -> None:
     """
     if _is_celery_available():
         try:
-            _send_sms_celery_task.delay(phone=phone, order_id=order_id, status=status)
+            _send_sms_celery_task.delay(
+                phone=phone, order_id=order_id, status=status, code=code,
+            )
             logger.debug(
                 'SMS task navbatga qo\'shildi — telefon=%s, buyurtma=#%s, status=%s',
                 phone, order_id, status,
@@ -104,6 +112,7 @@ def send_order_status_sms_task(phone: str, order_id: int, status: str) -> None:
     t = threading.Thread(
         target=send_order_status_sms,
         args=(phone, order_id, status),
+        kwargs={'code': code},
         daemon=True,
         name=f'sms-order-{order_id}-{status}',
     )
@@ -126,7 +135,13 @@ try:
         acks_late=True,            # task bajarilgandan KEYIN ack
         ignore_result=True,        # natija saqlanmaydi (fire-and-forget)
     )
-    def _send_sms_celery_task(self, phone: str, order_id: int, status: str) -> None:
+    def _send_sms_celery_task(
+        self,
+        phone: str,
+        order_id: int,
+        status: str,
+        code: str | None = None,
+    ) -> None:
         """
         Celery SMS task.
 
@@ -149,6 +164,7 @@ try:
                 phone=phone,
                 order_id=order_id,
                 status=status,
+                code=code,
             )
             if not success:
                 # SMS yuborilmadi — retry

@@ -93,8 +93,12 @@ def on_order_history_created(sender, instance: OrderHistory, created: bool, **kw
     # ── #20 FIX: Celery task orqali yuborish ─────────────────────────────────
     # threading.Thread(daemon=True) → server restart'da yo'qoladi
     # Celery task → navbatda saqlanadi, worker qayta ishga tushganda bajaradi
+    #
+    # Phase 2.3 — DELIVERED status uchun `received_code` SMS template'da
+    # ishlatiladi. Boshqa statuslarda kod jim e'tibordan chetda qoldiriladi.
     send_order_status_sms_task(
         phone=phone,
         order_id=order.id,
         status=instance.to_status,
+        code=order.received_code,
     )

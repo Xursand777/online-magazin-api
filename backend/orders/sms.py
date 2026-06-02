@@ -47,8 +47,11 @@ STATUS_SMS_MESSAGES: dict[str, str] = {
         "Kuryer siz tomon kelmoqda. Bozor UZ"
     ),
     'DELIVERED': (
-        "Hurmatli mijoz, #{order_id}-buyurtmangiz yetib keldi. "
-        "Naqd to'lovni kuryerga bering. Bozor UZ"
+        # Phase 2.3 — Kuryer eshikda. Mijoz {code}'ni kuryerga ayttiradi,
+        # kuryer Phase 2.4 endpoint orqali tasdiqlaydi. Kod yo'q bo'lgan
+        # holatda (xato yoki backwards-compat) bo'sh joy qoladi.
+        "Hurmatli mijoz, #{order_id}-buyurtmangiz kuryer eshikda. "
+        "Qabul kodi: {code}. Buyurtmani olganingizda kuryerga ayting. Bozor UZ"
     ),
     'RECEIVED': (
         "Hurmatli mijoz, #{order_id}-buyurtmangiz muvaffaqiyatli topshirildi. "
@@ -179,16 +182,37 @@ def send_otp_sms(phone: str, code: str) -> bool:
     return False
 
 
-def send_order_status_sms(phone: str, order_id: int, status: str) -> bool:
+def send_order_status_sms(
+    phone: str,
+    order_id: int,
+    status: str,
+    *,
+    code: Optional[str] = None,
+) -> bool:
     """
     Buyurtma holati o'zgarganda mijozga SMS yuboradi.
     Token 401 bilan xato qaytarsa: cache tozalanib yangi token bilan bir marta qayta uriniladi.
+
+    Phase 2.3:
+      `code` — DELIVERED template'da ishlatiladi (qabul kodi). Boshqa
+      statuslar uchun jim e'tibordan chetda qoldiriladi (template'da
+      `{code}` belgisini ishlatmaydi). Bo'sh kelganda '' bilan format
+      qilinadi — bu xavfsiz, format() KeyError chiqarmaydi.
     """
     template = STATUS_SMS_MESSAGES.get(status)
     if not template:
         return False
 
-    message    = template.format(order_id=order_id)
+    try:
+        message = template.format(order_id=order_id, code=code or '')
+    except KeyError as exc:
+        # Noma'lum o'zgaruvchi template'da — bu kod xatosi (yangi template
+        # qo'shilganda yangilanmagan parametr). Sentry'ga yuborilsin.
+        logger.error(
+            "SMS template variable yo'q: status=%s, missing=%s", status, exc
+        )
+        return False
+
     sender     = getattr(settings, 'ESKIZ_SENDER', '4546')
     normalized = _normalize_phone(phone)
 
@@ -219,11 +243,18 @@ def send_order_status_sms(phone: str, order_id: int, status: str) -> bool:
     return False
 
 
-def send_order_status_sms_async(phone: str, order_id: int, status: str) -> None:
+def send_order_status_sms_async(
+    phone: str,
+    order_id: int,
+    status: str,
+    *,
+    code: Optional[str] = None,
+) -> None:
     """Fire-and-forget: SMS ni alohida thread'da yuboradi. HTTP response'ni bloklamaydi."""
     t = threading.Thread(
         target=send_order_status_sms,
         args=(phone, order_id, status),
+        kwargs={'code': code},
         daemon=True,
         name=f'sms-order-{order_id}-{status}',
     )

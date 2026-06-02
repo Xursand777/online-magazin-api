@@ -187,3 +187,42 @@ class CancelOrderSerializer(serializers.Serializer):
 class AdminOrderStatusUpdateSerializer(serializers.Serializer):
     status = serializers.ChoiceField(choices=Order.STATUS_CHOICES)
     note = serializers.CharField(max_length=1000, required=False, allow_blank=True)
+
+
+# ── Phase 2.4 — Kuryer yetkazib berishni tasdiqlash ─────────────────────────
+class CourierConfirmDeliverySerializer(serializers.Serializer):
+    """
+    POST /api/orders/<id>/courier-confirm/ uchun input.
+
+    `received_code` — mijoz kuryerga ayttiradi (6 xonali).
+    `delivery_photo` — kuryer olgan rasm; multipart/form-data orqali yuboriladi.
+    `latitude`/`longitude` — ixtiyoriy (bino ichida GPS yo'q bo'lishi mumkin).
+
+    `received_code` write_only — javobga aks etmaydi (xavfsizlik).
+    """
+    received_code = serializers.RegexField(
+        regex=r'^\d{6}$',
+        write_only=True,
+        error_messages={'invalid': "Qabul kodi aniq 6 xonali raqam bo'lishi shart."},
+    )
+    delivery_photo = serializers.ImageField(required=True)
+    latitude = serializers.DecimalField(
+        max_digits=9, decimal_places=6,
+        required=False, allow_null=True,
+        min_value=-90, max_value=90,
+    )
+    longitude = serializers.DecimalField(
+        max_digits=10, decimal_places=6,
+        required=False, allow_null=True,
+        min_value=-180, max_value=180,
+    )
+
+    def validate(self, attrs):
+        # Latitude/longitude xor: birini yuborgan bo'lsa, ikkinchisi ham kerak.
+        lat = attrs.get('latitude')
+        lng = attrs.get('longitude')
+        if (lat is None) != (lng is None):
+            raise serializers.ValidationError(
+                {'gps': "Latitude va longitude birga yuborilishi shart."}
+            )
+        return attrs
