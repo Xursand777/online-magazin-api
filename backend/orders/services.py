@@ -7,6 +7,7 @@ from uuid import uuid4
 
 from django.conf import settings
 from django.db import transaction
+from django.db.models import Q
 from django.utils import timezone
 from rest_framework import serializers
 
@@ -530,7 +531,27 @@ def transition_order_status(*, order, new_status, actor_type, actor=None, note='
 
     previous_status = order.status
     order.status = new_status
-    order.save(update_fields=['status', 'updated_at'])
+    update_fields = ['status', 'updated_at']
+
+    # ── Phase 2.3 — SHIPPING -> DELIVERED: qabul kodi va disput muddati ─────
+    # Kuryer manzilga yetganda mijozga 6 xonali SMS kod yuboriladi. Mijoz uni
+    # kuryerga ayttiradi (Phase 2.4 courier-confirm endpoint). Ayni paytda
+    # dispute_deadline = now + 7 kun belgilanadi — bu muddat ichida kredit
+    # `overdue` deb belgilanmaydi (Phase 2.5).
+    #
+    # IDEMPOTENCY: agar `received_code` allaqachon belgilangan bo'lsa qayta
+    # generatsiya qilmaymiz — STATUS_TRANSITIONS forward-only bo'lsa-da, har
+    # ehtimolga qarshi himoya (test, manual DB tahriri, kelajakdagi refactor).
+    if (previous_status == Order.STATUS_SHIPPING
+            and new_status == Order.STATUS_DELIVERED
+            and not order.received_code):
+        now = timezone.now()
+        order.received_code = order.generate_received_code()
+        order.received_code_sent_at = now
+        order.dispute_deadline = order.compute_dispute_deadline(base_time=now)
+        update_fields.extend(['received_code', 'received_code_sent_at', 'dispute_deadline'])
+
+    order.save(update_fields=update_fields)
 
     payment = getattr(order, 'payment', None)
     if payment:
@@ -559,6 +580,177 @@ def transition_order_status(*, order, new_status, actor_type, actor=None, note='
     return order
 
 
+def courier_confirm_delivery(
+    *,
+    order,
+    actor,
+    received_code: str,
+    delivery_photo=None,
+    latitude=None,
+    longitude=None,
+):
+    """
+    Phase 2.4 — Kuryer yetkazib berishni qabul kodi + dalil bilan tasdiqlaydi.
+
+    Oqim:
+      1. Order DELIVERED holatida ekanligi tekshiriladi.
+      2. Order'ning `received_code` belgilanganligi tekshiriladi
+         (Phase 2.3 da SHIPPING->DELIVERED da o'rnatiladi).
+      3. Mijozning ayttirgan kodi vs DB'dagi kod taqqoslanadi:
+         * Noto'g'ri — audit yozuvi (`received_code_verified=False`,
+           rasm SAQLANMAYDI — Cloudinary kvotasini tejash uchun) +
+           ValidationError. Audit yozuvi alohida transaksiyada saqlanadi,
+           shuning uchun `raise` rollback qilmaydi.
+         * To'g'ri — DELIVERED -> RECEIVED transition + OrderHistory
+           yozuviga rasm/GPS/`received_code_verified=True` qo'shiladi
+           (atomic transaksiya).
+
+    Args:
+        order: Yetkazib berilishi tasdiqlanayotgan buyurtma.
+        actor: Tasdiqlovchi xodim (kuryer yoki admin).
+        received_code: Mijoz tomonidan kuryerga ayttirilgan kod.
+        delivery_photo: Kuryer olgan rasm (Cloudinary'ga yuklanadi).
+        latitude, longitude: GPS koordinatalar (None bo'lishi mumkin).
+
+    Returns:
+        Order — yangilangan, status=RECEIVED.
+
+    Raises:
+        serializers.ValidationError — noto'g'ri holat yoki kod.
+    """
+    # DIQQAT: bu funksiya `@transaction.atomic` BILAN o'ralganmas.
+    # Sabab: noto'g'ri kod uchun audit yozuvi `raise` orqali rollback
+    # bo'lmasligi kerak (fraud kuzatuvi yo'qoladi).
+    order.refresh_from_db(fields=['status', 'received_code', 'updated_at'])
+
+    if order.status != Order.STATUS_DELIVERED:
+        raise serializers.ValidationError(
+            {'error': f"Buyurtma {order.status} holatida — DELIVERED kerak edi."}
+        )
+    if not order.received_code:
+        raise serializers.ValidationError(
+            {'error': "Bu buyurtma uchun qabul kodi yaratilmagan. Admin'ga murojaat qiling."}
+        )
+
+    if received_code != order.received_code:
+        # Noto'g'ri urinish — audit yozuvi (rasmsiz, GPS bor bo'lsa saqlanadi).
+        # Mustaqil transaksiya: ValidationError outer scope'da rollback
+        # bo'lsa ham, audit yozuvi saqlanib qoladi.
+        with transaction.atomic():
+            OrderHistory.objects.create(
+                order=order,
+                from_status=order.status,
+                to_status=order.status,  # status o'zgarmaydi
+                actor_type=OrderHistory.ACTOR_USER,
+                actor=actor,
+                note="Kuryer noto'g'ri qabul kodi kiritdi",
+                delivery_latitude=latitude,
+                delivery_longitude=longitude,
+                received_code_verified=False,
+            )
+        raise serializers.ValidationError({'error': "Qabul kodi noto'g'ri."})
+
+    # ── Kod to'g'ri — atomic transaksiya ichida transition + proof ─────────
+    # `transition_order_status` payment status, SMS signal, history yozuvi —
+    # hammasini boshqaradi. So'ngra yaratilgan history yozuviga proof
+    # fieldlarni qo'shamiz (xuddi shu atomic blok ichida).
+    with transaction.atomic():
+        order = transition_order_status(
+            order=order,
+            new_status=Order.STATUS_RECEIVED,
+            actor_type=OrderHistory.ACTOR_USER,
+            actor=actor,
+            note="Yetkazib berish kuryer tomonidan qabul kodi bilan tasdiqlandi",
+        )
+
+        last_history = order.history.order_by('-id').first()
+        if last_history and last_history.to_status == Order.STATUS_RECEIVED:
+            last_history.delivery_photo = delivery_photo
+            last_history.delivery_latitude = latitude
+            last_history.delivery_longitude = longitude
+            last_history.received_code_verified = True
+            last_history.save(update_fields=[
+                'delivery_photo', 'delivery_latitude',
+                'delivery_longitude', 'received_code_verified',
+            ])
+
+    return order
+
+
+# ── Phase 2.5 — Disput muddati hisobga olingan overdue tekshiruv ────────────
+def mark_overdue_credits(user) -> dict:
+    """
+    Foydalanuvchining muddati o'tgan kreditli buyurtmalarini
+    `credit_overdue_counted=True` deb belgilaydi va ban hisobini yangilaydi.
+
+    Phase 2.5: `dispute_deadline > now` bo'lgan buyurtmalar overdue deb
+    BELGILANMAYDI — mijoz hali shikoyat qilishi mumkin. Faqat:
+      * dispute_deadline IS NULL (DELIVERED'ga yetmagan/eski yozuv) yoki
+      * dispute_deadline < now (disput oynasi yopilgan)
+    bo'lganlari hisobga olinadi.
+
+    Atomic + select_for_update bilan ishlaydi — bir vaqtning o'zida
+    bir nechta joyda chaqirilsa ham hisob ikki marta o'smaydi.
+
+    Args:
+        user: Tekshirilayotgan foydalanuvchi (cached attributelar yangilanadi).
+
+    Returns:
+        {
+            'count':                 # Yangi belgilangan buyurtmalar soni
+            'banned':                # Foydalanuvchi ban'ga olindimi (3+ overdue)
+            'overdue_credit_count':  # Jami overdue (yangidan kelganlar bilan)
+        }
+    """
+    user_model = type(user)
+    today = timezone.now().date()
+    now = timezone.now()
+
+    with transaction.atomic():
+        user_locked = user_model.objects.select_for_update().get(pk=user.pk)
+
+        overdue_qs = (
+            Order.objects
+            .select_for_update()
+            .filter(
+                user=user_locked,
+                is_credit=True,
+                credit_paid=False,
+                credit_overdue_counted=False,
+                credit_due_date__lt=today,
+            )
+            # Phase 2.5 — Disput muddati hali o'tmagan bo'lsa hisobga olmaymiz
+            .filter(
+                Q(dispute_deadline__isnull=True) | Q(dispute_deadline__lt=now)
+            )
+            .exclude(status__in=Order.CANCELLATION_STATUSES)
+        )
+
+        count = overdue_qs.count()
+        if count == 0:
+            return {
+                'count': 0,
+                'banned': bool(user_locked.credit_ban),
+                'overdue_credit_count': user_locked.overdue_credit_count or 0,
+            }
+
+        overdue_qs.update(credit_overdue_counted=True)
+        user_locked.overdue_credit_count = (user_locked.overdue_credit_count or 0) + count
+        if user_locked.overdue_credit_count >= 3:
+            user_locked.credit_ban = True
+        user_locked.save(update_fields=['overdue_credit_count', 'credit_ban'])
+
+        # Chaqiruvchining cached user obyektini sinxronlash
+        user.credit_ban = user_locked.credit_ban
+        user.overdue_credit_count = user_locked.overdue_credit_count
+
+        return {
+            'count': count,
+            'banned': bool(user_locked.credit_ban),
+            'overdue_credit_count': user_locked.overdue_credit_count,
+        }
+
+
 @transaction.atomic
 def check_credit_eligibility(user):
     """
@@ -583,35 +775,12 @@ def check_credit_eligibility(user):
             )
         })
 
-    today = timezone.now().date()
-
-    # Muddati o'tgan, to'lanmagan, hali hisobga olinmagan buyurtmalar
-    overdue_qs = (
-        Order.objects
-        .select_for_update()
-        .filter(
-            user=user_locked,
-            is_credit=True,
-            credit_paid=False,
-            credit_overdue_counted=False,
-            credit_due_date__lt=today,
-        )
-        .exclude(status__in=Order.CANCELLATION_STATUSES)
-    )
-
-    if overdue_qs.exists():
-        count = overdue_qs.count()
-        overdue_qs.update(credit_overdue_counted=True)
-        user_locked.overdue_credit_count = (user_locked.overdue_credit_count or 0) + count
-        if user_locked.overdue_credit_count >= 3:
-            user_locked.credit_ban = True
-        user_locked.save(update_fields=['overdue_credit_count', 'credit_ban'])
-
-        # user ob'ektini yangilaymiz
-        user.credit_ban = user_locked.credit_ban
-        user.overdue_credit_count = user_locked.overdue_credit_count
-
-        if user_locked.credit_ban:
+    # Phase 2.5 — disput muddati hisobga olingan overdue tekshiruv (DRY helper).
+    # Eslatma: dispute_deadline > now bo'lgan buyurtmalar bu yerda
+    # overdue deb belgilanmaydi.
+    result = mark_overdue_credits(user)
+    if result['count'] > 0:
+        if result['banned']:
             raise serializers.ValidationError({
                 'error': (
                     "To'lov muddatingiz 3 marta o'tib ketdi. "
@@ -619,7 +788,6 @@ def check_credit_eligibility(user):
                     "Qo'shimcha ma'lumot uchun do'kon bilan bog'laning."
                 )
             })
-
         raise serializers.ValidationError({
             'error': (
                 "Sizda muddati o'tgan to'lanmagan muddatli to'lov buyurtmangiz bor. "

@@ -39,6 +39,10 @@ ROLE_TRANSITIONS: dict = {
     },
     ROLE_COURIER: {
         ('SHIPPING', 'DELIVERED'),              # Buyurtma manzilga yetkazildi
+        # Phase 2.4 — kuryer qabul kodi bilan xaridorga topshirgan deb tasdiqlaydi.
+        # Bu o'tish faqat /api/orders/<id>/courier-confirm/ endpoint orqali
+        # ishlaydi (kod + rasm + GPS); oddiy status update bilan ishlatilmasin.
+        ('DELIVERED', 'RECEIVED'),
     },
 }
 
@@ -112,6 +116,18 @@ class CanCreatePOS(BasePermission):
 
     def has_permission(self, request, view):
         return _has(request.user, _POS)
+
+
+class CanConfirmDelivery(BasePermission):
+    """
+    Phase 2.4 — Kuryer qabul kodi + rasm + GPS bilan yetkazib berishni
+    tasdiqlaydi. Admin/Super Admin ham (kuryer ishlamay qolgan favqulodda
+    holatlar uchun) shu endpoint orqali tasdiqlashi mumkin.
+    """
+    message = "Yetkazib berishni faqat kuryer yoki admin tasdiqlay oladi."
+
+    def has_permission(self, request, view):
+        return _has(request.user, frozenset({ROLE_SUPER_ADMIN, ROLE_ADMIN, ROLE_COURIER}))
 
 
 def can_transition(user, from_status: str, to_status: str) -> bool:

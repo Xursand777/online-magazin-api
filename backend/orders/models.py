@@ -1,5 +1,11 @@
+import secrets
+from datetime import timedelta
+from decimal import Decimal
+
 from django.conf import settings
+from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
+from django.utils import timezone
 
 from products.models import Product, ProductVariant
 
@@ -74,6 +80,17 @@ class Order(models.Model):
     CREDIT_DAYS_MIN = 5
     CREDIT_DAYS_MAX = 20
 
+    # ── Phase 2.2 — Dispute window ───────────────────────────────────────────
+    # DELIVERED'dan keyin mijoz nechta kun ichida shikoyat (dispute) qila olishi.
+    # Bu muddat ichida `credit_overdue` belgilanmaydi (Phase 2.5). 7 kun —
+    # rasmiy iste'molchi himoyasi me'yorlariga mos keladi.
+    DISPUTE_WINDOW_DAYS = 7
+
+    # 6 xonali numerik qabul kodi — mijozga SMS'da yuboriladi, kuryerga
+    # ko'rsatiladi. Brute-force xavfini kamaytirish uchun `secrets` kutubxonasi
+    # ishlatiladi (cryptographic RNG).
+    RECEIVED_CODE_LENGTH = 6
+
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.SET_NULL,
@@ -116,11 +133,74 @@ class Order(models.Model):
         help_text="Muddati o'tganligi foydalanuvchi hisobiga qo'shilganmi."
     )
 
+    # ── Phase 2.2 — Qabul kodi va disput muddati ─────────────────────────────
+    # `received_code` — kuryer mijozdan so'raydigan 6 xonali kod.
+    #   Yaratilish vaqti: SHIPPING -> DELIVERED transition'da (Phase 2.3).
+    #   Ishlatilish: POST /api/orders/<id>/courier-confirm/ (Phase 2.4).
+    #   Bo'sh string emas null — SQLite/Postgres uniqueness va NULL-checklar
+    #   uchun aniq holatga ega bo'lish.
+    received_code = models.CharField(
+        max_length=6,
+        null=True,
+        blank=True,
+        help_text="Kuryer mijozdan so'raydigan 6 xonali yetkazib berish kodi",
+    )
+    received_code_sent_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="Qabul kodi SMS'da yuborilgan vaqt",
+    )
+    # `dispute_deadline` — DELIVERED'dan keyin +DISPUTE_WINDOW_DAYS kun.
+    # Bu muddat o'tmaguncha kreditga `overdue` belgilanmaydi (Phase 2.5).
+    # `mark_credit_overdue` cron query'si uchun `db_index=True`.
+    dispute_deadline = models.DateTimeField(
+        null=True,
+        blank=True,
+        db_index=True,
+        help_text="Shu vaqtgacha mijoz disput ocha oladi (DELIVERED + 7 kun)",
+    )
+
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     def __str__(self):
         return f"Order #{self.id} by {self.receiver_name}"
+
+    # ── Phase 2.2 — Qabul kodi va disput muddati helperlari ──────────────────
+
+    def generate_received_code(self) -> str:
+        """6 xonali kriptografik tasodifiy qabul kodini hosil qiladi.
+
+        `secrets.randbelow` brute-force xavfini kamaytiradi (PRNG emas, OS-level
+        entropy). Idempotent emas: har chaqirilganda yangi kod yaratadi —
+        chaqiruvchi (services.transition_order_status) `received_code` allaqachon
+        belgilanganligini tekshirishi shart.
+
+        Saqlamaydi — faqat qaytaradi. Chaqiruvchi `save()` qilishi kerak.
+        """
+        n = secrets.randbelow(10 ** self.RECEIVED_CODE_LENGTH)
+        return f"{n:0{self.RECEIVED_CODE_LENGTH}d}"
+
+    @property
+    def is_within_dispute_window(self) -> bool:
+        """True bo'lsa, mijoz hali shikoyat qila oladi va kredit
+        `overdue` deb belgilanmasligi kerak.
+
+        `dispute_deadline` belgilanmagan bo'lsa — DELIVERED'ga hali yetmagan,
+        shuning uchun himoya yo'q (False).
+        """
+        if self.dispute_deadline is None:
+            return False
+        return timezone.now() < self.dispute_deadline
+
+    def compute_dispute_deadline(self, *, base_time=None):
+        """DELIVERED transition'ida ishlatiladi: base_time + 7 kun.
+
+        base_time None bo'lsa, `timezone.now()` ishlatiladi. Bu funksiya
+        faqat hisoblaydi — saqlash chaqiruvchi javobgarligida.
+        """
+        base = base_time or timezone.now()
+        return base + timedelta(days=self.DISPUTE_WINDOW_DAYS)
 
     class Meta:
         # ── #17 & #22 FIX: DB Indexes ────────────────────────────────────────
@@ -237,11 +317,70 @@ class OrderHistory(models.Model):
     note = models.TextField(blank=True, default='')
     created_at = models.DateTimeField(auto_now_add=True)
 
+    # ── Phase 2.1 — Delivery proof ──────────────────────────────────────────
+    # Kuryer yetkazib berish dalili. Faqat SHIPPING → DELIVERED yoki
+    # DELIVERED → RECEIVED o'tishlarida to'ldiriladi; boshqa transitions
+    # uchun null qoladi.
+    #
+    # NIMA UCHUN: kreditli buyurtmalarda mijoz "olmadim" deb shikoyat qilsa,
+    # kuryer rasmi + GPS + qabul kodi tasdig'i orqali disput (Phase 2.6)
+    # ob'ektiv hal qilinadi. Brand obro'sini va kuryerlarni himoyalaydi.
+    delivery_photo = models.ImageField(
+        upload_to='orders/delivery_proof/%Y/%m/',
+        null=True,
+        blank=True,
+        help_text="Kuryer tomonidan yetkazib berish paytida olingan rasm",
+    )
+    delivery_latitude = models.DecimalField(
+        max_digits=9,
+        decimal_places=6,
+        null=True,
+        blank=True,
+        validators=[
+            MinValueValidator(Decimal('-90')),
+            MaxValueValidator(Decimal('90')),
+        ],
+        help_text="Yetkazib berish nuqtasi kengligi (GPS, -90...90)",
+    )
+    delivery_longitude = models.DecimalField(
+        max_digits=10,
+        decimal_places=6,
+        null=True,
+        blank=True,
+        validators=[
+            MinValueValidator(Decimal('-180')),
+            MaxValueValidator(Decimal('180')),
+        ],
+        help_text="Yetkazib berish nuqtasi uzunligi (GPS, -180...180)",
+    )
+    # NULL = bu transition uchun amal qilmaydi (masalan PENDING -> CONFIRMED).
+    # True  = mijoz kuryerga ayttirgan 6 xonali kod to'g'ri kiritilgan.
+    # False = noto'g'ri kod kiritilgan (kuzatuv uchun yoziladi, RECEIVED'ga o'tilmaydi).
+    received_code_verified = models.BooleanField(
+        null=True,
+        blank=True,
+        db_index=True,
+        help_text=(
+            "Mijoz tomonidan kuryerga ayttirilgan qabul kodi to'g'ri "
+            "kiritilganmi (null = bu transition uchun amal qilmaydi)"
+        ),
+    )
+
     class Meta:
         ordering = ['created_at', 'id']
 
     def __str__(self):
         return f"Order #{self.order_id}: {self.from_status or 'START'} -> {self.to_status}"
+
+    @property
+    def has_delivery_proof(self) -> bool:
+        """True bo'lsa kuryer rasm/GPS/kod tasdig'ini biriktirgan."""
+        return bool(
+            self.delivery_photo
+            or self.delivery_latitude is not None
+            or self.delivery_longitude is not None
+            or self.received_code_verified is not None
+        )
 
 class Withdrawal(models.Model):
     amount = models.DecimalField(max_digits=12, decimal_places=2, verbose_name="Yechilgan summa")

@@ -3,7 +3,8 @@ from rest_framework.pagination import PageNumberPagination
 from rest_framework.permissions import IsAuthenticated
 from users.permissions import (
     IsStaffMember, IsAdminOrAbove, IsSuperAdmin,
-    CanAccessKassa, CanAccessReports, CanCreatePOS, can_transition,
+    CanAccessKassa, CanAccessReports, CanCreatePOS,
+    CanConfirmDelivery, can_transition,
 )
 from rest_framework.response import Response
 from django.shortcuts import get_object_or_404
@@ -22,11 +23,19 @@ from .models import Order, OrderHistory
 from .serializers import (
     AdminOrderStatusUpdateSerializer,
     CancelOrderSerializer,
+    CourierConfirmDeliverySerializer,
     OrderFromCartSerializer,
     OrderSerializer,
     QuickOrderSerializer,
 )
-from .services import check_credit_eligibility, create_order_with_items, pay_credit_order, transition_order_status
+from .services import (
+    check_credit_eligibility,
+    courier_confirm_delivery,
+    create_order_with_items,
+    mark_overdue_credits,
+    pay_credit_order,
+    transition_order_status,
+)
 
 
 class QuickOrderView(views.APIView):
@@ -146,6 +155,55 @@ class UserCancelOrderView(views.APIView):
             note=serializer.validated_data['cancellation_reason'],
         )
         return Response(OrderSerializer(order, context={'request': request}).data)
+
+
+# ── Phase 2.4 — Kuryer yetkazib berishni qabul kodi bilan tasdiqlaydi ───────
+class CourierConfirmDeliveryView(views.APIView):
+    """
+    POST /api/orders/<pk>/courier-confirm/
+
+    Body (multipart/form-data):
+      received_code: 6 xonali numerik
+      delivery_photo: rasm (majburiy)
+      latitude, longitude: ixtiyoriy (birga yuborilishi shart)
+
+    Permissions: kuryer, admin yoki super admin.
+
+    Idempotency: DELIVERED holatida bo'lmagan order'ga qayta urinish 400 qaytaradi.
+    Noto'g'ri kod: 400 + audit yozuvi (rasm saqlanmaydi).
+
+    Response:
+      200 — { "status": "RECEIVED", "order": {...} }
+      400 — { "error": "...", "code": "..." }
+      403 — permission yo'q
+      404 — buyurtma topilmadi
+    """
+    permission_classes = (IsAuthenticated, CanConfirmDelivery)
+
+    def post(self, request, pk, *args, **kwargs):
+        order = get_object_or_404(Order, pk=pk)
+
+        serializer = CourierConfirmDeliverySerializer(
+            data=request.data, context={'request': request},
+        )
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+
+        order = courier_confirm_delivery(
+            order=order,
+            actor=request.user,
+            received_code=data['received_code'],
+            delivery_photo=data['delivery_photo'],
+            latitude=data.get('latitude'),
+            longitude=data.get('longitude'),
+        )
+        return Response(
+            {
+                'status': order.status,
+                'order': OrderSerializer(order, context={'request': request}).data,
+            },
+            status=status.HTTP_200_OK,
+        )
 
 
 class OrderPagePagination(PageNumberPagination):
@@ -333,36 +391,13 @@ class UserCreditStatusView(views.APIView):
 
     def get(self, request, *args, **kwargs):
         from django.utils import timezone
-        from django.db import transaction as db_transaction
 
         user = request.user
         today = timezone.now().date()
 
-        # Muddati o'tgan buyurtmalarni avtomatik hisobga olamiz (read-only GET bo'lsa ham)
-        with db_transaction.atomic():
-            overdue_qs = (
-                Order.objects
-                .filter(
-                    user=user,
-                    is_credit=True,
-                    credit_paid=False,
-                    credit_overdue_counted=False,
-                    credit_due_date__lt=today,
-                )
-                .exclude(status__in=Order.CANCELLATION_STATUSES)
-            )
-            if overdue_qs.exists():
-                from users.models import User as UserModel
-                user_obj = UserModel.objects.select_for_update().get(pk=user.pk)
-                count = overdue_qs.count()
-                overdue_qs.update(credit_overdue_counted=True)
-                user_obj.overdue_credit_count = (user_obj.overdue_credit_count or 0) + count
-                if user_obj.overdue_credit_count >= 3:
-                    user_obj.credit_ban = True
-                user_obj.save(update_fields=['overdue_credit_count', 'credit_ban'])
-                # Cached attributelarni yangilaymiz
-                user.credit_ban = user_obj.credit_ban
-                user.overdue_credit_count = user_obj.overdue_credit_count
+        # Phase 2.5 — Disput muddati hisobga olingan overdue tekshiruvi (DRY helper).
+        # dispute_deadline > now bo'lgan buyurtmalar overdue deb belgilanmaydi.
+        mark_overdue_credits(user)
 
         active_credit = (
             Order.objects.filter(
