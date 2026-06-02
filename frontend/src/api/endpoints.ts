@@ -196,3 +196,15 @@ export const adminGetMasterDiscount = () =>
 export const adminSetMasterDiscount = (percent: number) =>
   apiClient.post('/admin/masters/discount/', { percent });
 
+// AUDIT LOG (faqat Super Admin) — Phase 1.1
+export const adminGetAuditLogs = (params?: {
+  actor?: string;
+  action?: string;
+  target_type?: string;
+  target_id?: string;
+  date_from?: string;
+  date_to?: string;
+  page?: number;
+  page_size?: number;
+}) => apiClient.get('/admin/audit-logs/', { params });
+
