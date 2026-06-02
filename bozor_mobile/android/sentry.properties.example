@@ -1,0 +1,28 @@
+# ═══════════════════════════════════════════════════════════════════════════
+#  Sentry Android Gradle Plugin — sozlama shabloni
+# ═══════════════════════════════════════════════════════════════════════════
+#
+# ISHLATISH:
+#   1. Nusxalash:  cp sentry.properties.example sentry.properties
+#   2. Quyidagi qiymatlarni to'ldiring
+#   3. .gitignore'da: sentry.properties — git'ga commit qilinmaydi
+#
+# QAYERDAN OLINADI:
+#   defaults.org      → Sentry → Settings → General → Organization Slug
+#   defaults.project  → Sentry → Projects → ushbu Flutter project slug
+#   auth.token        → https://sentry.io/settings/account/api/auth-tokens/
+#                       → Create New Token → scope: project:releases
+#
+# QACHON ISHLATILADI:
+#   • flutter build apk --release
+#   • flutter build appbundle
+#   Bu paytda R8 mapping + native .so symbols Sentry'ga yuklanadi
+#
+# DEBUG BUILD:
+#   Debug build'da hech narsa yuklanmaydi (sentry.properties bo'lmasligi normal)
+# ═══════════════════════════════════════════════════════════════════════════
+
+defaults.url=https://sentry.io/
+defaults.org=<TODO_YOUR_SENTRY_ORG_SLUG>
+defaults.project=<TODO_YOUR_FLUTTER_PROJECT_SLUG>
+auth.token=<TODO_YOUR_SENTRY_AUTH_TOKEN>

@@ -1,0 +1,69 @@
+#!/usr/bin/env bash
+# ─────────────────────────────────────────────────────────────────────────────
+# Bozor — pre-commit hook (Phase 1.8)
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# NIMA QILADI:
+#   Commit qilishdan oldin stage'dagi migration fayllarini tekshiradi.
+#   Xavfli operatsiyalar (RemoveField, DeleteModel, RunSQL DROP) bor bo'lsa,
+#   commit BLOKLANADI.
+#
+# O'RNATISH (bir martalik, har dev'da):
+#   cd "/Users/xursand/Online Magazin API"
+#   git config core.hooksPath .git-hooks
+#   chmod +x .git-hooks/pre-commit
+#
+# BYPASS (xavfli, faqat siz nima qilayotganingizni bilganda):
+#   git commit --no-verify -m "..."
+# ─────────────────────────────────────────────────────────────────────────────
+
+set -e
+
+# Stage'da yangi qo'shilgan (A) yoki o'zgartirilgan (M) migration fayllari
+MIGRATIONS=$(git diff --cached --name-only --diff-filter=AM \
+             | grep -E '/migrations/[0-9].*\.py$' || true)
+
+if [ -z "$MIGRATIONS" ]; then
+    # Migration o'zgarmagan — hech narsa qilish kerak emas
+    exit 0
+fi
+
+echo ""
+echo "🔍 Stage'da migration fayllari aniqlandi:"
+echo "$MIGRATIONS" | sed 's/^/   • /'
+echo ""
+
+# Backend papkasiga o'tib audit_migrations'ni ishga tushiramiz
+REPO_ROOT=$(git rev-parse --show-toplevel)
+cd "$REPO_ROOT/backend"
+
+# venv'ni topish (agar mavjud bo'lsa)
+PYTHON_BIN="python3"
+if [ -f "venv/bin/python" ]; then
+    PYTHON_BIN="venv/bin/python"
+fi
+
+# Fayl yo'llarini absolute qilamiz (manage.py CWD'siga nisbatan)
+FILES_ABS=""
+for f in $MIGRATIONS; do
+    FILES_ABS="$FILES_ABS $REPO_ROOT/$f"
+done
+
+# Audit ishga tushirish
+if ! "$PYTHON_BIN" manage.py audit_migrations --strict --files $FILES_ABS; then
+    echo ""
+    echo "════════════════════════════════════════════════════════════════════"
+    echo "❌ COMMIT BLOKLANDI — xavfli migration aniqlandi (yuqorida sabab)"
+    echo "════════════════════════════════════════════════════════════════════"
+    echo ""
+    echo "Davom etish variantlari:"
+    echo "  1. Migration'ni tuzating (RemoveField o'rniga AlterField + data migration)"
+    echo "  2. Backup oling: python manage.py backup_db"
+    echo "  3. Rasman ruxsat: git commit --no-verify"
+    echo ""
+    exit 1
+fi
+
+echo ""
+echo "✅ Migration tekshiruvi muvaffaqiyatli o'tdi — commit davom etadi"
+echo ""

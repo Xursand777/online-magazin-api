@@ -108,9 +108,8 @@ class OrderListView(generics.ListAPIView):
     serializer_class = OrderSerializer
 
     def get_queryset(self):
-        # auto_cancel_expired_orders() endi Celery Beat (har 10 daqiqada) va
-        # transition_order_status() ichida (throttle bilan) chaqiriladi.
-        # Bu yerda sinxron chaqirish ortiqcha edi.
+        from .services import auto_cancel_expired_orders
+        auto_cancel_expired_orders()
         return (
             Order.objects.filter(user=self.request.user)
             .prefetch_related('items__product__images', 'items__variant', 'history', 'payment')

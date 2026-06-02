@@ -47,6 +47,10 @@ class RoleAwareJWTAuthentication(JWTAuthentication):
                 from django.utils import timezone
                 invalidated_at = invalidated_at.replace(tzinfo=dt_tz.utc)
 
+            # Microsecond'larni o'chiramiz, chunki iat faqat sekund aniqligida.
+            # Aks holda, bir soniyada yaratilgan token xato deb rad etiladi.
+            invalidated_at = invalidated_at.replace(microsecond=0)
+
             if token_issued < invalidated_at:
                 raise AuthenticationFailed(
                     detail={

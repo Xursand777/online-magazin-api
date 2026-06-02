@@ -78,6 +78,7 @@ INSTALLED_APPS = [
     'drf_spectacular',
 
     # Mahalliy
+    'core',     # Phase 1.2: MobileConfig singleton (app version check)
     'users',
     'products',
     'orders',
@@ -98,6 +99,12 @@ MIDDLEWARE = [
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
+    # Phase 1.1 — Admin amallarini AuditLog'ga yozadi
+    # AuthenticationMiddleware'dan KEYIN — request.user'ga ehtiyoj bor
+    'core.middleware.AuditMiddleware',
+    # Phase 1.7 — 429 javoblarini kuzatadi, burst'da Telegram alert
+    # Eng oxiriga — barcha view'lar javob qaytargandan keyin tekshirsin
+    'core.middleware.RateLimitAlertMiddleware',
 ]
 
 ROOT_URLCONF = 'core.urls'
@@ -622,6 +629,90 @@ ESKIZ_EMAIL = os.getenv('ESKIZ_EMAIL', '')
 ESKIZ_PASSWORD = os.getenv('ESKIZ_PASSWORD', '')
 ESKIZ_SENDER = os.getenv('ESKIZ_SENDER', '4546')
 
+# Balans tekshiruv thresholdlari (UZS da):
+#   • Warning  — to'ldirish vaqti keldi, lekin shoshilinch emas
+#   • Critical — DARHOL to'ldirilmasa OTP login uzilishi mumkin
+# Default'lar: ~50 UZS/SMS hisobida
+#   50,000 UZS ≈ 1,000 SMS
+#   10,000 UZS ≈ 200 SMS
+ESKIZ_BALANCE_WARNING_THRESHOLD = float(os.getenv('ESKIZ_BALANCE_WARNING_THRESHOLD', '50000'))
+ESKIZ_BALANCE_CRITICAL_THRESHOLD = float(os.getenv('ESKIZ_BALANCE_CRITICAL_THRESHOLD', '10000'))
+# Bitta SMS narxi (UZS) — taxminiy SMS sonini hisoblash uchun.
+# Operatorga qarab 40-60 UZS oralig'ida.
+ESKIZ_PRICE_PER_SMS = float(os.getenv('ESKIZ_PRICE_PER_SMS', '50'))
+
+# ─────────────────────────────────────────────────────────────────────────────
+# RATE LIMIT ALERT — Phase 1.7
+# ─────────────────────────────────────────────────────────────────────────────
+# Daqiqada shu sondan ko'p 429 javob bo'lsa, Telegram'ga CRITICAL alert.
+# Default 100 — kichik-o'rta biznes uchun mos.
+# Yirik biznesda: 500-1000 (legit traffic ham 429 olishi mumkin).
+RATE_LIMIT_ALERT_THRESHOLD = int(os.getenv('RATE_LIMIT_ALERT_THRESHOLD', '100'))
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# BACKUP SUPER_ADMIN — Lockout recovery
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# NIMA UCHUN:
+#   Birinchi super_admin qulflanib qolsa (parol unutildi, SIM yo'qoldi,
+#   SIM swap hujum, dam olish kunlari kasal bo'lib qoldi va h.k.) — biznes
+#   to'xtaydi. Yangi admin yaratish, rollarni o'zgartirish, USD kurs
+#   yangilash kabi amallar faqat super_admin uchun.
+#
+# YECHIM:
+#   Ikkinchi super_admin (sherigingiz, oilangizdan ishonchli kishi yoki
+#   buxgalter) — alohida telefon raqami bilan. Birinchi super_admin
+#   yiqilsa, bu shaxs orqali tiklash.
+#
+# BU RAQAM:
+#   +998 94 112 67 77 — Bozor loyihasining backup super_admin telefoni.
+#   Yaratish: python manage.py create_backup_superuser
+#
+# XAVFSIZLIK:
+#   Bu telefon SIM swap hujumiga qarshi maxsus muhofazada bo'lishi tavsiya:
+#     • Operator'da PIN-himoya yoqilgan
+#     • SIM almashtirish faqat shaxsiy keladigan zal orqali
+#     • Telegram'da 2FA yoqilgan
+BACKUP_SUPERUSER_PHONE = os.getenv('BACKUP_SUPERUSER_PHONE', '+998941126777')
+
+# ─────────────────────────────────────────────────────────────────────────────
+# BACKUP — Database backup'lar uchun
+# ─────────────────────────────────────────────────────────────────────────────
+# Backup ALOHIDA B2 bucket'ga yuklanadi (media bucket'dan farqli):
+#   • Media bucket:  AWS_STORAGE_BUCKET_NAME  (public-read)
+#   • Backup bucket: BACKUP_B2_BUCKET         (PRIVATE — PII bor!)
+#
+# Foydalanuvchi B2'da yangi bucket yaratadi: bozor-backups (yoki shu kabi),
+# uni PRIVATE qilib qo'yadi, va B2_BUCKET_BACKUPS env'ga yozadi.
+BACKUP_B2_BUCKET = os.getenv('B2_BUCKET_BACKUPS', '').strip()
+
+# Retention: shu kun'dan eski backup'lar avtomat o'chiriladi.
+# Lekin har doim eng so'nggi 7 ta backup saqlab qolinadi (MIN_BACKUPS_TO_KEEP).
+BACKUP_RETENTION_DAYS = int(os.getenv('BACKUP_RETENTION_DAYS', '30'))
+
+# ─────────────────────────────────────────────────────────────────────────────
+# TELEGRAM — Admin alert kanali
+# ─────────────────────────────────────────────────────────────────────────────
+# Bu sozlamalar quyidagi vazifalar uchun ishlatiladi:
+#   • UptimeRobot server o'chsa xabar berishi
+#   • Sentry kritik xato'larni yo'naltirishi
+#   • Eskiz SMS balans tugayotganini bildirishi
+#   • Kam stocked tovarlar ogohlantirish
+#   • Daily admin digest
+#   • Mijoz feedback / dispute alert
+#
+# O'RNATISH (3 daqiqada):
+#   1. Telegram'da @BotFather'ni toping va /newbot buyrug'ini yuboring
+#   2. Bot nomi va username so'raydi (masalan: bozor_alert_bot)
+#   3. Token beradi: 7842914738:AAEXxxxxxxxx (TELEGRAM_BOT_TOKEN)
+#   4. Botingizni Telegram'da toping va /start bosing (yoki guruhga qo'shing)
+#   5. Brauzerda: https://api.telegram.org/bot<TOKEN>/getUpdates
+#      Javobda chat.id raqamini topib oling (TELEGRAM_ADMIN_CHAT_ID)
+#   6. Test: python manage.py test_telegram
+TELEGRAM_BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN', '').strip()
+TELEGRAM_ADMIN_CHAT_ID = os.getenv('TELEGRAM_ADMIN_CHAT_ID', '').strip()
+
 # ─────────────────────────────────────────────────────────────────────────────
 # CELERY — Fon Vazifalar
 # ─────────────────────────────────────────────────────────────────────────────
@@ -678,3 +769,76 @@ if _REDIS_URL:
             'schedule': 600.0, # 10 daqiqa
         },
     }
+
+# ─────────────────────────────────────────────────────────────────────────────
+# SENTRY — Xato kuzatish va monitoring
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# NIMA UCHUN:
+#   Production'da xatolar log fayllarda yashiringan bo'ladi. Bilmasdan turib
+#   24 soatlab xato chiqib turishi mumkin. Sentry har bir Exception'ni
+#   real vaqt rejimida tutib, stacktrace, request ma'lumotlari va kontekst
+#   bilan dashboard'ga chiqaradi.
+#
+# O'RNATISH:
+#   1. https://sentry.io da hisob ochish (free reja: 5000 event/oy)
+#   2. Yangi Django project yaratish → DSN ni nusxalash
+#   3. .env'ga SENTRY_DSN=https://...@sentry.io/... qo'shish
+#
+# XAVFSIZLIK:
+#   send_default_pii=False — foydalanuvchi tokenlari, parollari Sentry'ga
+#     YUBORILMAYDI. PII (Personal Identifiable Information) tashqariga
+#     chiqmasligi GDPR/local privacy talablariga rioya.
+#   traces_sample_rate=0.1 — har 10 ta so'rovdan 1 tasi performance kuzatuvi
+#     uchun olinadi. Free rejimda event'larni tejaydi.
+#
+# DEBUG=True'da: Sentry o'chiriladi — local development xatolari uchun
+#   Django default tracebacki yetarli.
+# ─────────────────────────────────────────────────────────────────────────────
+_SENTRY_DSN = os.getenv('SENTRY_DSN', '').strip()
+
+if _SENTRY_DSN and not DEBUG:
+    try:
+        import sentry_sdk
+        from sentry_sdk.integrations.django import DjangoIntegration
+        from sentry_sdk.integrations.celery import CeleryIntegration
+        from sentry_sdk.integrations.logging import LoggingIntegration
+        import logging as _logging
+
+        sentry_sdk.init(
+            dsn=_SENTRY_DSN,
+            integrations=[
+                DjangoIntegration(
+                    transaction_style='url',
+                    middleware_spans=True,
+                    signals_spans=False,  # signal'lar ko'p — performance overhead
+                ),
+                CeleryIntegration(monitor_beat_tasks=True),
+                LoggingIntegration(
+                    level=_logging.INFO,        # INFO va yuqori — breadcrumb sifatida
+                    event_level=_logging.ERROR, # ERROR va yuqori — Sentry event sifatida
+                ),
+            ],
+            # Performance monitoring — har 10 ta requestdan 1 tasi
+            traces_sample_rate=0.1,
+            # Profiling — kerak bo'lsa 0.0 dan 1.0 gacha
+            profiles_sample_rate=0.0,
+            # ── XAVFSIZLIK ─────────────────────────────────────────────────────
+            # PII (Personal Identifiable Information) yuborilmaydi:
+            #   • Cookie'lar (refresh token!) tashlanadi
+            #   • Authorization header tashlanadi
+            #   • Foydalanuvchi telefon raqami / parol maydonlari tashlanadi
+            send_default_pii=False,
+            # ── Environment / Release ──────────────────────────────────────────
+            environment='production',
+            release=os.getenv('GIT_COMMIT_SHA', 'unknown'),
+            # Hodisalar uchun maksimal request body — katta payload'lar tashlanadi
+            max_request_body_size='small',
+        )
+    except ImportError:
+        # sentry-sdk o'rnatilmagan — log faylga yozamiz, lekin server ishlaydi
+        import logging as _logging
+        _logging.getLogger(__name__).warning(
+            'SENTRY_DSN o\'rnatilgan, lekin sentry-sdk o\'rnatilmagan. '
+            "pip install 'sentry-sdk[django]'"
+        )

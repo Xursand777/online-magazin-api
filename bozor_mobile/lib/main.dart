@@ -3,13 +3,23 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:hive_flutter/hive_flutter.dart';
+import 'package:sentry_flutter/sentry_flutter.dart';
 import 'core/theme/app_theme.dart';
 import 'core/router/app_router.dart';
 import 'core/storage/local_storage.dart';
 import 'core/di/injection_container.dart' as di;
 import 'core/network/api_constants.dart';
+import 'core/widgets/app_version_gate.dart';
+import 'core/widgets/cold_start_banner.dart';
 import 'features/cart/presentation/bloc/cart_bloc.dart';
 import 'features/auth/presentation/bloc/auth_bloc.dart';
+
+/// Sentry DSN — build vaqtida --dart-define=SENTRY_DSN=... orqali kelinadi.
+///
+/// Bo'sh bo'lsa Sentry o'chiriladi (debug rejimda yoki DSN sozlanmagan bo'lsa).
+/// CI/CD'da:
+///   flutter build apk --dart-define=SENTRY_DSN=https://...@sentry.io/...
+const String _sentryDsn = String.fromEnvironment('SENTRY_DSN');
 
 /// Render free tier serverini uyg'otish uchun fire-and-forget ping.
 ///
@@ -33,7 +43,7 @@ void _warmUpServer() {
   );
 }
 
-Future<void> main() async {
+Future<void> _initApp() async {
   WidgetsFlutterBinding.ensureInitialized();
 
   // ── Storage ──────────────────────────────────────────────────────────────
@@ -51,12 +61,87 @@ Future<void> main() async {
   runApp(const BozorApp());
 }
 
+Future<void> main() async {
+  // ── Sentry integratsiyasi ────────────────────────────────────────────────
+  //
+  // NIMA UCHUN: production ilovada xato sodir bo'lsa, foydalanuvchi shikoyat
+  // qilmaguncha bilmaymiz. Sentry crash, exception va loglarni real vaqtda
+  // dashboard'ga chiqaradi (stacktrace + qurilma ma'lumotlari bilan).
+  //
+  // QACHON FAOL:
+  //   • Release build (kReleaseMode = true)
+  //   • DSN qiymati sozlangan (--dart-define=SENTRY_DSN=...)
+  //
+  // Aks holda Sentry chetlab o'tiladi — debug rejimda Flutter console
+  // xato'lari shundoq ham ko'rinadi.
+  if (kReleaseMode && _sentryDsn.isNotEmpty) {
+    await SentryFlutter.init(
+      (options) {
+        options.dsn = _sentryDsn;
+        options.environment = 'production';
+
+        // Har 10 ta tranzaksiyadan 1 tasi performance kuzatuvi uchun
+        // (free reja event limitini tejaymiz)
+        options.tracesSampleRate = 0.1;
+        options.profilesSampleRate = 0.0;
+
+        // ── Phase 1.3 — Native Android NDK crash handling ───────────────────
+        // Native qatlamdagi crash'lar (NDK, SIGSEGV, OOM kill, 3rd-party native
+        // kutubxonalar) — Dart darajasiga yetib bormaydi. Sentry NDK
+        // integratsiyasi ushlab Sentry serveriga yuboradi.
+        //
+        // R8 mapping + native .so symbols — Sentry Gradle plugin tomonidan
+        // upload qilinadi (build vaqtida, sentry.properties orqali).
+        options.enableNativeCrashHandling = true;
+        // Native frame'larni stack trace'da ko'rsatish (R8 mapping bilan)
+        options.attachStacktrace = true;
+
+        // ── XAVFSIZLIK ──────────────────────────────────────────────────────
+        // PII (Personal Identifiable Information) yuborilmaydi:
+        //   • Foydalanuvchi telefon raqami, tokenlari Sentry'ga bormaydi
+        //   • IP manzil yuborilmaydi
+        options.sendDefaultPii = false;
+
+        // Breadcrumb'larda Authorization header'ni yashirish.
+        // Sentry 8.x da SentryRequest.headers — non-nullable Map<String, String>.
+        options.beforeSend = (event, hint) {
+          final request = event.request;
+          if (request == null || request.headers.isEmpty) return event;
+          final headers = Map<String, String>.from(request.headers);
+          final initialLength = headers.length;
+          headers.removeWhere((k, _) =>
+              k.toLowerCase() == 'authorization' ||
+              k.toLowerCase() == 'cookie' ||
+              k.toLowerCase() == 'x-guest-session-id');
+          if (headers.length == initialLength) return event;
+          return event.copyWith(
+            request: request.copyWith(headers: headers),
+          );
+        };
+
+        // Network breadcrumb'larida bodyni saqlamaymiz (kichik token'lar bo'lishi mumkin)
+        options.maxBreadcrumbs = 50;
+      },
+      appRunner: _initApp,
+    );
+  } else {
+    // Debug rejim yoki DSN yo'q — to'g'ridan-to'g'ri ishga tushiramiz
+    await _initApp();
+  }
+}
+
 class BozorApp extends StatelessWidget {
   const BozorApp({super.key});
 
   @override
   Widget build(BuildContext context) {
-    return MultiBlocProvider(
+    // ── Phase 1.2 — AppVersionGate ─────────────────────────────────────────
+    // Ilova ochilganda /api/app-config/ chaqirilib, joriy versiya min'dan
+    // past bo'lsa "Yangilash" ekrani ko'rsatiladi. maintenance_mode=True
+    // bo'lsa "Texnik xizmat" ekrani. Aks holda asosiy ilova.
+    return AppVersionGate(
+      language: 'uz',  // TODO: language store qo'shilganda dynamic qilish
+      child: MultiBlocProvider(
       providers: [
         // Singleton BLoC'lar — BlocProvider.value ishlatiladi (yopmaydi)
         BlocProvider<AuthBloc>.value(value: di.sl<AuthBloc>()),
@@ -69,7 +154,36 @@ class BozorApp extends StatelessWidget {
         themeMode:  ThemeMode.system,
         routerConfig: di.sl<AppRouter>().router,
         debugShowCheckedModeBanner: false,
+        // ── Cold-start banner — barcha sahifalar ustida ko'rinadi ─────────
+        // Request 5+ soniya kutilsa, ekran tepasida "Server uyg'onmoqda..."
+        // banner chiqadi. Status idle bo'lsa banner yashirin.
+        builder: (context, child) {
+          return MultiBlocListener(
+            listeners: [
+              BlocListener<AuthBloc, AuthState>(
+                listenWhen: (previous, current) =>
+                    previous is! AuthAuthenticated && current is AuthAuthenticated,
+                listener: (context, state) {
+                  // Foydalanuvchi tizimga kirganda savatchani server bilan sinxronlash
+                  context.read<CartBloc>().add(const SyncCartWithServer());
+                },
+              ),
+            ],
+            child: Stack(
+              children: [
+                child ?? const SizedBox.shrink(),
+                const Positioned(
+                  top: 0,
+                  left: 0,
+                  right: 0,
+                  child: ColdStartBanner(),
+                ),
+              ],
+            ),
+          );
+        },
       ),
-    );
+    ),  // MultiBlocProvider
+    );  // AppVersionGate
   }
 }

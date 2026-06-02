@@ -9,6 +9,7 @@ from .views import (
     StaffListView, AssignRoleView, FireStaffView,
     MasterListView, AssignMasterView, RemoveMasterView, AdminMasterDiscountView,
     MasterStatusView,
+    AuditLogListView,  # Phase 1.1
 )
 
 urlpatterns = [
@@ -47,4 +48,7 @@ urlpatterns = [
     path('admin/masters/assign/', AssignMasterView.as_view(), name='admin_assign_master'),
     path('admin/masters/discount/', AdminMasterDiscountView.as_view(), name='admin_master_discount'),
     path('admin/masters/<int:pk>/remove/', RemoveMasterView.as_view(), name='admin_remove_master'),
+
+    # Phase 1.1 — AuditLog ko'rish (faqat Super Admin)
+    path('admin/audit-logs/', AuditLogListView.as_view(), name='admin_audit_logs'),
 ]

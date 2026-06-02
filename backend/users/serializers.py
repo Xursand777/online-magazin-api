@@ -2,7 +2,7 @@ from rest_framework import serializers
 from django.contrib.auth import get_user_model
 from django.contrib.auth.password_validation import validate_password
 from rest_framework_simplejwt.tokens import RefreshToken
-from .models import UserProfile, Address, Feedback, UserRole
+from .models import UserProfile, Address, Feedback, UserRole, AuditLog
 from .utils import normalize_phone_number, phone_lookup_variants
 
 User = get_user_model()
@@ -191,3 +191,37 @@ class AssignMasterSerializer(serializers.Serializer):
         if not is_valid_uz_phone(normalized):
             raise serializers.ValidationError("Telefon raqam noto'g'ri formatda.")
         return normalized
+
+
+class AuditLogSerializer(serializers.ModelSerializer):
+    """
+    Phase 1.1 — Admin AuditLog ro'yxati uchun serializer.
+
+    Foydalanuvchi (actor) o'chgan bo'lsa, actor_phone_snapshot orqali
+    kim qilgani saqlanadi.
+    """
+    actor_phone = serializers.SerializerMethodField()
+    actor_name = serializers.SerializerMethodField()
+    actor_role = serializers.CharField(source='actor.role', read_only=True, allow_null=True)
+
+    class Meta:
+        model = AuditLog
+        fields = (
+            'id',
+            'actor', 'actor_phone', 'actor_name', 'actor_role',
+            'action', 'target_type', 'target_id',
+            'data', 'ip', 'user_agent', 'created_at',
+        )
+        read_only_fields = fields
+
+    def get_actor_phone(self, obj):
+        # Avval Live foydalanuvchi telefoni, keyin snapshot
+        if obj.actor:
+            return obj.actor.phone
+        return obj.actor_phone_snapshot or None
+
+    def get_actor_name(self, obj):
+        if not obj.actor:
+            return None
+        name = f"{obj.actor.first_name} {obj.actor.last_name}".strip()
+        return name or obj.actor.phone

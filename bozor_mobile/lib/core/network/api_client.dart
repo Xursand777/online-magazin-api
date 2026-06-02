@@ -1,6 +1,7 @@
 import 'package:dio/dio.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'api_constants.dart';
+import 'cold_start_tracker.dart';
 import '../auth/auth_token_service.dart';
 
 class ApiClient {
@@ -26,23 +27,42 @@ class ApiClient {
           final token = await tokenService.getAccessToken();
           if (token != null) {
             options.headers['Authorization'] = 'Bearer $token';
+          } else {
+            // Agar foydalanuvchi tizimga kirmagan bo'lsa, mehmon sessiyasini qo'shamiz
+            final guestSession = await secureStorage.read(key: 'guest_session_id');
+            if (guestSession != null) {
+              options.headers['X-Guest-Session-Id'] = guestSession;
+            }
           }
+          // Cold-start tracker: request qancha kutgan ekanligini kuzatish.
+          // 5s+ kutilsa, ekran tepasida "Server uyg'onmoqda..." banner chiqadi.
+          options.extra['_coldStartId'] = coldStartTracker.trackStart();
           return handler.next(options);
         },
 
-        onResponse: (response, handler) {
+        onResponse: (response, handler) async {
+          // ── Cold-start tracker: request muvaffaqiyatli tugadi ───────────
+          final coldId = response.requestOptions.extra['_coldStartId'];
+          if (coldId is int) coldStartTracker.trackComplete(coldId);
           // ── Muvaffaqiyatli javob — URL affinity ─────────────────────────
-          // Qaysi server muvaffaqiyatli javob bergan bo'lsa, refresh ham
-          // o'sha serverga borishini ta'minlaymiz. Bu ROTATE_REFRESH_TOKENS
-          // muhitida cross-server token blacklist muammosini hal qiladi.
           final baseUrl = response.requestOptions.baseUrl;
           if (baseUrl.isNotEmpty) {
             tokenService.setSuccessfulBaseUrl(baseUrl);
           }
+          
+          // Mehmon sessiyasini saqlash
+          final newGuestSession = response.headers.value('X-Guest-Session-Id');
+          if (newGuestSession != null && newGuestSession.isNotEmpty) {
+            await secureStorage.write(key: 'guest_session_id', value: newGuestSession);
+          }
+          
           return handler.next(response);
         },
 
         onError: (DioException e, handler) async {
+          // Cold-start tracker: request xato bilan tugadi (banner'ni o'chirish)
+          final coldId = e.requestOptions.extra['_coldStartId'];
+          if (coldId is int) coldStartTracker.trackComplete(coldId);
           // ── 1. Local URL → production URL fallback ───────────────────────
           // Faqat tarmoq/ulanish xatosi bo'lsa boshqa URL'larga o'tamiz.
           // Fallback URL 4xx (jumladan 401) qaytarsa, uni 401 oqimi bilan

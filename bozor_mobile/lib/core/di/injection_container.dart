@@ -2,6 +2,7 @@ import 'package:dio/dio.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:get_it/get_it.dart';
 import '../auth/auth_token_service.dart';
+import '../cache/offline_cache_service.dart';
 import '../network/api_client.dart';
 import '../router/app_router.dart';
 import '../../features/auth/data/repositories/auth_repository.dart';
@@ -21,9 +22,12 @@ import '../../features/admin/presentation/bloc/admin_pos_bloc.dart';
 final sl = GetIt.instance;
 
 Future<void> init() async {
-  // ── Core: Storage ─────────────────────────────────────────────────────────
   sl.registerLazySingleton<FlutterSecureStorage>(
-    () => const FlutterSecureStorage(),
+    () => const FlutterSecureStorage(
+      aOptions: AndroidOptions(
+        encryptedSharedPreferences: true,
+      ),
+    ),
   );
 
   // ── Core: AuthTokenService ────────────────────────────────────────────────
@@ -38,18 +42,21 @@ Future<void> init() async {
     () => ApiClient(dio: sl(), secureStorage: sl(), tokenService: sl()),
   );
 
+  // ── Phase 1.5 — Offline cache service (Hive box LocalStorage.init() da ochilgan) ──
+  sl.registerLazySingleton<OfflineCacheService>(() => OfflineCacheService());
+
   // ── Repositories ──────────────────────────────────────────────────────────
   sl.registerLazySingleton<AuthRepository>(
     () => AuthRepository(apiClient: sl(), tokenService: sl()),
   );
   sl.registerLazySingleton<HomeRepository>(
-    () => HomeRepository(apiClient: sl()),
+    () => HomeRepository(apiClient: sl(), cache: sl()),
   );
   sl.registerLazySingleton<CatalogRepository>(
     () => CatalogRepository(apiClient: sl()),
   );
   sl.registerLazySingleton<CartRepository>(
-    () => CartRepository(),
+    () => CartRepository(apiClient: sl()),
   );
   sl.registerLazySingleton<AdminRepository>(
     () => AdminRepository(apiClient: sl()),
