@@ -19,11 +19,15 @@ from cart.views import get_or_create_cart
 from products.models import Product, ProductVariant
 from recommendations.services import record_product_event
 
-from .models import Order, OrderHistory
+from .models import Order, OrderDispute, OrderHistory
 from .serializers import (
     AdminOrderStatusUpdateSerializer,
+    AdminPardonCreditOverdueSerializer,
+    AdminUpdateDisputeSerializer,
     CancelOrderSerializer,
     CourierConfirmDeliverySerializer,
+    CreateOrderDisputeSerializer,
+    OrderDisputeSerializer,
     OrderFromCartSerializer,
     OrderSerializer,
     QuickOrderSerializer,
@@ -31,10 +35,13 @@ from .serializers import (
 from .services import (
     check_credit_eligibility,
     courier_confirm_delivery,
+    create_order_dispute,
     create_order_with_items,
     mark_overdue_credits,
+    pardon_credit_overdue,
     pay_credit_order,
     transition_order_status,
+    update_order_dispute,
 )
 
 
@@ -1153,3 +1160,173 @@ class AdminDashboardView(views.APIView):
             'weekly_chart': weekly_chart,
             'feedback_new': feedback_new,
         })
+
+
+# ── Phase 2.6 — Order dispute views ─────────────────────────────────────────
+
+class CustomerCreateDisputeView(views.APIView):
+    """
+    POST /api/orders/<pk>/dispute/
+
+    Mijoz yetkazilgan buyurtmasiga shikoyat ochadi.
+    Body (multipart/form-data):
+      reason: kamida 10 belgi
+      evidence_images: 0-5 ta rasm (multi-upload — `evidence_images` ko'p qiymat)
+
+    Response 201:
+      OrderDisputeSerializer payload
+    Response 400:
+      Disput cheklovlari buzilsa (status, deadline, mavjud aktiv)
+    """
+    permission_classes = (IsAuthenticated,)
+
+    def post(self, request, pk, *args, **kwargs):
+        order = get_object_or_404(Order, pk=pk, user=request.user)
+
+        serializer = CreateOrderDisputeSerializer(data=request.data, context={'request': request})
+        serializer.is_valid(raise_exception=True)
+
+        dispute = create_order_dispute(
+            order=order,
+            customer=request.user,
+            reason=serializer.validated_data['reason'],
+            evidence_images=serializer.validated_data.get('evidence_images', []),
+        )
+        return Response(
+            OrderDisputeSerializer(dispute, context={'request': request}).data,
+            status=status.HTTP_201_CREATED,
+        )
+
+
+class CustomerOrderDisputesView(generics.ListAPIView):
+    """
+    GET /api/orders/<pk>/dispute/
+
+    Mijoz o'z buyurtmasidagi disputlarni ko'radi (eskidan yangiga teskari).
+    """
+    permission_classes = (IsAuthenticated,)
+    serializer_class = OrderDisputeSerializer
+    pagination_class = None  # 1-2 ta disput odatda — paginatsiya kerakmas
+
+    def get_queryset(self):
+        return (
+            OrderDispute.objects
+            .filter(order__pk=self.kwargs['pk'], order__user=self.request.user)
+            .prefetch_related('images')
+            .order_by('-created_at')
+        )
+
+
+class _AdminDisputePagination(PageNumberPagination):
+    page_size = 25
+    page_size_query_param = 'page_size'
+    max_page_size = 100
+
+
+class AdminDisputeListView(generics.ListAPIView):
+    """
+    GET /api/admin/disputes/
+
+    Filterlar:
+      ?status=open                  — aniq status
+      ?order=123                    — buyurtma ID
+      ?active=true                  — faqat aktiv (open + under_review)
+
+    Response: pagination'li ro'yxat.
+    """
+    permission_classes = (IsAuthenticated, IsAdminOrAbove)
+    serializer_class   = OrderDisputeSerializer
+    pagination_class   = _AdminDisputePagination
+
+    def get_queryset(self):
+        qs = (
+            OrderDispute.objects
+            .all()
+            .prefetch_related('images')
+            .select_related('order', 'resolved_by')
+        )
+        params = self.request.query_params
+        if (st := params.get('status')):
+            qs = qs.filter(status=st)
+        if (order_id := params.get('order')):
+            qs = qs.filter(order_id=order_id)
+        if params.get('active') == 'true':
+            qs = qs.filter(status__in=OrderDispute.ACTIVE_STATUSES)
+        return qs
+
+
+class AdminDisputeDetailView(views.APIView):
+    """
+    GET    /api/admin/disputes/<pk>/   — bitta disput
+    PATCH  /api/admin/disputes/<pk>/   — status/resolution_note yangilash
+    """
+    permission_classes = (IsAuthenticated, IsAdminOrAbove)
+
+    def get(self, request, pk, *args, **kwargs):
+        dispute = get_object_or_404(
+            OrderDispute.objects.prefetch_related('images').select_related('order', 'resolved_by'),
+            pk=pk,
+        )
+        return Response(OrderDisputeSerializer(dispute, context={'request': request}).data)
+
+    def patch(self, request, pk, *args, **kwargs):
+        dispute = get_object_or_404(OrderDispute, pk=pk)
+        serializer = AdminUpdateDisputeSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        dispute = update_order_dispute(
+            dispute=dispute,
+            admin=request.user,
+            new_status=serializer.validated_data.get('status'),
+            resolution_note=serializer.validated_data.get('resolution_note'),
+        )
+        # Yangi qiymatlar bilan refresh + images prefetch
+        dispute = (
+            OrderDispute.objects
+            .prefetch_related('images')
+            .select_related('order', 'resolved_by')
+            .get(pk=dispute.pk)
+        )
+        return Response(OrderDisputeSerializer(dispute, context={'request': request}).data)
+
+
+# ── Phase 2.7 — Admin override: pardon credit overdue ──────────────────────
+class AdminPardonCreditOverdueView(views.APIView):
+    """
+    POST /api/orders/admin/<pk>/pardon-credit-overdue/
+
+    Body (optional):
+      reason: string (max 500)
+
+    Permission: Admin yoki Super Admin.
+
+    Effect:
+      • Order.credit_overdue_pardoned = True (cron uni hisobga olmaydi)
+      • Agar order allaqachon hisoblangan bo'lsa:
+        user.overdue_credit_count -1, kerak bo'lsa user.credit_ban = False
+      • OrderHistory'ga audit yozuv
+      • Phase 1.1 AuditLog middleware HTTP yo'l bo'ylab avtomat yozadi
+
+    Response 200:
+      { "order": {...} }
+    Response 400:
+      { "error": "..." }  — kreditli emas, to'langan, yoki allaqachon pardonlangan
+    Response 403/404 — standart
+    """
+    permission_classes = (IsAuthenticated, IsAdminOrAbove)
+
+    def post(self, request, pk, *args, **kwargs):
+        order = get_object_or_404(Order, pk=pk)
+
+        serializer = AdminPardonCreditOverdueSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        order = pardon_credit_overdue(
+            order=order,
+            admin=request.user,
+            reason=serializer.validated_data.get('reason', ''),
+        )
+        return Response(
+            {'order': OrderSerializer(order, context={'request': request}).data},
+            status=status.HTTP_200_OK,
+        )

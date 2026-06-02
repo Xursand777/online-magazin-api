@@ -196,6 +196,10 @@ export const adminGetMasterDiscount = () =>
 export const adminSetMasterDiscount = (percent: number) =>
   apiClient.post('/admin/masters/discount/', { percent });
 
+// Phase 2.7 — Kredit overdue pardon (admin override)
+export const adminPardonCreditOverdue = (orderId: number, reason?: string) =>
+  apiClient.post(`/orders/admin/${orderId}/pardon-credit-overdue/`, { reason: reason || '' });
+
 // AUDIT LOG (faqat Super Admin) — Phase 1.1
 export const adminGetAuditLogs = (params?: {
   actor?: string;

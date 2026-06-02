@@ -87,6 +87,7 @@ class OrderSerializer(serializers.ModelSerializer):
             'credit_paid',
             'credit_paid_at',
             'credit_is_overdue',
+            'credit_overdue_pardoned',
             'created_at',
             'updated_at',
             'can_cancel',
@@ -109,6 +110,7 @@ class OrderSerializer(serializers.ModelSerializer):
             'credit_paid',
             'credit_paid_at',
             'credit_is_overdue',
+            'credit_overdue_pardoned',
             'can_cancel',
             'can_admin_cancel',
         )
@@ -187,6 +189,110 @@ class CancelOrderSerializer(serializers.Serializer):
 class AdminOrderStatusUpdateSerializer(serializers.Serializer):
     status = serializers.ChoiceField(choices=Order.STATUS_CHOICES)
     note = serializers.CharField(max_length=1000, required=False, allow_blank=True)
+
+
+# ── Phase 2.6 — Order dispute serializers ───────────────────────────────────
+
+class OrderDisputeImageSerializer(serializers.ModelSerializer):
+    """Disputga biriktirilgan dalil rasm."""
+
+    image = serializers.ImageField(read_only=True)
+
+    class Meta:
+        from .models import OrderDisputeImage as _M
+        model = _M
+        fields = ('id', 'image', 'uploaded_at')
+        read_only_fields = fields
+
+
+class OrderDisputeSerializer(serializers.ModelSerializer):
+    """
+    Disput to'liq ma'lumotlari (mijoz ham, admin ham ko'radi).
+    Aktiv/yopilgan hisoblanish maydoni — bu computed.
+    """
+
+    images       = OrderDisputeImageSerializer(many=True, read_only=True)
+    is_active    = serializers.BooleanField(read_only=True)
+    is_resolved  = serializers.BooleanField(read_only=True)
+    resolved_by_phone = serializers.SerializerMethodField()
+
+    class Meta:
+        from .models import OrderDispute as _M
+        model = _M
+        fields = (
+            'id', 'order', 'reason', 'status',
+            'resolution_note',
+            'created_at', 'resolved_at', 'resolved_by', 'resolved_by_phone',
+            'images', 'is_active', 'is_resolved',
+        )
+        read_only_fields = (
+            'id', 'order', 'status', 'resolution_note',
+            'created_at', 'resolved_at', 'resolved_by',
+            'images', 'is_active', 'is_resolved',
+        )
+
+    def get_resolved_by_phone(self, obj):
+        return getattr(obj.resolved_by, 'phone', None)
+
+
+class CreateOrderDisputeSerializer(serializers.Serializer):
+    """
+    POST /api/orders/<id>/dispute/ uchun input.
+
+    `reason`        — matnli sabab (10-2000 belgi)
+    `evidence_images` — ixtiyoriy, 0-5 ta rasm (multipart/form-data)
+    """
+    reason = serializers.CharField(
+        min_length=10,
+        max_length=2000,
+        error_messages={
+            'min_length': "Sabab kamida 10 belgidan iborat bo'lsin.",
+            'max_length': "Sabab 2000 belgidan oshmasin.",
+        },
+    )
+    evidence_images = serializers.ListField(
+        child=serializers.ImageField(),
+        required=False,
+        allow_empty=True,
+        max_length=5,
+        error_messages={'max_length': "Eng ko'pi 5 ta rasm yuborishingiz mumkin."},
+    )
+
+
+class AdminPardonCreditOverdueSerializer(serializers.Serializer):
+    """
+    POST /api/orders/admin/<pk>/pardon-credit-overdue/ uchun input.
+    Sabab ixtiyoriy, lekin audit uchun tavsiya etiladi.
+    """
+    reason = serializers.CharField(
+        required=False, allow_blank=True, max_length=500,
+        help_text="Audit uchun pardon sababi (mijoz pul to'ladi, biznes xatosi, h.k.)",
+    )
+
+
+class AdminUpdateDisputeSerializer(serializers.Serializer):
+    """
+    PATCH /api/admin/disputes/<id>/ uchun input.
+    `status` va `resolution_note` ikkalasi ham ixtiyoriy, kamida bittasi
+    yuborilishi shart (boshqacha aytganda — bo'sh PATCH ma'nosiz).
+    """
+    status = serializers.ChoiceField(
+        choices=[
+            'open', 'under_review',
+            'resolved_for_customer', 'resolved_for_business',
+        ],
+        required=False,
+    )
+    resolution_note = serializers.CharField(
+        required=False, allow_blank=True, max_length=2000,
+    )
+
+    def validate(self, attrs):
+        if not attrs:
+            raise serializers.ValidationError(
+                "Yangilash uchun kamida bitta maydon yuborishingiz kerak."
+            )
+        return attrs
 
 
 # ── Phase 2.4 — Kuryer yetkazib berishni tasdiqlash ─────────────────────────
