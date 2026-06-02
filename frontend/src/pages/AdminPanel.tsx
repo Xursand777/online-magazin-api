@@ -32,13 +32,12 @@ import {
   adminUpdateExchangeRate,
   adminGetStockReport,
   adminPayCreditOrder,
-  adminPardonCreditOverdue,
   adminGetKassa,
   adminWithdrawKassa,
   adminGetDashboard,
   adminGetUsers,
   adminGetUser,
-  adminToggleUserBan,
+  adminLiftUserCreditBan,
   adminToggleUserActive,
   adminGetFeedbacks,
   adminUpdateFeedback,
@@ -289,7 +288,6 @@ interface AdminOrder {
   credit_paid: boolean;
   credit_paid_at: string | null;
   credit_is_overdue: boolean;
-  credit_overdue_pardoned?: boolean;
   can_admin_cancel?: boolean;
   payment?: { status: string; method: string; amount: string | number } | null;
   items: Array<{
@@ -2352,26 +2350,6 @@ const OrdersTab = () => {
 
   const [creditConfirmOrder, setCreditConfirmOrder] = useState<AdminOrder | null>(null);
 
-  // Phase 2.7 — Admin override: kreditni ban hisobiga kiritmaslik
-  const [pardonTarget, setPardonTarget] = useState<AdminOrder | null>(null);
-  const [pardonReason, setPardonReason] = useState('');
-  const pardonMutation = useMutation({
-    mutationFn: ({ id, reason }: { id: number; reason: string }) =>
-      adminPardonCreditOverdue(id, reason),
-    onSuccess: async () => {
-      await Promise.all([
-        qc.invalidateQueries({ queryKey: ['admin-orders'] }),
-        qc.invalidateQueries({ queryKey: ['orders'] }),
-      ]);
-      setPardonTarget(null);
-      setPardonReason('');
-      toast.success('Kredit ban hisobidan chiqarildi.');
-    },
-    onError: (e: any) => {
-      toast.error(e?.response?.data?.error || "Pardon amalga oshmadi.");
-    },
-  });
-
   const updateDraft = (
     orderId: number,
     field: 'status' | 'note',
@@ -2400,60 +2378,6 @@ const OrdersTab = () => {
         onCancel={() => !creditPayMutation.isPending && setCreditConfirmOrder(null)}
       />
 
-      {/* Phase 2.7 — Pardon credit overdue dialog */}
-      {pardonTarget && (
-        <div className='fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4'>
-          <div className='w-full max-w-md rounded-2xl bg-white p-6 shadow-xl'>
-            <div className='mb-4 flex items-center gap-3'>
-              <span className='material-symbols-outlined text-[28px] text-amber-600'>shield_person</span>
-              <h3 className='font-h3 text-h3 text-on-surface'>Ban hisobiga kiritmang</h3>
-            </div>
-            <p className='mb-3 text-sm text-on-surface-variant'>
-              <span className='font-semibold text-on-surface'>#{pardonTarget.id}</span> buyurtmasini
-              ushbu mijoz uchun ban hisobiga kiritmaymiz. Agar avval hisoblangan bo'lsa,
-              mijozning overdue soni 1ga kamayadi.
-            </p>
-            <label className='mb-2 block text-xs font-semibold text-on-surface-variant'>
-              Sabab (ixtiyoriy, audit uchun)
-            </label>
-            <textarea
-              value={pardonReason}
-              onChange={(e) => setPardonReason(e.target.value)}
-              rows={3}
-              maxLength={500}
-              placeholder="Mijoz pul to'ladi qo'l bilan, biznes xatosi, ..."
-              className='mb-4 w-full rounded-lg border border-outline-variant bg-surface-container px-3 py-2 text-sm text-on-surface outline-none focus:border-primary'
-              disabled={pardonMutation.isPending}
-            />
-            <div className='flex gap-3'>
-              <button
-                onClick={() => { setPardonTarget(null); setPardonReason(''); }}
-                disabled={pardonMutation.isPending}
-                className='flex-1 rounded-xl border border-outline-variant bg-surface-container px-4 py-2.5 text-sm font-semibold text-on-surface hover:bg-surface-container-high disabled:opacity-50'
-              >
-                Bekor qilish
-              </button>
-              <button
-                onClick={() => pardonMutation.mutate({ id: pardonTarget.id, reason: pardonReason })}
-                disabled={pardonMutation.isPending}
-                className='flex-1 rounded-xl bg-amber-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-amber-700 disabled:opacity-50 flex items-center justify-center gap-2'
-              >
-                {pardonMutation.isPending ? (
-                  <>
-                    <span className='w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin' />
-                    Yuborilmoqda...
-                  </>
-                ) : (
-                  <>
-                    <span className='material-symbols-outlined text-[16px]'>check_circle</span>
-                    Tasdiqlash
-                  </>
-                )}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
       <div>
         <h2 className='font-h3 text-h3 text-on-surface'>Buyurtmalar ({totalCount})</h2>
@@ -2929,24 +2853,6 @@ const OrdersTab = () => {
                             <span className='material-symbols-outlined text-[16px]'>payments</span>
                             Muddatli to'lovni qabul qilish
                           </button>
-                        )}
-                        {/* Phase 2.7 — Pardon override */}
-                        {!order.credit_paid && !order.credit_overdue_pardoned && (
-                          <button
-                            type='button'
-                            onClick={() => setPardonTarget(order)}
-                            className='mt-2 flex w-full items-center justify-center gap-2 rounded-lg border border-amber-400 bg-white px-4 py-2 text-sm font-semibold text-amber-700 transition-colors hover:bg-amber-50'
-                            title="Bu mijozning kreditini ban hisobiga kiritmang"
-                          >
-                            <span className='material-symbols-outlined text-[16px]'>shield_person</span>
-                            Ban hisobiga kiritmang
-                          </button>
-                        )}
-                        {order.credit_overdue_pardoned && (
-                          <div className='mt-2 flex items-center justify-center gap-2 rounded-lg bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-700'>
-                            <span className='material-symbols-outlined text-[14px]'>shield_person</span>
-                            Pardonlangan — ban hisobiga kirmaydi
-                          </div>
                         )}
                       </div>
                     )}
@@ -4080,16 +3986,31 @@ const UsersTab = () => {
     enabled: selectedId !== null,
   });
 
-  const toggleBanMutation = useMutation({
-    mutationFn: (id: number) => adminToggleUserBan(id),
-    onSuccess: (res, id) => {
+  // Phase 2.7 (qayta dizayn) — Banlangan mijozni 1 ta imkoniyat bilan
+  // ban'dan chiqarish. Eski toggle (count=0) o'rnini bosadi.
+  const [liftBanTarget, setLiftBanTarget] = useState<AdminUserDetail | null>(null);
+  const [liftBanReason, setLiftBanReason] = useState('');
+  const liftCreditBanMutation = useMutation({
+    mutationFn: ({ id, reason }: { id: number; reason: string }) =>
+      adminLiftUserCreditBan(id, reason),
+    onSuccess: (res, vars) => {
       qc.invalidateQueries({ queryKey: ['admin-users'] });
-      qc.setQueryData(['admin-user-detail', id], (old: AdminUserDetail | undefined) =>
+      qc.setQueryData(['admin-user-detail', vars.id], (old: AdminUserDetail | undefined) =>
         old
           ? { ...old, credit_ban: res.data.credit_ban, overdue_credit_count: res.data.overdue_credit_count }
           : old,
       );
-      toast.success(res.data.credit_ban ? 'Kredit ban yoqildi' : 'Kredit ban olib tashlandi');
+      const forgiven = res.data.forgiven_orders ?? 0;
+      setLiftBanTarget(null);
+      setLiftBanReason('');
+      toast.success(
+        forgiven > 0
+          ? `Ban olib tashlandi. ${forgiven} ta buyurtma kechirildi. 1 ta imkoniyat berildi.`
+          : 'Ban olib tashlandi. 1 ta imkoniyat berildi.',
+      );
+    },
+    onError: (e: any) => {
+      toast.error(e?.response?.data?.error || "Ban'dan chiqarib bo'lmadi.");
     },
   });
 
@@ -4110,6 +4031,67 @@ const UsersTab = () => {
 
   return (
     <div className='flex gap-4'>
+      {/* Phase 2.7 (qayta dizayn) — Ban hisobidan chiqarish modal */}
+      {liftBanTarget && (
+        <div className='fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4'>
+          <div className='w-full max-w-md rounded-2xl bg-white p-6 shadow-xl'>
+            <div className='mb-4 flex items-center gap-3'>
+              <span className='material-symbols-outlined text-[28px] text-amber-600'>lock_open</span>
+              <h3 className='font-h3 text-h3 text-on-surface'>Ban hisobidan chiqarish</h3>
+            </div>
+            <div className='mb-4 rounded-lg bg-amber-50 p-3 text-sm text-amber-800'>
+              <p className='mb-2 font-semibold'>
+                {liftBanTarget.phone} — bu mijoz uchun:
+              </p>
+              <ul className='ml-4 list-disc text-xs space-y-1'>
+                <li>Kredit ban olib tashlanadi</li>
+                <li>Yana <strong>faqat 1 ta imkoniyat</strong> beriladi (3 emas)</li>
+                <li>Mavjud "muddati o'tgan" buyurtmalar kechiriladi (cron qaytadan ban qilmasin)</li>
+                <li>Keyingi 1 ta yangi muddati o'tgan buyurtma — darhol qaytadan ban</li>
+              </ul>
+            </div>
+            <label className='mb-2 block text-xs font-semibold text-on-surface-variant'>
+              Sabab (ixtiyoriy, audit uchun)
+            </label>
+            <textarea
+              value={liftBanReason}
+              onChange={(e) => setLiftBanReason(e.target.value)}
+              rows={3}
+              maxLength={500}
+              placeholder="Mijoz pul to'lab keldi, biznes xatosi, VIP mijoz..."
+              className='mb-4 w-full rounded-lg border border-outline-variant bg-surface-container px-3 py-2 text-sm text-on-surface outline-none focus:border-primary'
+              disabled={liftCreditBanMutation.isPending}
+            />
+            <div className='flex gap-3'>
+              <button
+                onClick={() => { setLiftBanTarget(null); setLiftBanReason(''); }}
+                disabled={liftCreditBanMutation.isPending}
+                className='flex-1 rounded-xl border border-outline-variant bg-surface-container px-4 py-2.5 text-sm font-semibold text-on-surface hover:bg-surface-container-high disabled:opacity-50'
+              >
+                Bekor qilish
+              </button>
+              <button
+                onClick={() => liftCreditBanMutation.mutate({ id: liftBanTarget.id, reason: liftBanReason })}
+                disabled={liftCreditBanMutation.isPending}
+                className='flex-1 rounded-xl bg-amber-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-amber-700 disabled:opacity-50 flex items-center justify-center gap-2'
+              >
+                {liftCreditBanMutation.isPending ? (
+                  <>
+                    <span className='w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin' />
+                    Bajarilmoqda...
+                  </>
+                ) : (
+                  <>
+                    <span className='material-symbols-outlined text-[16px]'>lock_open</span>
+                    Tasdiqlash
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* List panel */}
       <div className={`flex flex-col gap-4 transition-all ${selectedId ? 'w-full lg:w-[55%]' : 'w-full'}`}>
         {/* Filters */}
@@ -4397,20 +4379,18 @@ const UsersTab = () => {
                     </span>
                     {detailData.is_active ? 'Bloklash' : 'Faollashtirish'}
                   </button>
-                  <button
-                    disabled={toggleBanMutation.isPending}
-                    onClick={() => toggleBanMutation.mutate(detailData.id)}
-                    className={`flex flex-1 items-center justify-center gap-2 rounded-xl py-2.5 text-sm font-medium transition-all disabled:opacity-50 ${
-                      detailData.credit_ban
-                        ? 'bg-amber-100 text-amber-700 hover:bg-amber-200'
-                        : 'bg-error/10 text-error hover:bg-error/20'
-                    }`}
-                  >
-                    <span className='material-symbols-outlined text-[18px]'>
-                      {detailData.credit_ban ? 'lock_open' : 'lock'}
-                    </span>
-                    {detailData.credit_ban ? "Ban o'chirish" : 'Kredit ban'}
-                  </button>
+                  {/* Phase 2.7 (qayta dizayn) — Faqat banlangan mijoz uchun ko'rinadi.
+                      Bosilganda modal ochiladi; lift 1 ta imkoniyat beradi (count=2). */}
+                  {detailData.credit_ban && (
+                    <button
+                      disabled={liftCreditBanMutation.isPending}
+                      onClick={() => setLiftBanTarget(detailData)}
+                      className='flex flex-1 items-center justify-center gap-2 rounded-xl bg-amber-100 py-2.5 text-sm font-medium text-amber-700 transition-all hover:bg-amber-200 disabled:opacity-50'
+                    >
+                      <span className='material-symbols-outlined text-[18px]'>lock_open</span>
+                      Ban hisobidan chiqarish
+                    </button>
+                  )}
                 </div>
 
                 {/* Recent orders */}

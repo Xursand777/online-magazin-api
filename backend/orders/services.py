@@ -717,7 +717,6 @@ def mark_overdue_credits(user) -> dict:
                 is_credit=True,
                 credit_paid=False,
                 credit_overdue_counted=False,
-                credit_overdue_pardoned=False,  # Phase 2.7 — Admin override
                 credit_due_date__lt=today,
             )
             # Phase 2.5 — Disput muddati hali o'tmagan bo'lsa hisobga olmaymiz
@@ -1042,91 +1041,86 @@ def update_order_dispute(
     return dispute
 
 
-# ── Phase 2.7 — Admin override: credit overdue pardon ──────────────────────
-def pardon_credit_overdue(*, order, admin, reason: str = ''):
+# ── Phase 2.7 (qayta dizayn) — Mijozni ban'dan chiqarish (1 chance) ────────
+def lift_user_credit_ban(*, user, admin, reason: str = ''):
     """
-    Phase 2.7 — Admin override: bu kreditli buyurtmaning ban hisobiga
-    ta'sirini bekor qiladi ("bu mijozning kreditini ban hisobiga kiritmang").
+    Phase 2.7 (revised) — Banlangan mijozga 1 ta qayta imkoniyat berish.
 
-    Idempotent: agar allaqachon pardonlangan bo'lsa, no-op (qayta -1 qilmaydi).
+    SEMANTIKA:
+      Avvalgi dizayn (per-order pardon) admin'ga 3 ta strike qaytarib berardi
+      — bu suiiste'mol uchun ochiq edi. Yangi dizayn:
+        • Faqat `credit_ban=True` mijozda ishlaydi (precondition).
+        • `overdue_credit_count = 2` qo'yiladi — endi 1 ta yangi overdue
+          mijozni darhol qaytadan ban'ga olib boradi.
+        • Mavjud, lekin hali "counted" emas bo'lgan overdue buyurtmalar
+          ham "forgiven" deb belgilanadi (`credit_overdue_counted=True`),
+          aks holda cron darhol qaytadan ban qilardi va admin'ning unban
+          ta'siri yo'qotilardi.
 
-    Holatlar:
-      a) credit_overdue_counted=True (allaqachon hisoblangan bo'lib turardi):
-         foydalanuvchi `overdue_credit_count` -1 va kerak bo'lsa
-         `credit_ban=False`.
-      b) credit_overdue_counted=False (hali hisoblanmagan):
-         faqat pardoned=True qo'yiladi -> kelajak cron uni o'tkazib yuboradi.
-
-    Har ikki holatda:
-      - `credit_overdue_pardoned=True` qo'yiladi (idempotency uchun field).
-      - OrderHistory'ga audit yozuv (rejim + sabab).
-      - Phase 1.1 AuditLog middleware HTTP yo'l bo'ylab avtomat yozadi.
+    YO'Q QILMAYDI:
+      • Eski overdue buyurtmalarning `credit_overdue_counted` ni False'ga
+        qaytarmaydi — DB tarixi saqlanadi.
+      • `overdue_credit_count` ni 0 ga qaytarmaydi — mijoz allaqachon
+        ishonchni yo'qotgan, faqat oxirgi imkoniyat.
 
     Args:
-        order: Kreditli buyurtma.
-        admin: Admin (request.user).
-        reason: Admin tomonidan kiritilgan sabab (audit'da saqlanadi).
+        user: Banlangan foydalanuvchi.
+        admin: Ban'ni olib tashlayotgan admin (request.user).
+        reason: Audit uchun sabab.
 
     Returns:
-        Order — yangilangan.
+        Foydalanuvchi (cached attributes sinxron).
 
     Raises:
-        serializers.ValidationError — kreditli emas, to'langan yoki
-        allaqachon pardonlangan.
+        serializers.ValidationError — mijoz ban'da emas.
     """
-    if not order.is_credit:
+    if not user.credit_ban:
         raise serializers.ValidationError(
-            {'error': "Bu kreditli buyurtma emas."}
+            {'error': "Foydalanuvchi kredit ban'da emas."}
         )
-    if order.credit_paid:
-        raise serializers.ValidationError(
-            {'error': "To'langan buyurtmaga pardon kerakmas."}
-        )
-    if order.credit_overdue_pardoned:
-        raise serializers.ValidationError(
-            {'error': "Bu buyurtma allaqachon pardonlangan."}
-        )
+
+    today = timezone.now().date()
+    user_model = type(user)
 
     with transaction.atomic():
-        order_locked = Order.objects.select_for_update().get(pk=order.pk)
+        user_locked = user_model.objects.select_for_update().get(pk=user.pk)
 
-        # Defense-in-depth: select_for_update'dan keyin yana tekshirish
-        if order_locked.credit_overdue_pardoned:
+        # Race tekshiruvi
+        if not user_locked.credit_ban:
             raise serializers.ValidationError(
-                {'error': "Bu buyurtma allaqachon pardonlangan (race)."}
+                {'error': "Foydalanuvchi allaqachon ban'dan chiqarilgan (race)."}
             )
 
-        was_counted = order_locked.credit_overdue_counted
-        target_user = order_locked.user
-
-        if was_counted and target_user is not None:
-            user_locked = type(target_user).objects.select_for_update().get(pk=target_user.pk)
-            new_count = max(0, (user_locked.overdue_credit_count or 0) - 1)
-            user_locked.overdue_credit_count = new_count
-            # Ban yumshatish: pardonlangandan keyin <3 bo'lsa, ban'ni
-            # olib tashlaymiz (admin admin'da bo'lsa baribir buni shu paytda qiladi)
-            if new_count < 3 and user_locked.credit_ban:
-                user_locked.credit_ban = False
-            user_locked.save(update_fields=['overdue_credit_count', 'credit_ban'])
-            # Caller cached sync
-            target_user.overdue_credit_count = user_locked.overdue_credit_count
-            target_user.credit_ban = user_locked.credit_ban
-
-        order_locked.credit_overdue_pardoned = True
-        order_locked.save(update_fields=['credit_overdue_pardoned', 'updated_at'])
-
-        # Audit history yozuv (OrderHistory — buyurtma sahifasida ko'rinadi)
-        truncated_reason = (reason or '').strip()[:500] or '—'
-        OrderHistory.objects.create(
-            order=order_locked,
-            from_status=order_locked.status,
-            to_status=order_locked.status,  # status o'zgarmaydi
-            actor_type=OrderHistory.ACTOR_ADMIN,
-            actor=admin,
-            note=f"Kredit overdue pardon (admin override). Sabab: {truncated_reason}",
+        # Mavjud, hali counted bo'lmagan overdue buyurtmalarni "forgive" qil.
+        # Aks holda cron'ning keyingi sikli ularni darhol topib, count'ni
+        # yana 3+ ga ko'tarib qaytadan ban qilardi -> unban behushga aylanardi.
+        forgive_qs = (
+            Order.objects
+            .select_for_update()
+            .filter(
+                user=user_locked,
+                is_credit=True,
+                credit_paid=False,
+                credit_overdue_counted=False,
+                credit_due_date__lt=today,
+            )
+            .exclude(status__in=Order.CANCELLATION_STATUSES)
         )
+        forgiven_count = forgive_qs.update(credit_overdue_counted=True)
 
-        # Caller order obyekti cached sync
-        order.credit_overdue_pardoned = True
+        # 1 ta imkoniyat: count=2 (1 ta yangi overdue -> 3 -> qaytadan ban)
+        user_locked.overdue_credit_count = 2
+        user_locked.credit_ban = False
+        user_locked.save(update_fields=['overdue_credit_count', 'credit_ban'])
 
-    return order
+        # Caller'ning cached user obyektini sinxronlash
+        user.overdue_credit_count = user_locked.overdue_credit_count
+        user.credit_ban = user_locked.credit_ban
+
+    # Audit izi — Phase 1.1 AuditLog middleware HTTP yo'l orqali
+    # avtomat yozadi. Reason allaqachon endpoint body'sida bor.
+    return {
+        'user': user,
+        'forgiven_orders': forgiven_count,
+        'reason': reason,
+    }

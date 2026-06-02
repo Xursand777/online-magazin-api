@@ -142,7 +142,9 @@ export const adminGetUsers = (params?: {
   page_size?: number;
 }) => apiClient.get('/admin/users/', { params });
 export const adminGetUser = (id: number) => apiClient.get(`/admin/users/${id}/`);
-export const adminToggleUserBan = (id: number) => apiClient.post(`/admin/users/${id}/toggle-ban/`);
+// Phase 2.7 (qayta dizayn) — Banlangan mijozni 1 ta imkoniyat bilan ban'dan chiqarish
+export const adminLiftUserCreditBan = (id: number, reason?: string) =>
+  apiClient.post(`/admin/users/${id}/lift-credit-ban/`, { reason: reason || '' });
 export const adminToggleUserActive = (id: number) => apiClient.post(`/admin/users/${id}/toggle-active/`);
 
 // PHONE COMPATIBILITY — admin CRUD
@@ -195,10 +197,6 @@ export const adminGetMasterDiscount = () =>
   apiClient.get('/admin/masters/discount/');
 export const adminSetMasterDiscount = (percent: number) =>
   apiClient.post('/admin/masters/discount/', { percent });
-
-// Phase 2.7 — Kredit overdue pardon (admin override)
-export const adminPardonCreditOverdue = (orderId: number, reason?: string) =>
-  apiClient.post(`/orders/admin/${orderId}/pardon-credit-overdue/`, { reason: reason || '' });
 
 // AUDIT LOG (faqat Super Admin) — Phase 1.1
 export const adminGetAuditLogs = (params?: {

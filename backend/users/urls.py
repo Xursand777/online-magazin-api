@@ -4,7 +4,7 @@ from .views import (
     CookieTokenRefreshView, CookieLogoutView,
     UserProfileView, AddressListCreateView, AddressDetailView, FeedbackCreateView,
     AdminUserSearchView, AdminUserListView, AdminUserDetailView,
-    AdminUserToggleBanView, AdminUserToggleActiveView,
+    AdminLiftCreditBanView, AdminUserToggleActiveView,
     AdminFeedbackListView, AdminFeedbackUpdateView,
     StaffListView, AssignRoleView, FireStaffView,
     MasterListView, AssignMasterView, RemoveMasterView, AdminMasterDiscountView,
@@ -32,7 +32,8 @@ urlpatterns = [
 
     path('admin/users/', AdminUserListView.as_view(), name='admin_user_list'),
     path('admin/users/<int:pk>/', AdminUserDetailView.as_view(), name='admin_user_detail'),
-    path('admin/users/<int:pk>/toggle-ban/', AdminUserToggleBanView.as_view(), name='admin_user_toggle_ban'),
+    # Phase 2.7 (qayta dizayn) — Banlangan mijozni 1 ta imkoniyat bilan ban'dan chiqarish
+    path('admin/users/<int:pk>/lift-credit-ban/', AdminLiftCreditBanView.as_view(), name='admin_lift_credit_ban'),
     path('admin/users/<int:pk>/toggle-active/', AdminUserToggleActiveView.as_view(), name='admin_user_toggle_active'),
 
     path('admin/feedback/', AdminFeedbackListView.as_view(), name='admin_feedback_list'),

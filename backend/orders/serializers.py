@@ -87,7 +87,6 @@ class OrderSerializer(serializers.ModelSerializer):
             'credit_paid',
             'credit_paid_at',
             'credit_is_overdue',
-            'credit_overdue_pardoned',
             'created_at',
             'updated_at',
             'can_cancel',
@@ -110,7 +109,6 @@ class OrderSerializer(serializers.ModelSerializer):
             'credit_paid',
             'credit_paid_at',
             'credit_is_overdue',
-            'credit_overdue_pardoned',
             'can_cancel',
             'can_admin_cancel',
         )
@@ -256,17 +254,6 @@ class CreateOrderDisputeSerializer(serializers.Serializer):
         allow_empty=True,
         max_length=5,
         error_messages={'max_length': "Eng ko'pi 5 ta rasm yuborishingiz mumkin."},
-    )
-
-
-class AdminPardonCreditOverdueSerializer(serializers.Serializer):
-    """
-    POST /api/orders/admin/<pk>/pardon-credit-overdue/ uchun input.
-    Sabab ixtiyoriy, lekin audit uchun tavsiya etiladi.
-    """
-    reason = serializers.CharField(
-        required=False, allow_blank=True, max_length=500,
-        help_text="Audit uchun pardon sababi (mijoz pul to'ladi, biznes xatosi, h.k.)",
     )
 
 
