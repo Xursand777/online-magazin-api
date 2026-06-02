@@ -22,7 +22,6 @@ from recommendations.services import record_product_event
 from .models import Order, OrderDispute, OrderHistory
 from .serializers import (
     AdminOrderStatusUpdateSerializer,
-    AdminPardonCreditOverdueSerializer,
     AdminUpdateDisputeSerializer,
     CancelOrderSerializer,
     CourierConfirmDeliverySerializer,
@@ -38,7 +37,6 @@ from .services import (
     create_order_dispute,
     create_order_with_items,
     mark_overdue_credits,
-    pardon_credit_overdue,
     pay_credit_order,
     transition_order_status,
     update_order_dispute,
@@ -1290,43 +1288,3 @@ class AdminDisputeDetailView(views.APIView):
         return Response(OrderDisputeSerializer(dispute, context={'request': request}).data)
 
 
-# ── Phase 2.7 — Admin override: pardon credit overdue ──────────────────────
-class AdminPardonCreditOverdueView(views.APIView):
-    """
-    POST /api/orders/admin/<pk>/pardon-credit-overdue/
-
-    Body (optional):
-      reason: string (max 500)
-
-    Permission: Admin yoki Super Admin.
-
-    Effect:
-      • Order.credit_overdue_pardoned = True (cron uni hisobga olmaydi)
-      • Agar order allaqachon hisoblangan bo'lsa:
-        user.overdue_credit_count -1, kerak bo'lsa user.credit_ban = False
-      • OrderHistory'ga audit yozuv
-      • Phase 1.1 AuditLog middleware HTTP yo'l bo'ylab avtomat yozadi
-
-    Response 200:
-      { "order": {...} }
-    Response 400:
-      { "error": "..." }  — kreditli emas, to'langan, yoki allaqachon pardonlangan
-    Response 403/404 — standart
-    """
-    permission_classes = (IsAuthenticated, IsAdminOrAbove)
-
-    def post(self, request, pk, *args, **kwargs):
-        order = get_object_or_404(Order, pk=pk)
-
-        serializer = AdminPardonCreditOverdueSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-
-        order = pardon_credit_overdue(
-            order=order,
-            admin=request.user,
-            reason=serializer.validated_data.get('reason', ''),
-        )
-        return Response(
-            {'order': OrderSerializer(order, context={'request': request}).data},
-            status=status.HTTP_200_OK,
-        )

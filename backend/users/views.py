@@ -463,7 +463,32 @@ class AdminUserDetailView(views.APIView):
         })
 
 
-class AdminUserToggleBanView(views.APIView):
+class AdminLiftCreditBanView(views.APIView):
+    """
+    POST /api/users/admin/users/<pk>/lift-credit-ban/
+
+    Phase 2.7 (qayta dizayn) — Banlangan mijozni 1 ta imkoniyat bilan
+    ban'dan chiqaradi.
+
+    Avvalgi `toggle-ban` endpoint o'rnini bosadi. Eski semantika
+    (toggle + count=0) suiiste'molga ochiq edi va admin'ning fikrini
+    aks ettirmasdi — banni qo'lda yoqish odatda kerakmas, faqat
+    ban'dan chiqarish.
+
+    SEMANTIKA:
+      • Faqat `credit_ban=True` foydalanuvchida ishlaydi (400 aks holda).
+      • `overdue_credit_count = 2` (1 ta yangi overdue -> qaytadan ban).
+      • Mavjud uncounted overdue buyurtmalar `counted=True` deb belgilanadi
+        (cron qaytadan ban qilmasin).
+
+    Body (ixtiyoriy):
+      { "reason": "..." }   max 500
+
+    Response 200:
+      { "credit_ban": false, "overdue_credit_count": 2, "forgiven_orders": 3 }
+    Response 400:
+      { "error": "Foydalanuvchi kredit ban'da emas." }
+    """
     permission_classes = (IsAuthenticated, IsAdminOrAbove)
 
     def post(self, request, pk):
@@ -472,11 +497,20 @@ class AdminUserToggleBanView(views.APIView):
         except User.DoesNotExist:
             return Response({"error": "Foydalanuvchi topilmadi"}, status=status.HTTP_404_NOT_FOUND)
 
-        u.credit_ban = not u.credit_ban
-        if not u.credit_ban:
-            u.overdue_credit_count = 0
-        u.save(update_fields=['credit_ban', 'overdue_credit_count'])
-        return Response({'credit_ban': u.credit_ban, 'overdue_credit_count': u.overdue_credit_count})
+        # Audit uchun ixtiyoriy sabab
+        reason = (request.data or {}).get('reason', '') if hasattr(request, 'data') else ''
+        if reason and len(reason) > 500:
+            return Response({"error": "Sabab 500 belgidan oshmasin."}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Cross-app service (orders/services.py)
+        from orders.services import lift_user_credit_ban
+        result = lift_user_credit_ban(user=u, admin=request.user, reason=reason)
+
+        return Response({
+            'credit_ban': u.credit_ban,
+            'overdue_credit_count': u.overdue_credit_count,
+            'forgiven_orders': result['forgiven_orders'],
+        })
 
 
 class AdminUserToggleActiveView(views.APIView):

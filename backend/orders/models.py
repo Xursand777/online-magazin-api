@@ -132,17 +132,6 @@ class Order(models.Model):
         default=False,
         help_text="Muddati o'tganligi foydalanuvchi hisobiga qo'shilganmi."
     )
-    # Phase 2.7 — Admin override: bu kreditli buyurtmaning ban hisobiga
-    # ta'sirini bekor qiladi. `mark_overdue_credits` shu fieldni filterda
-    # exclude qiladi — pardonlangan buyurtmalar cron tomonidan ham
-    # belgilanmaydi. `credit_overdue_counted` dan ajratish kerak chunki ikkalasi
-    # turli semantikaga ega: counted=True (allaqachon hisoblangan),
-    # pardoned=True (admin override). Qayta bosishga idempotent.
-    credit_overdue_pardoned = models.BooleanField(
-        default=False,
-        db_index=True,
-        help_text="Admin tomonidan ban hisobiga kiritilmaslik uchun belgilangan.",
-    )
 
     # ── Phase 2.2 — Qabul kodi va disput muddati ─────────────────────────────
     # `received_code` — kuryer mijozdan so'raydigan 6 xonali kod.
