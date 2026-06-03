@@ -108,6 +108,73 @@ class GlobalSetting(models.Model):
         cache.set(cache_key, str(pct), timeout=cls._CACHE_TTL)
         return pct
 
+    # ── Do'kon ma'lumotlari (chek/receipt'da ko'rinadi) ──────────────────────
+    # Avval localStorage'da edi -> har brauzer/qurilmada alohida saqlanardi
+    # va admin cache tozalasa nullashardi. Endi server'da, 5 daqiqa Redis
+    # cache bilan, faqat super_admin tahrir qila oladi.
+    SHOP_INFO_KEYS = ('shop_name', 'shop_phone', 'shop_address')
+    SHOP_INFO_DEFAULTS = {
+        'shop_name': 'BOZOR UZ',
+        'shop_phone': '+998 71 000-00-00',
+        'shop_address': 'Toshkent sh.',
+    }
+    SHOP_INFO_MAX_LEN = 200
+
+    @classmethod
+    def get_shop_info(cls) -> dict:
+        """Chek'da ko'rinadigan do'kon ma'lumotlari. Cache: 5 daqiqa."""
+        from django.core.cache import cache
+
+        out = {}
+        miss_keys = []
+        for k in cls.SHOP_INFO_KEYS:
+            cached = cache.get(f'{cls._CACHE_PREFIX}{k}')
+            if cached is not None:
+                out[k] = cached
+            else:
+                miss_keys.append(k)
+
+        if not miss_keys:
+            return out
+
+        # DB'dan miss bo'lganlarni o'qib, cache'ga yozamiz
+        existing = {
+            obj.key: obj.value
+            for obj in cls.objects.filter(key__in=miss_keys)
+        }
+        for k in miss_keys:
+            val = existing.get(k, cls.SHOP_INFO_DEFAULTS[k])
+            out[k] = val
+            cache.set(f'{cls._CACHE_PREFIX}{k}', val, timeout=cls._CACHE_TTL)
+
+        return out
+
+    @classmethod
+    def set_shop_info(cls, *, name=None, phone=None, address=None) -> dict:
+        """
+        Super admin'dan keladigan yangilanish. Faqat None bo'lmagan
+        field'lar yangilanadi (partial update). Har save() cache.delete()
+        ni chaqiradi (model save() override'idan), shuning uchun
+        keyingi get_shop_info() yangi qiymatlarni qaytaradi.
+        """
+        updates = {'shop_name': name, 'shop_phone': phone, 'shop_address': address}
+        for k, v in updates.items():
+            if v is None:
+                continue
+            v = (v or '').strip()
+            if len(v) > cls.SHOP_INFO_MAX_LEN:
+                v = v[:cls.SHOP_INFO_MAX_LEN]
+            obj, created = cls.objects.get_or_create(
+                key=k,
+                defaults={'value': v, 'description': "Do'kon (chek'da ko'rinadi)"},
+            )
+            if not created and obj.value != v:
+                obj.value = v
+                obj.save(update_fields=['value', 'updated_at'])
+            elif created:
+                pass  # already saved via get_or_create
+        return cls.get_shop_info()
+
 
 # ─── Smart Translation Engine ─────────────────────────────────────────────────
 #

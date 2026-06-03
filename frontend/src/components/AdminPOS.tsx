@@ -5,14 +5,41 @@ import {
   adminSearchUser,
   adminCreatePosOrder,
   adminGetCustomerHistory,
+  adminGetShopInfo,
 } from '../api/endpoints';
 import { toast } from '../utils/toast';
 import { getOrderStatusLabel, getPaymentMethodLabel } from '../utils/orderStatus';
 import { printReceipt } from '../utils/receiptPrinter';
 
-const getStoreInfo = () => {
-  try { return JSON.parse(localStorage.getItem('bozor_store_info') || '{}'); } catch { return {}; }
+// Do'kon ma'lumotlari — endi server'da saqlanadi (avval localStorage edi).
+// POS ochilganda fonda fetch qilamiz va keyingi printReceipt'larda
+// modul cache'dan sinxron o'qiymiz. Default qiymatlar — backend bilan mos.
+type StoreInfo = { name: string; phone: string; address: string };
+let _storeCache: StoreInfo = {
+  name: 'BOZOR UZ',
+  phone: '+998 71 000-00-00',
+  address: 'Toshkent sh.',
 };
+// In-flight promise — qayta fetch'lardan saqlanadi
+let _shopFetchPromise: Promise<void> | null = null;
+const ensureStoreInfo = (): Promise<void> => {
+  if (_shopFetchPromise) return _shopFetchPromise;
+  _shopFetchPromise = adminGetShopInfo()
+    .then((r) => {
+      _storeCache = {
+        name: r.data.shop_name,
+        phone: r.data.shop_phone,
+        address: r.data.shop_address,
+      };
+    })
+    .catch(() => {
+      // Offline yoki 401 — defaultlar bilan davom etamiz; promise null
+      // qilib qaytadan urinish'ga ruxsat beramiz.
+      _shopFetchPromise = null;
+    });
+  return _shopFetchPromise;
+};
+const getStoreInfo = () => ({ ..._storeCache });
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -337,6 +364,12 @@ const AdminPOS = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [cart, setCart] = useState<POSItem[]>([]);
   const [checkoutModalOpen, setCheckoutModalOpen] = useState(false);
+
+  // POS ochilganda darhol server'dan do'kon ma'lumotlarini olamiz — keyingi
+  // chek bosishlarda sinxron getStoreInfo() yangi qiymatlarni qaytaradi.
+  useEffect(() => {
+    ensureStoreInfo();
+  }, []);
 
   // Checkout form state
   const [phoneDigits, setPhoneDigits] = useState('');   // only 9 digits
