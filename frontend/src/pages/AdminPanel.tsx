@@ -5116,7 +5116,20 @@ const ReportsTab = () => {
                 </tr>
               </thead>
               <tbody>
-                {[...(data?.orders ?? [])].reverse().map((order, orderIndex) => (
+                {[...(data?.orders ?? [])].reverse().map((order, orderIndex) => {
+                  // Bug fix: per-receipt total chegirma'ni items'dan recompute
+                  // qilamiz. Backend ham fix qilingan (order.total_discount items
+                  // yig'indisini qaytaradi), lekin defense-in-depth — bottom JAMI
+                  // bilan bir xil mantiq, eski cache'lar bilan ham to'g'ri ishlaydi.
+                  const receiptOriginal = order.items.reduce(
+                    (sum, item) => sum + (item.original_price * item.quantity), 0,
+                  );
+                  const receiptDiscount = order.items.reduce(
+                    (sum, item) => sum + item.discount_amount, 0,
+                  );
+                  const receiptDiscountPct =
+                    receiptOriginal > 0 ? (receiptDiscount / receiptOriginal) * 100 : 0;
+                  return (
                   <Fragment key={order.id}>
                     {/* Order Header Row */}
                     <tr className='bg-green-100 dark:bg-green-900/30 font-bold'>
@@ -5168,16 +5181,15 @@ const ReportsTab = () => {
                         {fmt(order.total_price)}
                       </td>
                       <td className='border border-outline-variant/40 px-3 py-2.5 text-center text-error'>
-                        {order.total_discount > 0 && order.total_price > 0 
-                          ? `${((order.total_discount / (order.total_price + order.total_discount)) * 100).toFixed(2)}%`
-                          : '0%'}
+                        {receiptDiscountPct > 0 ? `${receiptDiscountPct.toFixed(2)}%` : '0%'}
                       </td>
                       <td className='border border-outline-variant/40 px-3 py-2.5 text-right text-error'>
-                        {order.total_discount > 0 ? fmt(order.total_discount) : '0'}
+                        {receiptDiscount > 0 ? fmt(receiptDiscount) : '0'}
                       </td>
                     </tr>
                   </Fragment>
-                ))}
+                  );
+                })}
                 {(!data?.orders || data.orders.length === 0) && (
                   <tr>
                     <td colSpan={7} className='py-8 text-center text-on-surface-variant'>
