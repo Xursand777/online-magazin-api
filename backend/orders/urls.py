@@ -7,6 +7,7 @@ from .views import (
     AdminDisputeListView,
     AdminOrderListView,
     AdminOrderStatusUpdateView,
+    AdminOrdersPollView,
     AdminPOSOrderView,
     AdminReportView,
     AdminReportOrdersView,
@@ -27,6 +28,8 @@ from .views import (
 urlpatterns = [
     path('admin/dashboard/', AdminDashboardView.as_view(), name='admin_dashboard'),
     path('admin/nasiya/summary/', AdminNasiyaSummaryView.as_view(), name='admin_nasiya_summary'),
+    # Real-time polling — yangi buyurtmalarni darhol aniqlash (~10s kechikish)
+    path('admin/poll/', AdminOrdersPollView.as_view(), name='admin_orders_poll'),
     path('admin/', AdminOrderListView.as_view(), name='admin_order_list'),
     path('admin/<int:pk>/status/', AdminOrderStatusUpdateView.as_view(), name='admin_order_status_update'),
     path('admin/<int:pk>/pay-credit/', AdminCreditPayView.as_view(), name='admin_credit_pay'),

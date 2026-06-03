@@ -9,7 +9,7 @@ from users.permissions import (
 from rest_framework.response import Response
 from django.shortcuts import get_object_or_404
 from django.db import transaction
-from django.db.models import Sum, Count, Avg, F, DecimalField, Q
+from django.db.models import Sum, Count, Avg, F, DecimalField, Q, Max
 from django.db.models.functions import TruncDay, TruncMonth, TruncYear
 from django.utils.dateparse import parse_date
 from django.utils import timezone
@@ -298,6 +298,62 @@ class AdminNasiyaSummaryView(views.APIView):
             'paid_count': paid_count,
             'overdue_count': overdue_count,
             'active_count': active_count,
+        })
+
+
+class AdminOrdersPollView(views.APIView):
+    """
+    Real-time admin polling endpoint — yangi buyurtmalarni darhol aniqlash uchun.
+
+    GET /api/orders/admin/poll/?since=<last_seen_id>
+
+    NIMA UCHUN POLLING (WebSocket emas):
+        Render Free tier WebSocket persistent connection'ni ishonchli
+        qo'llab-quvvatlamaydi. Django Channels yangi deploy stack (Daphne ASGI +
+        Redis channel layer) talab qiladi. Bozor uchun 10s polling — operativ
+        "real-time yetarli" UX va minimal infrastruktura yuki.
+
+    QUERY YUKI:
+        2 ta cheap agregat: Max(id) + WHERE id > N COUNT — har ikkalasi
+        PK (indexed). Mln+ buyurtmali bazaga ham millisecond.
+
+    JAVOB:
+        {
+          "has_new":    bool,    -- since'dan yangi buyurtma bor
+          "new_count":  int,     -- nechta yangi
+          "latest_id":  int,     -- joriy eng katta order id (lastSeen reset uchun)
+          "server_time": iso datetime  -- klient soat balansi uchun
+        }
+
+    PERMISSION:
+        IsStaffMember — admin, sotuvchi va kuryer ham ko'rishi mumkin
+        (har biri o'z buyurtmalarini kuzatadi).
+    """
+    permission_classes = (IsAuthenticated, IsStaffMember)
+
+    def get(self, request, *args, **kwargs):
+        # ?since parametri — frontend lastSeenId. Yo'q yoki noto'g'ri bo'lsa 0.
+        try:
+            since_id = max(0, int(request.query_params.get('since', 0)))
+        except (ValueError, TypeError):
+            since_id = 0
+
+        # Bitta agregat — joriy eng katta order id
+        agg = Order.objects.aggregate(latest_id=Max('id'))
+        latest_id = agg['latest_id'] or 0
+
+        # Yangi soni — faqat tongdan kichik bo'lsa qo'shimcha query
+        if latest_id > since_id:
+            new_count = Order.objects.filter(id__gt=since_id).count()
+        else:
+            new_count = 0
+
+        from django.utils import timezone
+        return Response({
+            'has_new': new_count > 0,
+            'new_count': new_count,
+            'latest_id': latest_id,
+            'server_time': timezone.now().isoformat(),
         })
 
 

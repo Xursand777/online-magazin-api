@@ -198,6 +198,16 @@ export const adminGetMasterDiscount = () =>
 export const adminSetMasterDiscount = (percent: number) =>
   apiClient.post('/admin/masters/discount/', { percent });
 
+// Real-time orders polling — yangi buyurtmalarni darhol aniqlash
+export interface AdminOrdersPollResponse {
+  has_new: boolean;
+  new_count: number;
+  latest_id: number;
+  server_time: string;
+}
+export const adminPollOrders = (since: number) =>
+  apiClient.get<AdminOrdersPollResponse>(`/orders/admin/poll/?since=${since}`);
+
 // Do'kon ma'lumotlari (chek/receipt) — server'da saqlanadi
 // GET: barcha xodimlar uchun. PATCH: faqat Super Admin.
 export interface ShopInfo {

@@ -73,6 +73,8 @@ import {
 import { toast } from '../utils/toast';
 import { printReceipt, printCreditAgreement } from '../utils/receiptPrinter';
 import { loadShopInfo, useShopInfo, updateShopInfoCache } from '../utils/shopInfoCache';
+import { playNewOrderSound } from '../utils/notificationSound';
+import { adminPollOrders } from '../api/endpoints';
 import ThemeToggle from '../components/ThemeToggle';
 import AdminPOS from '../components/AdminPOS';
 
@@ -815,6 +817,105 @@ const _ALL_TABS: AdminTab[] = [
   'kassa', 'nasiya', 'reports', 'stock', 'sozlamalar', 'staff', 'masters', 'audit',
 ];
 
+// ─── Real-time buyurtmalar polling ───────────────────────────────────────────
+//
+// 10 sekundlik polling — yangi buyurtmalarni darhol aniqlash. WebSocket/SSE
+// o'rniga polling tanlandi (Render Free tier persistent connection cheklovi).
+//
+// FUNKSIYALAR:
+//   • lastSeenId localStorage'da saqlanadi -> sahifa yangilansa ham
+//     "yangi"larni eslab qoladi.
+//   • Birinchi load: server'dan joriy latest_id baseline sifatida olinadi
+//     -> mavjud buyurtmalar uchun "yangi" badge chiqarmaydi.
+//   • Yangi keldi -> sound + toast + admin-orders cache invalidatsiya.
+//   • Tab background bo'lsa polling to'xtaydi (battery + Render yuki).
+//   • Sahifa fokusiga qaytsa darhol refetch.
+//   • prevNewCount ref bilan dedup -> bir xil counter ikki marta toast bermaydi.
+const LAST_SEEN_ORDER_ID_KEY = 'admin:last-seen-order-id';
+
+const useOrdersPolling = (enabled: boolean, isOnOrdersTab: boolean) => {
+  const qc = useQueryClient();
+
+  // Baseline lastSeenId — localStorage'dan o'qiymiz yoki birinchi marta
+  // server'dan boshlang'ich qiymat olamiz
+  const [lastSeenId, setLastSeenIdState] = useState<number | null>(() => {
+    try {
+      const stored = localStorage.getItem(LAST_SEEN_ORDER_ID_KEY);
+      return stored ? parseInt(stored, 10) : null;
+    } catch {
+      return null;
+    }
+  });
+
+  const setLastSeenId = useCallback((id: number) => {
+    setLastSeenIdState(id);
+    try {
+      localStorage.setItem(LAST_SEEN_ORDER_ID_KEY, String(id));
+    } catch { /* noop */ }
+  }, []);
+
+  // Birinchi load — baseline o'rnatish (mavjud buyurtmalarni "yangi" deb
+  // ko'rsatmaslik uchun)
+  useEffect(() => {
+    if (enabled && lastSeenId === null) {
+      adminPollOrders(0)
+        .then((r) => setLastSeenId(r.data.latest_id || 0))
+        .catch(() => {/* ignore */});
+    }
+  }, [enabled, lastSeenId, setLastSeenId]);
+
+  // Polling query
+  const poll = useQuery({
+    queryKey: ['admin-orders-poll', lastSeenId],
+    queryFn: () => adminPollOrders(lastSeenId ?? 0).then((r) => r.data),
+    refetchInterval: 10_000, // 10 sekund
+    refetchIntervalInBackground: false, // tab yashirin bo'lsa pause
+    refetchOnWindowFocus: true,           // qaytib kelsa darhol
+    enabled: enabled && lastSeenId !== null,
+  });
+
+  // prevNewCount — bir xil counter ikki marta toast bermasligi uchun ref
+  const prevNewCount = useRef(0);
+  // lastSeenId o'zgarsa (markAllSeen orqali) — counterni ham reset
+  useEffect(() => {
+    prevNewCount.current = 0;
+  }, [lastSeenId]);
+
+  // Yangi keldi -> reaktsiya
+  useEffect(() => {
+    const currentCount = poll.data?.new_count ?? 0;
+    if (currentCount > prevNewCount.current) {
+      // Faqat baseline o'rnatilgandan keyin toast (init noise oldini olish)
+      if (lastSeenId !== null && lastSeenId > 0) {
+        const justArrived = currentCount - prevNewCount.current;
+        playNewOrderSound();
+        toast.success(
+          `🛎 ${justArrived} ta yangi buyurtma keldi!`,
+          { duration: 5000 },
+        );
+      }
+      // Orders list va dashboard cache'larni invalidatsiya — UI darhol yangilanadi
+      qc.invalidateQueries({ queryKey: ['admin-orders'] });
+      qc.invalidateQueries({ queryKey: ['admin-dashboard'] });
+      qc.invalidateQueries({ queryKey: ['admin-nasiya-summary'] });
+    }
+    prevNewCount.current = currentCount;
+  }, [poll.data?.new_count, lastSeenId, qc]);
+
+  // Admin Orders tab'iga o'tsa "ko'rdim" deb belgilash (badge tushadi)
+  useEffect(() => {
+    if (isOnOrdersTab && poll.data?.latest_id) {
+      setLastSeenId(poll.data.latest_id);
+    }
+  }, [isOnOrdersTab, poll.data?.latest_id, setLastSeenId]);
+
+  return {
+    newCount: poll.data?.new_count ?? 0,
+    latestId: poll.data?.latest_id ?? 0,
+    isPolling: poll.isFetching,
+  };
+};
+
 const AdminDashboard = () => {
   const { logout, user } = useAuthStore();
   const resetCart = useCartStore((s) => s.resetCart);
@@ -833,6 +934,14 @@ const AdminDashboard = () => {
 
   const [activeTab, setActiveTab] = useState<AdminTab>(() =>
     _ALL_TABS.find(t => canSeeTab(t, userRole, isSuperUser)) ?? 'orders'
+  );
+
+  // Real-time polling — yangi buyurtmalar son badge'i + toast + sound
+  // Faqat xodimlar uchun (canSeeTab orders) va auth bor bo'lganda
+  const canSeeOrders = canSeeTab('orders', userRole, isSuperUser);
+  const { newCount: newOrdersCount } = useOrdersPolling(
+    !!user && canSeeOrders,
+    activeTab === 'orders',
   );
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [productFilters, setProductFilters] = useState({
@@ -912,9 +1021,9 @@ const AdminDashboard = () => {
     navigate('/auth');
   };
 
-  type NavItem = { key: AdminTab; label: string; icon: string };
-  const _tab = (key: AdminTab, label: string, icon: string): NavItem | null =>
-    canSeeTab(key, userRole, isSuperUser) ? { key, label, icon } : null;
+  type NavItem = { key: AdminTab; label: string; icon: string; badge?: number };
+  const _tab = (key: AdminTab, label: string, icon: string, badge?: number): NavItem | null =>
+    canSeeTab(key, userRole, isSuperUser) ? { key, label, icon, badge } : null;
 
   const NAV_GROUPS = [
     {
@@ -925,7 +1034,8 @@ const AdminDashboard = () => {
       group: 'Savdo',
       items: [
         _tab('pos',      "Do'kon (POS)",     'point_of_sale'),
-        _tab('orders',   'Buyurtmalar',      'local_shipping'),
+        // Buyurtmalar — yangi buyurtmalar son badge (real-time polling)
+        _tab('orders',   'Buyurtmalar',      'local_shipping', newOrdersCount),
         _tab('users',    'Foydalanuvchilar', 'people'),
         _tab('feedback', 'Fikrlar',          'forum'),
       ].filter(_notNull),
@@ -1012,7 +1122,16 @@ const AdminDashboard = () => {
                   >
                     {item.icon}
                   </span>
-                  {item.label}
+                  <span className='flex-1 text-left'>{item.label}</span>
+                  {item.badge !== undefined && item.badge > 0 && (
+                    <span
+                      // Real-time polling badge — pulsing animatsiya
+                      className='inline-flex h-5 min-w-[20px] items-center justify-center rounded-full bg-error px-1.5 text-[10px] font-bold text-on-error animate-pulse'
+                      title={`${item.badge} ta yangi buyurtma`}
+                    >
+                      {item.badge > 99 ? '99+' : item.badge}
+                    </span>
+                  )}
                 </button>
               ))}
             </div>
