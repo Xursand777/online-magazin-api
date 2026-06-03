@@ -792,3 +792,46 @@ class AdminPhoneModelWriteSerializer(serializers.ModelSerializer):
 
     def get_series_name(self, obj):
         return str(obj.series)
+
+
+# ── Do'kon ma'lumotlari (chek/receipt) — Phase 2.7 davom ─────────────────────
+class ShopInfoUpdateSerializer(serializers.Serializer):
+    """
+    PATCH /api/admin/shop-info/ uchun input validatsiyasi.
+
+    Qoidalar:
+      • Hech bo'lmaganda 1 ta maydon yuborilishi shart (bo'sh PATCH ma'nosiz).
+      • Yuborilgan har bir maydon trimmed bo'lmasligi shart (bo'sh string
+        rad etiladi — aks holda chek telefonsiz chiqib qoladi).
+      • max_length=200 — DB schema va GlobalSetting.SHOP_INFO_MAX_LEN bilan mos.
+      • Telefon uchun yumshoq format: faqat raqam/+/probel/tire — agar boshqa
+        belgi bo'lsa rad etiladi (suiiste'mol himoyasi).
+    """
+
+    shop_name    = serializers.CharField(required=False, max_length=200, allow_blank=False, trim_whitespace=True)
+    shop_phone   = serializers.CharField(required=False, max_length=200, allow_blank=False, trim_whitespace=True)
+    shop_address = serializers.CharField(required=False, max_length=200, allow_blank=False, trim_whitespace=True)
+
+    # Telefon — raqam/+/probel/tire/qavslar. Misol: "+998 71 123-45-67",
+    # "+998 (71) 123 45 67". Boshqa belgi -> validatsiya xatosi.
+    _PHONE_RE = __import__('re').compile(r'^[\d\s\+\-\(\)]+$')
+
+    def validate_shop_phone(self, value):
+        if not self._PHONE_RE.fullmatch(value):
+            raise serializers.ValidationError(
+                "Telefon faqat raqam, '+', '-', probel va qavslardan iborat bo'lishi mumkin."
+            )
+        # Kamida 7 ta raqam bo'lishi shart (qisqartmali telefon ham 7+)
+        digits = sum(1 for c in value if c.isdigit())
+        if digits < 7:
+            raise serializers.ValidationError(
+                "Telefon kamida 7 ta raqamdan iborat bo'lishi shart."
+            )
+        return value
+
+    def validate(self, attrs):
+        if not any(k in attrs for k in ('shop_name', 'shop_phone', 'shop_address')):
+            raise serializers.ValidationError(
+                "Hech bo'lmaganda bitta maydon yuborilishi shart."
+            )
+        return attrs
