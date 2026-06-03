@@ -468,7 +468,11 @@ class AdminReportView(views.APIView):
         ])
 
         total_revenue = delivered_qs.aggregate(total=Sum('total_price'))['total'] or 0
-        total_discount = delivered_qs.aggregate(total=Sum('discount_price'))['total'] or 0
+        # Bug fix: Order.discount_price = 0 chunki chegirma per-item (master,
+        # variant, product) hisoblanadi. Haqiqiy chegirma items iteratsiyasidan
+        # keyin orders_list dan yig'iladi (628-qator atrofida).
+        # Bu yerda placeholder — keyin qayta yoziladi.
+        total_discount = 0
         avg_order = delivered_qs.aggregate(avg=Avg('total_price'))['avg'] or 0
         total_orders = qs.count()
         delivered_count = delivered_qs.count()
@@ -577,6 +581,10 @@ class AdminReportView(views.APIView):
             .order_by('-created_at')
         ):
             order_items = []
+            # Bug fix: per-order chegirma summasi va asl summa items iteratsiyasidan
+            # yig'iladi (Order.discount_price ishonchsiz — 0 bo'ladi).
+            order_discount_sum = 0.0
+            order_original_sum = 0.0
             for item in order.items.all():       # ← prefetch cache, 0 extra query
                 variant = item.variant           # ← prefetch cache
                 product = item.product           # ← prefetch cache
@@ -601,6 +609,9 @@ class AdminReportView(views.APIView):
                     if original_price > 0 and sold_price < original_price
                     else 0.0
                 )
+                # Per-order yig'indi (bug fix)
+                order_discount_sum += discount_amount
+                order_original_sum += original_price * item.quantity
 
                 full_name = product.name if product else 'Unknown'
                 if variant:
@@ -628,9 +639,14 @@ class AdminReportView(views.APIView):
                 'receiver_name': order.receiver_name,
                 'receiver_phone': order.receiver_phone,
                 'total_price': float(order.total_price),
-                'total_discount': float(order.discount_price),
+                # Bug fix: items'dan yig'iladi (Order.discount_price = 0 chunki
+                # chegirma per-item belgilanadi). Aggregator JAMI ham shu summa'dan.
+                'total_discount': order_discount_sum,
+                'total_original': order_original_sum,
                 'items': order_items,
             })
+            # Global total — har order'ning chegirma summasi yig'indisi
+            total_discount += order_discount_sum
 
         # summary: total_cost endi prefetched iteratsiyadan keyin aniq ma'lum
         summary = {
