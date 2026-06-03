@@ -258,11 +258,47 @@ class AdminOrderListView(generics.ListAPIView):
         elif is_credit == 'false':
             queryset = queryset.filter(is_credit=False)
 
+        nasiya_status = self.request.query_params.get('nasiya_status')
+        if nasiya_status == 'paid':
+            queryset = queryset.filter(is_credit=True, credit_paid=True)
+        elif nasiya_status == 'overdue':
+            from django.utils import timezone
+            today = timezone.now().date()
+            queryset = queryset.filter(is_credit=True, credit_paid=False, credit_due_date__lt=today)
+        elif nasiya_status == 'active':
+            from django.utils import timezone
+            today = timezone.now().date()
+            queryset = queryset.filter(is_credit=True, credit_paid=False).filter(
+                Q(credit_due_date__gte=today) | Q(credit_due_date__isnull=True)
+            )
+
         payment_status = self.request.query_params.get('payment_status')
         if payment_status:
             queryset = queryset.filter(payment__status=payment_status)
 
         return queryset
+
+class AdminNasiyaSummaryView(views.APIView):
+    """Admin uchun Nasiyalar bo'yicha qisqacha statistika (Faol, Muddati o'tgan, To'langan)."""
+    permission_classes = (IsAuthenticated, IsStaffMember)
+
+    def get(self, request, *args, **kwargs):
+        from django.utils import timezone
+        today = timezone.now().date()
+        
+        base_qs = Order.objects.filter(is_credit=True)
+        
+        paid_count = base_qs.filter(credit_paid=True).count()
+        overdue_count = base_qs.filter(credit_paid=False, credit_due_date__lt=today).count()
+        active_count = base_qs.filter(credit_paid=False).filter(
+            Q(credit_due_date__gte=today) | Q(credit_due_date__isnull=True)
+        ).count()
+        
+        return Response({
+            'paid_count': paid_count,
+            'overdue_count': overdue_count,
+            'active_count': active_count,
+        })
 
 
 class AdminOrderStatusUpdateView(views.APIView):
@@ -502,102 +538,163 @@ class AdminReportView(views.APIView):
             for entry in timeline_qs
         ]
 
-        # --- Mahsulotlar bo'yicha batafsil statistika ---
+        # --- Mahsulotlar bo'yicha batafsil statistika (DB level) ---
+        # Bug fix: F/Sum/DecimalField global import'da bor (line 12).
+        # Lokal qayta import'lash Python local-shadowing'ga olib kelardi:
+        # `Sum` get() ichida lokal aniqlanardi va undan oldin (505-qator,
+        # delivered_qs.aggregate) ishlatilsa UnboundLocalError chiqarardi.
+        # Faqat global'da yo'q bo'lganini import qilamiz.
         from orders.models import OrderItem
-        from products.models import Product
+        from django.db.models import FloatField
+        from django.db.models.functions import Coalesce
 
-        items_qs = (
+        # Hisoblashlarni bitta so'rovda bajarish
+        items_stats = (
             OrderItem.objects
             .filter(order__in=qs)
-            .select_related('product', 'variant')
+            .values(
+                'product_id', 'product__name', 'product__price', 'product__discount_price', 'product__cost_price',
+                'variant_id', 'variant__quality', 'variant__model', 'variant__size', 'variant__color', 'variant__sku',
+                'variant__price', 'variant__discount_price', 'variant__cost_price'
+            )
+            .annotate(
+                quantity_sold=Sum('quantity'),
+                total_revenue=Sum(F('price_snapshot') * F('quantity'), output_field=FloatField())
+            )
+            .order_by('-quantity_sold')
         )
 
-        # Har bir mahsulot + variant kombinatsiyasi uchun yig'ish
-        product_stats = {}
-        for item in items_qs:
-            product = item.product
-            if not product:
+        products_list = []
+        for idx, item in enumerate(items_stats, start=1):
+            p_id = item['product_id']
+            if not p_id:
                 continue
 
-            variant = item.variant
-            key = (product.id, variant.id if variant else None)
+            qty_sold = item['quantity_sold'] or 0
+            rev = item['total_revenue'] or 0.0
 
-            if key not in product_stats:
-                product_stats[key] = {
-                    'id': product.id,
-                    'name': product.name,
-                    'quality': variant.quality if variant else '',
-                    'model': variant.model if variant else '',
-                    'size': variant.size if variant else '',
-                    'color': variant.color if variant else '',
-                    'sku': variant.sku if variant else '',
-                    'price': float(variant.price if variant and variant.price is not None else product.price),
-                    'discount_price': float(variant.discount_price) if variant and variant.discount_price is not None else (float(product.discount_price) if product.discount_price else None),
-                    'cost_price': float(variant.cost_price) if variant and variant.cost_price is not None else float(product.cost_price),
-                    'quantity_sold': 0,
-                    'total_revenue': 0.0,
-                    'total_cost': 0.0,
-                }
+            # cost price
+            v_cost = item['variant__cost_price']
+            p_cost = item['product__cost_price']
+            cost_price = float(v_cost if v_cost is not None else (p_cost or 0))
 
-            qty = item.quantity or 1
-            price_snap = float(item.price_snapshot or 0)
-            cost_price = float(variant.cost_price if variant and variant.cost_price is not None else (product.cost_price or 0))
+            # original price
+            v_price = item['variant__price']
+            p_price = item['product__price']
+            original_price = float(v_price if v_price is not None else (p_price or 0))
 
-            product_stats[key]['quantity_sold'] += qty
-            product_stats[key]['total_revenue'] += price_snap * qty
-            product_stats[key]['total_cost'] += cost_price * qty
+            v_disc = item['variant__discount_price']
+            p_disc = item['product__discount_price']
+            disc_price = float(v_disc) if v_disc is not None else (float(p_disc) if p_disc else None)
 
-        # Sort: eng ko'p sotilgan birinchi
-        products_list = sorted(product_stats.values(), key=lambda x: x['quantity_sold'], reverse=True)
+            total_cost_item = cost_price * qty_sold
+            net_profit = rev - total_cost_item
 
-        # Tartib raqami qo'shish
-        for idx, p in enumerate(products_list, start=1):
-            p['rank'] = idx
-            p['sold_price'] = p['total_revenue'] / p['quantity_sold'] if p['quantity_sold'] > 0 else 0
-            p['net_profit'] = p['total_revenue'] - p['total_cost']
+            products_list.append({
+                'rank': idx,
+                'id': p_id,
+                'name': item['product__name'],
+                'quality': item['variant__quality'] or '',
+                'model': item['variant__model'] or '',
+                'size': item['variant__size'] or '',
+                'color': item['variant__color'] or '',
+                'sku': item['variant__sku'] or '',
+                'price': original_price,
+                'discount_price': disc_price,
+                'cost_price': cost_price,
+                'quantity_sold': qty_sold,
+                'total_revenue': rev,
+                'total_cost': total_cost_item,
+                'sold_price': rev / qty_sold if qty_sold > 0 else 0,
+                'net_profit': net_profit,
+            })
 
-        # ─── Cheklar (Savdo) statistikasi + total_cost — bitta prefetched skan ────
-        #
-        # Eski muammo (ikkita alohida DB operatsiyasi):
-        #   1) delivered_items = list(OrderItem.filter(order__in=delivered_qs)...)
-        #      → delivered_qs subquery + barcha items yuk
-        #   2) for order in delivered_qs: order.items.all()
-        #      → delivered_qs yana evaluate + har bir order.items N+1 xavfi
-        #
-        # Yechim (bitta iteratsiya):
-        #   prefetch_related('items__product', 'items__variant') →
-        #   Django 1 ORDER query + 3 PREFETCH query ishlaydi, jami 4 query.
-        #   order.items.all() prefetch cache'dan o'qiladi → 0 extra query.
-        #   total_cost ham shu iteratsiyada hisoblanadi → alohida scan yo'q.
-        # ─────────────────────────────────────────────────────────────────────────
+        # --- Jami tushum (Cost & Discount) (Faqat delivered_qs uchun) ---
+        from decimal import Decimal
+        delivered_items_qs = OrderItem.objects.filter(order__in=delivered_qs)
+        
+        # Calculate cost via ORM
+        cost_agg = delivered_items_qs.aggregate(
+            t_cost=Sum(
+                F('quantity') * Coalesce('variant__cost_price', 'product__cost_price', Decimal('0')),
+                output_field=FloatField()
+            )
+        )
+        total_cost = cost_agg['t_cost'] or 0.0
+
+        # Calculate discount via ORM (original_price - price_snapshot)
+        disc_agg = delivered_items_qs.aggregate(
+            t_disc=Sum(
+                F('quantity') * (
+                    Coalesce('variant__price', 'product__price', Decimal('0')) - F('price_snapshot')
+                ),
+                output_field=FloatField()
+            )
+        )
+        total_discount = max(0.0, disc_agg['t_disc'] or 0.0)
+
+        summary = {
+            'total_revenue': float(total_revenue),
+            'total_discount': float(total_discount),
+            'total_cost': float(total_cost),
+            'avg_order_value': float(avg_order),
+            'total_orders': total_orders,
+            'delivered_orders': delivered_count,
+            'cancelled_orders': cancelled_count,
+            'pending_orders': pending_count,
+            'net_profit': float(total_revenue) - float(total_cost),
+        }
+
+        return Response({
+            'summary': summary,
+            'timeline': timeline,
+            'products': products_list,
+        })
+
+
+class AdminReportOrdersView(views.APIView, OrderPagePagination):
+    """Admin Hisobot sahifasidagi 'Cheklar' ro'yxati (Paginatsiyalangan)."""
+    permission_classes = (IsAuthenticated, CanAccessReports)
+
+    def get(self, request, *args, **kwargs):
+        date_from_str = request.query_params.get('date_from')
+        date_to_str = request.query_params.get('date_to')
+
+        qs = Order.objects.filter(
+            status__in=[Order.STATUS_DELIVERED, Order.STATUS_RECEIVED]
+        ).select_related('payment').prefetch_related(
+            'items__product__variants', 'items__variant'
+        ).order_by('-created_at')
+
+        if date_from_str:
+            try:
+                date_from = parse_date(date_from_str)
+                if date_from:
+                    qs = qs.filter(created_at__date__gte=date_from)
+            except (ValueError, TypeError):
+                pass
+
+        if date_to_str:
+            try:
+                date_to = parse_date(date_to_str)
+                if date_to:
+                    qs = qs.filter(created_at__date__lte=date_to)
+            except (ValueError, TypeError):
+                pass
+
+        page = self.paginate_queryset(qs, request, view=self)
+        
         from decimal import Decimal as _D
-
-        total_cost = _D('0')
         orders_list = []
-
-        for order in (
-            delivered_qs
-            .prefetch_related('items__product', 'items__variant')
-            .order_by('-created_at')
-        ):
+        for order in page:
             order_items = []
-            # Bug fix: per-order chegirma summasi va asl summa items iteratsiyasidan
-            # yig'iladi (Order.discount_price ishonchsiz — 0 bo'ladi).
             order_discount_sum = 0.0
             order_original_sum = 0.0
-            for item in order.items.all():       # ← prefetch cache, 0 extra query
-                variant = item.variant           # ← prefetch cache
-                product = item.product           # ← prefetch cache
 
-                # total_cost — avval alohida delivered_items scan edi
-                item_cost = _D(str(
-                    variant.cost_price
-                    if variant and variant.cost_price is not None
-                    else (product.cost_price or 0)
-                ))
-                total_cost += item_cost * item.quantity
+            for item in order.items.all():
+                variant = item.variant
+                product = item.product
 
-                # narx ma'lumotlari
                 original_price = float(
                     variant.price if variant and variant.price is not None
                     else (product.price if product else 0)
@@ -609,7 +706,6 @@ class AdminReportView(views.APIView):
                     if original_price > 0 and sold_price < original_price
                     else 0.0
                 )
-                # Per-order yig'indi (bug fix)
                 order_discount_sum += discount_amount
                 order_original_sum += original_price * item.quantity
 
@@ -639,34 +735,12 @@ class AdminReportView(views.APIView):
                 'receiver_name': order.receiver_name,
                 'receiver_phone': order.receiver_phone,
                 'total_price': float(order.total_price),
-                # Bug fix: items'dan yig'iladi (Order.discount_price = 0 chunki
-                # chegirma per-item belgilanadi). Aggregator JAMI ham shu summa'dan.
                 'total_discount': order_discount_sum,
                 'total_original': order_original_sum,
                 'items': order_items,
             })
-            # Global total — har order'ning chegirma summasi yig'indisi
-            total_discount += order_discount_sum
 
-        # summary: total_cost endi prefetched iteratsiyadan keyin aniq ma'lum
-        summary = {
-            'total_revenue': float(total_revenue),
-            'total_discount': float(total_discount),
-            'total_cost': float(total_cost),
-            'avg_order_value': float(avg_order),
-            'total_orders': total_orders,
-            'delivered_orders': delivered_count,
-            'cancelled_orders': cancelled_count,
-            'pending_orders': pending_count,
-            'net_profit': float(total_revenue) - float(total_cost),
-        }
-
-        return Response({
-            'summary': summary,
-            'timeline': timeline,
-            'products': products_list,
-            'orders': orders_list,
-        })
+        return self.get_paginated_response(orders_list)
 
 
 class AdminPOSOrderView(views.APIView):

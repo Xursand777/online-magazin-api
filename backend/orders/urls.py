@@ -9,6 +9,8 @@ from .views import (
     AdminOrderStatusUpdateView,
     AdminPOSOrderView,
     AdminReportView,
+    AdminReportOrdersView,
+    AdminNasiyaSummaryView,
     CourierConfirmDeliveryView,
     CustomerCreateDisputeView,
     CustomerOrderDisputesView,
@@ -24,10 +26,12 @@ from .views import (
 
 urlpatterns = [
     path('admin/dashboard/', AdminDashboardView.as_view(), name='admin_dashboard'),
+    path('admin/nasiya/summary/', AdminNasiyaSummaryView.as_view(), name='admin_nasiya_summary'),
     path('admin/', AdminOrderListView.as_view(), name='admin_order_list'),
     path('admin/<int:pk>/status/', AdminOrderStatusUpdateView.as_view(), name='admin_order_status_update'),
     path('admin/<int:pk>/pay-credit/', AdminCreditPayView.as_view(), name='admin_credit_pay'),
     path('admin/report/', AdminReportView.as_view(), name='admin_order_report'),
+    path('admin/report/orders/', AdminReportOrdersView.as_view(), name='admin_report_orders'),
     path('admin/pos-order/', AdminPOSOrderView.as_view(), name='admin_pos_order'),
     path('admin/customer-history/', AdminCustomerHistoryView.as_view(), name='admin_customer_history'),
     path('admin/kassa/', KassaView.as_view(), name='admin_kassa_stats'),
