@@ -5116,17 +5116,29 @@ const ReportsTab = () => {
                 </tr>
               </thead>
               <tbody>
-                {[...(data?.orders ?? [])].reverse().map((order, orderIndex) => {
-                  // Bug fix: per-receipt total chegirma'ni items'dan recompute
-                  // qilamiz. Backend ham fix qilingan (order.total_discount items
-                  // yig'indisini qaytaradi), lekin defense-in-depth — bottom JAMI
-                  // bilan bir xil mantiq, eski cache'lar bilan ham to'g'ri ishlaydi.
+                {/*
+                  TARTIB: Yangi cheklar — TEPADA. Backend `order_by('-created_at')`
+                  bilan eng yangini birinchi qaytaradi, shu sababli .reverse()
+                  ISHLATMAYMIZ. Avvalgi kodda .reverse() bor edi → bug:
+                  eski cheklar tepada, yangi pastda. Bu bug bir necha marotaba
+                  qaytib kelgan — kelajakda hech kim .reverse() qo'shmasligi
+                  uchun shu izoh qoldirilgan.
+
+                  CHEGIRMA % HISOBLASH: Vaznli o'rta (weighted by money), oddiy
+                  o'rta emas. Misol: 100 narxi 10% chegirma + 10000 narxi 5%
+                  chegirma → vaznli 5.05% (moliyaviy to'g'ri), oddiy o'rta
+                  7.5% (adashtiruvchi). Vaznli — receiptDiscount/receiptOriginal.
+                */}
+                {(data?.orders ?? []).map((order, orderIndex) => {
+                  // Per-receipt total chegirma items'dan recompute (bottom JAMI
+                  // bilan bir xil mantiq, eski cache'lar bilan ham to'g'ri).
                   const receiptOriginal = order.items.reduce(
                     (sum, item) => sum + (item.original_price * item.quantity), 0,
                   );
                   const receiptDiscount = order.items.reduce(
                     (sum, item) => sum + item.discount_amount, 0,
                   );
+                  // VAZNLI o'rta (oddiy o'rta emas — yuqorida izohni o'qing)
                   const receiptDiscountPct =
                     receiptOriginal > 0 ? (receiptDiscount / receiptOriginal) * 100 : 0;
                   return (
