@@ -72,6 +72,7 @@ import {
 } from '../utils/orderStatus';
 import { toast } from '../utils/toast';
 import { printReceipt, printCreditAgreement } from '../utils/receiptPrinter';
+import { loadShopInfo, useShopInfo, updateShopInfoCache } from '../utils/shopInfoCache';
 import ThemeToggle from '../components/ThemeToggle';
 import AdminPOS from '../components/AdminPOS';
 
@@ -820,19 +821,12 @@ const AdminDashboard = () => {
   const navigate = useNavigate();
   const qc = useQueryClient();
 
-  // Do'kon ma'lumotlarini erta yuklab modul-level cache'ga yozamiz.
-  // OrdersTab'dan chek bosilganda printReceipt'ning sinxron loadStoreInfo()
-  // chaqiruvi tayyor qiymatlarni topadi (default emas).
-  const _shopInfoBoot = useShopInfoSync(qc);
-  useEffect(() => {
-    if (_shopInfoBoot.data) {
-      _shopInfoCache = {
-        name: _shopInfoBoot.data.shop_name,
-        phone: _shopInfoBoot.data.shop_phone,
-        address: _shopInfoBoot.data.shop_address,
-      };
-    }
-  }, [_shopInfoBoot.data]);
+  // Do'kon ma'lumotlarini erta yuklaymiz -> shared modul cache (shopInfoCache.ts)
+  // avtomat to'ladi va OrdersTab'dan chek bosilganda printReceipt sinxron
+  // loadShopInfo()'dan yangi qiymatni oladi. Cache yangilanishi useShopInfo
+  // hook ichida useEffect bilan boshqariladi -> bu yerda alohida useEffect
+  // kerakmas.
+  useShopInfo();
 
   const userRole    = user?.role as StaffRole | undefined;
   const isSuperUser = !!(user?.is_admin && !userRole);
@@ -2651,7 +2645,7 @@ const OrdersTab = () => {
                         </div>
                       </div>
                       <button
-                        onClick={() => printReceipt(order, loadStoreInfo().name ? loadStoreInfo() : undefined)}
+                        onClick={() => printReceipt(order, loadShopInfo().name ? loadShopInfo() : undefined)}
                         title='Chek chiqarish'
                         className='flex flex-shrink-0 flex-col items-center gap-1 rounded-xl border border-outline-variant bg-surface-container-lowest px-3 py-2 text-xs text-on-surface-variant transition-all hover:border-primary hover:bg-primary/5 hover:text-primary'
                       >
@@ -3012,7 +3006,7 @@ const OrdersTab = () => {
                       <div className='flex gap-2'>
                         <button
                           type='button'
-                          onClick={() => printReceipt(order, loadStoreInfo().name ? loadStoreInfo() : undefined)}
+                          onClick={() => printReceipt(order, loadShopInfo().name ? loadShopInfo() : undefined)}
                           className='flex flex-1 items-center justify-center gap-2 rounded-lg border border-outline-variant px-4 py-2 text-sm font-medium text-on-surface-variant hover:border-primary hover:text-primary'
                         >
                           <span className='material-symbols-outlined text-[18px]'>receipt_long</span>
@@ -3021,7 +3015,7 @@ const OrdersTab = () => {
                         {order.is_credit && (
                           <button
                             type='button'
-                            onClick={() => printCreditAgreement(order, loadStoreInfo().name ? loadStoreInfo() : undefined)}
+                            onClick={() => printCreditAgreement(order, loadShopInfo().name ? loadShopInfo() : undefined)}
                             className='flex flex-1 items-center justify-center gap-2 rounded-lg border border-blue-300 bg-blue-50 px-4 py-2 text-sm font-medium text-blue-700 hover:border-blue-500 hover:bg-blue-100 dark:border-blue-800/50 dark:bg-blue-950/20 dark:text-blue-400'
                           >
                             <span className='material-symbols-outlined text-[18px]'>description</span>
@@ -5504,47 +5498,12 @@ const NasiyaTab = () => {
 };
 
 // ─── Sozlamalar Tab ───────────────────────────────────────────────────────────
+// Do'kon ma'lumotlari uchun cache va React Query hook'lar shared utility'ga
+// ko'chirildi — AdminPOS bilan birgalikda bitta source of truth (yagona cache).
+// Avval dual cache bor edi -> POS'da stale qiymat bug. Shu utility tuzatadi.
 //
-// Do'kon ma'lumotlari (chek/receipt'da ko'rinadi):
-//   Avval localStorage'da edi — har qurilmada alohida saqlanardi, brauzer
-//   cache'ini tozalasa nullashardi, boshqa adminlar ko'rmasdi. Endi server'da:
-//   GET /api/admin/shop-info/      — barcha xodimlar
-//   PATCH /api/admin/shop-info/    — faqat Super Admin
-//
-// SINXRON CACHE: printReceipt() chaqirilganda ma'lumot darhol kerak bo'lgani
-// uchun, modul darajasida cached qiymat saqlanadi. React Query muvaffaqiyatli
-// fetch qilganda cache yangilanadi. Default qiymatlar — backend bilan mos.
-type StoreInfoCache = {
-  name: string;
-  phone: string;
-  address: string;
-};
-let _shopInfoCache: StoreInfoCache = {
-  name: 'BOZOR UZ',
-  phone: '+998 71 000-00-00',
-  address: 'Toshkent sh.',
-};
-
-/**
- * Sinxron chek bosishlar uchun: oxirgi muvaffaqiyatli fetch'dan keyingi
- * cached qiymat (yoki defaultlar). printReceipt() va printCreditAgreement()
- * shu yo'ldan ishlatadi.
- */
-const loadStoreInfo = () => ({ ..._shopInfoCache });
-
-/**
- * Server'dan do'kon ma'lumotlarini olib, modul cache'ini yangilaydi.
- * AdminDashboard'da bir marta chaqiriladi -> SozlamalarTab va printReceipt
- * callerlar tayyor cache'dan o'qiydi.
- */
-const useShopInfoSync = (qc: ReturnType<typeof useQueryClient>) => {
-  return useQuery({
-    queryKey: ['shop-info'],
-    queryFn: () => adminGetShopInfo().then((r) => r.data),
-    staleTime: 5 * 60 * 1000, // 5 minuts — backend cache TTL'iga mos
-    refetchOnWindowFocus: false,
-  });
-};
+// Import: loadShopInfo (sinxron printReceipt uchun), useShopInfo (React hook),
+// updateShopInfoCache (mutation onSuccess'da).
 
 const SozlamalarTab = () => {
   const qc = useQueryClient();
@@ -5571,20 +5530,11 @@ const SozlamalarTab = () => {
   const { user } = useAuthStore();
   const isSuper = !!(user?.is_admin && !user?.role);
 
-  const shopInfoQuery = useShopInfoSync(qc);
-  // Server qiymatlari kelgach modul cache'ini yangilab qo'yamiz, printReceipt
-  // callerlar sinxron loadStoreInfo() bilan oxirgi qiymatni oladi.
-  useEffect(() => {
-    if (shopInfoQuery.data) {
-      _shopInfoCache = {
-        name: shopInfoQuery.data.shop_name,
-        phone: shopInfoQuery.data.shop_phone,
-        address: shopInfoQuery.data.shop_address,
-      };
-    }
-  }, [shopInfoQuery.data]);
+  // Shared cache hook — modul cache'ini avtomat sinxronlashtiradi
+  // (useShopInfo ichida useEffect bor)
+  const shopInfoQuery = useShopInfo();
 
-  const FIXED_STORE_NAME = shopInfoQuery.data?.shop_name || _shopInfoCache.name;
+  const FIXED_STORE_NAME = shopInfoQuery.data?.shop_name || loadShopInfo().name;
   const [storePhone, setStorePhone] = useState('');
   const [storeAddress, setStoreAddress] = useState('');
   const [storeSaved, setStoreSaved] = useState(false);
@@ -5605,19 +5555,24 @@ const SozlamalarTab = () => {
         shop_address: storeAddress,
       }),
     onSuccess: (res) => {
-      // Kesh yangilanadi -> printReceipt darhol yangi qiymatlardan foydalanadi
-      _shopInfoCache = {
-        name: res.data.shop_name,
-        phone: res.data.shop_phone,
-        address: res.data.shop_address,
-      };
+      // Shared cache + React Query store ikkalasi ham yangilanadi -> POS,
+      // OrdersTab, har joy darhol yangi qiymatni ko'radi.
+      updateShopInfoCache(res.data);
       qc.setQueryData(['shop-info'], res.data);
       setStoreSaved(true);
-      toast.success("Do'kon ma'lumotlari saqlandi (server'da)!");
+      toast.success("Do'kon ma'lumotlari saqlandi (server'da, barcha qurilmalarda mos)!");
       setTimeout(() => setStoreSaved(false), 2000);
     },
     onError: (e: any) => {
-      toast.error(e?.response?.data?.error || "Saqlashda xatolik yuz berdi.");
+      // Backend validatsiyasi xatosini foydalanuvchi-do'st ko'rinishga aylantirish
+      const data = e?.response?.data;
+      const msg =
+        data?.error ||
+        data?.shop_phone?.[0] ||
+        data?.shop_address?.[0] ||
+        data?.shop_name?.[0] ||
+        "Saqlashda xatolik yuz berdi.";
+      toast.error(msg);
     },
   });
 

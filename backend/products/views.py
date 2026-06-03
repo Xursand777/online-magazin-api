@@ -941,18 +941,21 @@ class ShopInfoView(views.APIView):
         return Response(GlobalSetting.get_shop_info())
 
     def patch(self, request):
-        # Frontend'dan qisman yuborishi mumkin: faqat phone, faqat address yoki ikkalasi
-        name    = request.data.get('shop_name')
-        phone   = request.data.get('shop_phone')
-        address = request.data.get('shop_address')
+        # DRF serializer validatsiyasi:
+        #   - Bo'sh string -> rad etiladi (allow_blank=False)
+        #   - max_length=200
+        #   - Telefon format check (raqam/+/probel/tire/qavslar, kamida 7 raqam)
+        #   - Kamida bitta field shart
+        from .serializers import ShopInfoUpdateSerializer
+        ser = ShopInfoUpdateSerializer(data=request.data, partial=True)
+        ser.is_valid(raise_exception=True)
+        validated = ser.validated_data
 
-        if name is None and phone is None and address is None:
-            return Response(
-                {'error': "Hech bo'lmaganda bitta maydon yuborilishi shart."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        info = GlobalSetting.set_shop_info(name=name, phone=phone, address=address)
+        info = GlobalSetting.set_shop_info(
+            name=validated.get('shop_name'),
+            phone=validated.get('shop_phone'),
+            address=validated.get('shop_address'),
+        )
         return Response(info)
 
 
