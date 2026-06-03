@@ -198,6 +198,17 @@ export const adminGetMasterDiscount = () =>
 export const adminSetMasterDiscount = (percent: number) =>
   apiClient.post('/admin/masters/discount/', { percent });
 
+// Do'kon ma'lumotlari (chek/receipt) — server'da saqlanadi
+// GET: barcha xodimlar uchun. PATCH: faqat Super Admin.
+export interface ShopInfo {
+  shop_name: string;
+  shop_phone: string;
+  shop_address: string;
+}
+export const adminGetShopInfo = () => apiClient.get<ShopInfo>('/admin/shop-info/');
+export const adminUpdateShopInfo = (data: Partial<ShopInfo>) =>
+  apiClient.patch<ShopInfo>('/admin/shop-info/', data);
+
 // AUDIT LOG (faqat Super Admin) — Phase 1.1
 export const adminGetAuditLogs = (params?: {
   actor?: string;

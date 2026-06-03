@@ -920,6 +920,42 @@ class AdminExchangeRateView(views.APIView):
             'usd_rate': float(new_rate_dec)
         })
 
+# ── Do'kon ma'lumotlari (chek/receipt) ──────────────────────────────────────
+# GET — chek bosish kerak bo'lgan barcha xodimlar uchun ochiq (admin + seller +
+# courier — POS va admin paneldagi printReceipt'lar uchun).
+# PATCH — faqat Super Admin. Bu user'ning aniq talabasi: bir martalik o'zgartirish
+# keyin barqaror qoladi.
+class ShopInfoView(views.APIView):
+    """
+    GET  /api/products/admin/shop-info/    — Har qanday xodim o'qiy oladi.
+    PATCH /api/products/admin/shop-info/   — Faqat Super Admin (is_superuser=True).
+    """
+
+    def get_permissions(self):
+        if self.request.method == 'GET':
+            return [IsAuthenticated(), IsStaffMember()]
+        # PATCH va boshqa write metodlar — faqat Super Admin
+        return [IsAuthenticated(), IsSuperAdmin()]
+
+    def get(self, request):
+        return Response(GlobalSetting.get_shop_info())
+
+    def patch(self, request):
+        # Frontend'dan qisman yuborishi mumkin: faqat phone, faqat address yoki ikkalasi
+        name    = request.data.get('shop_name')
+        phone   = request.data.get('shop_phone')
+        address = request.data.get('shop_address')
+
+        if name is None and phone is None and address is None:
+            return Response(
+                {'error': "Hech bo'lmaganda bitta maydon yuborilishi shart."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        info = GlobalSetting.set_shop_info(name=name, phone=phone, address=address)
+        return Response(info)
+
+
 class AdminStockReportView(views.APIView):
     """Ombor hisoboti: Kam qolgan tovarlar va variantlar ro'yxati."""
     permission_classes = (IsAuthenticated, CanAccessStockReport)

@@ -7,7 +7,7 @@ from .views import (
     ProductSimilarListView, RecentlyViewedView,
     AdminCategoryViewSet, AdminHomeBannerViewSet, AdminProductViewSet,
     HomeBannerListView, AdminExchangeRateView, AdminStockReportView,
-    AdminBulkImportView,
+    AdminBulkImportView, ShopInfoView,
     # Compat — public
     PhoneBrandListView, PhoneModelSearchView, ProductCompatibleModelsView,
     # Compat — admin
@@ -26,6 +26,8 @@ router.register(r'admin/phones/models', AdminPhoneModelViewSet,    basename='adm
 urlpatterns = [
     # ── Katalog ──────────────────────────────────────────────────────────────
     path('admin/exchange-rate/', AdminExchangeRateView.as_view(), name='admin_exchange_rate'),
+    # Do'kon ma'lumotlari (chek/receipt) — GET barcha xodimlar, PATCH faqat Super Admin
+    path('admin/shop-info/',     ShopInfoView.as_view(),          name='admin_shop_info'),
     path('admin/stock-report/',  AdminStockReportView.as_view(),  name='admin_stock_report'),
 
     # #23 FIX: Bulk CSV/Excel import (10,000+ mahsulot)

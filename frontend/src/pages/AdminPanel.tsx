@@ -38,6 +38,8 @@ import {
   adminGetUsers,
   adminGetUser,
   adminLiftUserCreditBan,
+  adminGetShopInfo,
+  adminUpdateShopInfo,
   adminToggleUserActive,
   adminGetFeedbacks,
   adminUpdateFeedback,
@@ -817,6 +819,20 @@ const AdminDashboard = () => {
   const resetCart = useCartStore((s) => s.resetCart);
   const navigate = useNavigate();
   const qc = useQueryClient();
+
+  // Do'kon ma'lumotlarini erta yuklab modul-level cache'ga yozamiz.
+  // OrdersTab'dan chek bosilganda printReceipt'ning sinxron loadStoreInfo()
+  // chaqiruvi tayyor qiymatlarni topadi (default emas).
+  const _shopInfoBoot = useShopInfoSync(qc);
+  useEffect(() => {
+    if (_shopInfoBoot.data) {
+      _shopInfoCache = {
+        name: _shopInfoBoot.data.shop_name,
+        phone: _shopInfoBoot.data.shop_phone,
+        address: _shopInfoBoot.data.shop_address,
+      };
+    }
+  }, [_shopInfoBoot.data]);
 
   const userRole    = user?.role as StaffRole | undefined;
   const isSuperUser = !!(user?.is_admin && !userRole);
@@ -5488,13 +5504,46 @@ const NasiyaTab = () => {
 };
 
 // ─── Sozlamalar Tab ───────────────────────────────────────────────────────────
-const STORE_INFO_KEY = 'bozor_store_info';
-const loadStoreInfo = () => {
-  try {
-    return JSON.parse(localStorage.getItem(STORE_INFO_KEY) || '{}');
-  } catch {
-    return {};
-  }
+//
+// Do'kon ma'lumotlari (chek/receipt'da ko'rinadi):
+//   Avval localStorage'da edi — har qurilmada alohida saqlanardi, brauzer
+//   cache'ini tozalasa nullashardi, boshqa adminlar ko'rmasdi. Endi server'da:
+//   GET /api/admin/shop-info/      — barcha xodimlar
+//   PATCH /api/admin/shop-info/    — faqat Super Admin
+//
+// SINXRON CACHE: printReceipt() chaqirilganda ma'lumot darhol kerak bo'lgani
+// uchun, modul darajasida cached qiymat saqlanadi. React Query muvaffaqiyatli
+// fetch qilganda cache yangilanadi. Default qiymatlar — backend bilan mos.
+type StoreInfoCache = {
+  name: string;
+  phone: string;
+  address: string;
+};
+let _shopInfoCache: StoreInfoCache = {
+  name: 'BOZOR UZ',
+  phone: '+998 71 000-00-00',
+  address: 'Toshkent sh.',
+};
+
+/**
+ * Sinxron chek bosishlar uchun: oxirgi muvaffaqiyatli fetch'dan keyingi
+ * cached qiymat (yoki defaultlar). printReceipt() va printCreditAgreement()
+ * shu yo'ldan ishlatadi.
+ */
+const loadStoreInfo = () => ({ ..._shopInfoCache });
+
+/**
+ * Server'dan do'kon ma'lumotlarini olib, modul cache'ini yangilaydi.
+ * AdminDashboard'da bir marta chaqiriladi -> SozlamalarTab va printReceipt
+ * callerlar tayyor cache'dan o'qiydi.
+ */
+const useShopInfoSync = (qc: ReturnType<typeof useQueryClient>) => {
+  return useQuery({
+    queryKey: ['shop-info'],
+    queryFn: () => adminGetShopInfo().then((r) => r.data),
+    staleTime: 5 * 60 * 1000, // 5 minuts — backend cache TTL'iga mos
+    refetchOnWindowFocus: false,
+  });
 };
 
 const SozlamalarTab = () => {
@@ -5518,17 +5567,63 @@ const SozlamalarTab = () => {
     onError: () => toast.error('Kursni yangilashda xatolik'),
   });
 
-  // Do'kon sozlamalari (localStorage) — nom o'zgartirilmaydi
-  const FIXED_STORE_NAME = loadStoreInfo().name || 'Bozor UZ';
-  const [storePhone, setStorePhone] = useState(() => loadStoreInfo().phone || '+998 71 000-00-00');
-  const [storeAddress, setStoreAddress] = useState(() => loadStoreInfo().address || 'Toshkent sh.');
+  // Do'kon sozlamalari (server'da saqlanadi — faqat Super Admin tahrir qila oladi)
+  const { user } = useAuthStore();
+  const isSuper = !!(user?.is_admin && !user?.role);
+
+  const shopInfoQuery = useShopInfoSync(qc);
+  // Server qiymatlari kelgach modul cache'ini yangilab qo'yamiz, printReceipt
+  // callerlar sinxron loadStoreInfo() bilan oxirgi qiymatni oladi.
+  useEffect(() => {
+    if (shopInfoQuery.data) {
+      _shopInfoCache = {
+        name: shopInfoQuery.data.shop_name,
+        phone: shopInfoQuery.data.shop_phone,
+        address: shopInfoQuery.data.shop_address,
+      };
+    }
+  }, [shopInfoQuery.data]);
+
+  const FIXED_STORE_NAME = shopInfoQuery.data?.shop_name || _shopInfoCache.name;
+  const [storePhone, setStorePhone] = useState('');
+  const [storeAddress, setStoreAddress] = useState('');
   const [storeSaved, setStoreSaved] = useState(false);
 
+  // Server javobi kelganda formani to'ldiramiz (faqat foydalanuvchi tahrir
+  // qilmagan bo'lsa)
+  useEffect(() => {
+    if (shopInfoQuery.data) {
+      setStorePhone((cur) => (cur ? cur : shopInfoQuery.data!.shop_phone));
+      setStoreAddress((cur) => (cur ? cur : shopInfoQuery.data!.shop_address));
+    }
+  }, [shopInfoQuery.data]);
+
+  const updateShopInfoMutation = useMutation({
+    mutationFn: () =>
+      adminUpdateShopInfo({
+        shop_phone: storePhone,
+        shop_address: storeAddress,
+      }),
+    onSuccess: (res) => {
+      // Kesh yangilanadi -> printReceipt darhol yangi qiymatlardan foydalanadi
+      _shopInfoCache = {
+        name: res.data.shop_name,
+        phone: res.data.shop_phone,
+        address: res.data.shop_address,
+      };
+      qc.setQueryData(['shop-info'], res.data);
+      setStoreSaved(true);
+      toast.success("Do'kon ma'lumotlari saqlandi (server'da)!");
+      setTimeout(() => setStoreSaved(false), 2000);
+    },
+    onError: (e: any) => {
+      toast.error(e?.response?.data?.error || "Saqlashda xatolik yuz berdi.");
+    },
+  });
+
   const saveStoreInfo = () => {
-    localStorage.setItem(STORE_INFO_KEY, JSON.stringify({ name: FIXED_STORE_NAME, phone: storePhone, address: storeAddress }));
-    setStoreSaved(true);
-    toast.success("Do'kon ma'lumotlari saqlandi!");
-    setTimeout(() => setStoreSaved(false), 2000);
+    if (!isSuper) return;
+    updateShopInfoMutation.mutate();
   };
 
   return (
@@ -5612,9 +5707,16 @@ const SozlamalarTab = () => {
           </span>
           Do'kon ma'lumotlari
         </h3>
-        <p className='mb-5 ml-11 text-sm text-on-surface-variant'>
+        <p className='mb-3 ml-11 text-sm text-on-surface-variant'>
           Savdo cheki (receipt) da ko'rinadigan telefon raqam va manzil
         </p>
+
+        {!isSuper && (
+          <div className='mb-4 ml-11 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-300'>
+            <span className='material-symbols-outlined text-[16px] flex-shrink-0 mt-0.5'>lock</span>
+            <span>Do'kon ma'lumotlarini faqat <strong>Super Admin</strong> tahrir qila oladi. Siz faqat ko'rib turibsiz.</span>
+          </div>
+        )}
 
         <div className='space-y-4'>
           <div>
@@ -5624,7 +5726,8 @@ const SozlamalarTab = () => {
               value={storePhone}
               onChange={(e) => setStorePhone(e.target.value)}
               placeholder="+998 71 000-00-00"
-              className='w-full rounded-xl border-2 border-outline-variant bg-surface px-4 py-3 text-sm focus:border-primary focus:outline-none'
+              disabled={!isSuper || shopInfoQuery.isLoading}
+              className='w-full rounded-xl border-2 border-outline-variant bg-surface px-4 py-3 text-sm focus:border-primary focus:outline-none disabled:cursor-not-allowed disabled:opacity-60'
             />
           </div>
           <div>
@@ -5634,21 +5737,27 @@ const SozlamalarTab = () => {
               value={storeAddress}
               onChange={(e) => setStoreAddress(e.target.value)}
               placeholder="Toshkent sh., ..."
-              className='w-full rounded-xl border-2 border-outline-variant bg-surface px-4 py-3 text-sm focus:border-primary focus:outline-none'
+              disabled={!isSuper || shopInfoQuery.isLoading}
+              className='w-full rounded-xl border-2 border-outline-variant bg-surface px-4 py-3 text-sm focus:border-primary focus:outline-none disabled:cursor-not-allowed disabled:opacity-60'
             />
           </div>
-          <div className='flex items-center gap-3 pt-2'>
-            <button
-              onClick={saveStoreInfo}
-              className='flex items-center gap-2 rounded-xl bg-primary px-6 py-2.5 font-bold text-on-primary hover:opacity-90 transition-opacity'
-            >
-              <span className='material-symbols-outlined text-[18px]'>{storeSaved ? 'check_circle' : 'save'}</span>
-              {storeSaved ? 'Saqlandi!' : 'Saqlash'}
-            </button>
-            <p className='text-xs text-on-surface-variant'>
-              Bu ma'lumotlar brauzerda saqlanadi va chek chiqarishda ishlatiladi
-            </p>
-          </div>
+          {isSuper && (
+            <div className='flex items-center gap-3 pt-2'>
+              <button
+                onClick={saveStoreInfo}
+                disabled={updateShopInfoMutation.isPending || shopInfoQuery.isLoading}
+                className='flex items-center gap-2 rounded-xl bg-primary px-6 py-2.5 font-bold text-on-primary hover:opacity-90 transition-opacity disabled:opacity-50'
+              >
+                <span className='material-symbols-outlined text-[18px]'>
+                  {updateShopInfoMutation.isPending ? 'progress_activity' : storeSaved ? 'check_circle' : 'save'}
+                </span>
+                {updateShopInfoMutation.isPending ? 'Saqlanmoqda...' : storeSaved ? 'Saqlandi!' : 'Saqlash'}
+              </button>
+              <p className='text-xs text-on-surface-variant'>
+                Bu ma'lumotlar <strong>server'da</strong> saqlanadi (barcha qurilmalarda mos)
+              </p>
+            </div>
+          )}
         </div>
 
         {/* Receipt preview */}
