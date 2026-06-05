@@ -306,7 +306,11 @@ apiClient.interceptors.request.use(
 apiClient.interceptors.response.use(
   (response) => {
     // Guest session ID'ni saqlash (server yuborsa)
-    const guestId = response.headers['x-guest-session-id'];
+    const guestId =
+      response.headers['x-guest-session-id'] ||
+      response.headers['X-Guest-Session-Id'] ||
+      response.data?.guest_session_id ||
+      response.data?.cart?.guest_session_id;
     if (guestId) localStorage.setItem('guest_session_id', guestId);
     return response;
   },

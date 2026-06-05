@@ -12,6 +12,7 @@ import { useAuthStore } from './authStore';
 import { toast } from '../utils/toast';
 
 const LOCAL_CART_STORAGE_KEY = 'guest_cart_items';
+const GUEST_SESSION_STORAGE_KEY = 'guest_session_id';
 
 export interface CartItemProduct {
   id: number;
@@ -92,6 +93,10 @@ const writeLocalCartItems = (items: CartItem[]) => {
     return;
   }
   localStorage.setItem(LOCAL_CART_STORAGE_KEY, JSON.stringify(items));
+};
+
+const clearGuestSession = () => {
+  localStorage.removeItem(GUEST_SESSION_STORAGE_KEY);
 };
 
 const getDisplayPrice = (item: CartItem) => {
@@ -306,15 +311,7 @@ export const useCartStore = create<CartState>((set, get) => ({
       } catch (error) {
         const isNotFound = (error as any)?.response?.status === 404;
         if (isNotFound) {
-          const prevCart = get().cart;
-          if (prevCart) {
-            set({
-              cart: {
-                ...prevCart,
-                items: prevCart.items.filter((item) => item.id !== itemId),
-              },
-            });
-          }
+          await get().fetchCart();
           toast.error("Ushbu mahsulot savatda topilmadi, xatolik bartaraf etildi. Qayta qo'shing.");
         } else {
           await get().fetchCart();
@@ -357,7 +354,11 @@ export const useCartStore = create<CartState>((set, get) => ({
       try {
         await deleteCartItem(itemId);
         await get().fetchCart();
-      } catch {
+      } catch (error) {
+        if ((error as any)?.response?.status === 404) {
+          await get().fetchCart();
+          return;
+        }
         set({ cart: prevCart });
         toast.error("O'chirilmadi. Qaytadan urinib ko'ring.");
       }
@@ -389,6 +390,7 @@ export const useCartStore = create<CartState>((set, get) => ({
     });
 
     localStorage.removeItem(LOCAL_CART_STORAGE_KEY);
+    clearGuestSession();
     set({ cart: response.data.cart });
 
     return {

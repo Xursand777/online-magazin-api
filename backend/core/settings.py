@@ -345,6 +345,14 @@ CORS_ALLOW_HEADERS = (
     'x-guest-session-id',  # Mehmon cart sessiyasi uchun
 )
 
+# Browser cross-origin javoblarda faqat "simple response headers"ni ko'rsatadi.
+# Guest cart sessiyasi frontendga yetib borishi uchun custom headerni explicit
+# expose qilish shart; aks holda Vercel → Render productionda savat item ID'lari
+# stale bo'lib, PATCH/DELETE /cart/items/<id>/ 404 qaytaradi.
+CORS_EXPOSE_HEADERS = (
+    'X-Guest-Session-Id',
+)
+
 # Brauzer OPTIONS (preflight) javobini cache'lash muddati (sekundda)
 CORS_PREFLIGHT_MAX_AGE = 86_400  # 1 kun
 
