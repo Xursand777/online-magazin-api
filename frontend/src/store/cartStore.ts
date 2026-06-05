@@ -78,8 +78,9 @@ const readLocalCartItems = (): CartItem[] => {
     if (!raw) return [];
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed)) return [];
-    // Noto'g'ri (product yo'q) bo'lgan eski/buzilgan obyektlarni o'chirib yuboramiz
-    return parsed.filter((item) => item && item.product);
+    // Noto'g'ri (product yo'q) yoki oldingi login bo'lgan holatdagi INT (server) id'larni o'chirib yuboramiz.
+    // Faqat string (guest-) bo'lgan id'larnigina mahalliy xotiradan o'qiymiz.
+    return parsed.filter((item) => item && item.product && typeof item.id === 'string' && item.id.startsWith('guest-'));
   } catch {
     return [];
   }
@@ -215,9 +216,16 @@ export const useCartStore = create<CartState>((set, get) => ({
         set({ cart: buildLocalCartData(readLocalCartItems()) });
       }
     } catch {
-      // Qanday xatolik bo'lishidan qat'iy nazar (auth eskirgan yoki server down),
-      // cart null qolib ketmasligi, ya'ni yo'qolib qolmasligi uchun fallback beramiz.
-      set({ cart: buildLocalCartData(readLocalCartItems()) });
+      // Agar Auth bo'lsa va server down bo'lsa, lokal xotiradagi (guest) ID larni tiqib yubormaslik kerak!
+      // Faqat guest bo'lsa local cart ni set qilamiz.
+      if (!isAuthenticated) {
+        set({ cart: buildLocalCartData(readLocalCartItems()) });
+      } else {
+        const prev = get().cart;
+        if (!prev) {
+          set({ cart: { id: 'error-cart', items: [], total_price: '0' } });
+        }
+      }
     } finally {
       set({ loading: false });
     }
@@ -296,8 +304,22 @@ export const useCartStore = create<CartState>((set, get) => ({
         const res = await updateCartItem(itemId, { quantity });
         set({ cart: res.data });
       } catch (error) {
-        await get().fetchCart();
-        toast.error(extractApiErrorMessage(error, "Yangilanmadi. Qaytadan urinib ko'ring."));
+        const isNotFound = (error as any)?.response?.status === 404;
+        if (isNotFound) {
+          const prevCart = get().cart;
+          if (prevCart) {
+            set({
+              cart: {
+                ...prevCart,
+                items: prevCart.items.filter((item) => item.id !== itemId),
+              },
+            });
+          }
+          toast.error("Ushbu mahsulot savatda topilmadi, xatolik bartaraf etildi. Qayta qo'shing.");
+        } else {
+          await get().fetchCart();
+          toast.error(extractApiErrorMessage(error, "Yangilanmadi. Qaytadan urinib ko'ring."));
+        }
       } finally {
         set((state) => {
           const next = { ...state.updatingItemIds };
