@@ -852,6 +852,22 @@ class AdminPOSOrderView(views.APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        # MUDDATLI TO'LOV — FAQAT USTALAR UCHUN (POS authoritative check).
+        # skip_credit_check=True bo'lganda ham bu check majburiy — admin
+        # bo'lsa-da, sotuvchi bo'lsa-da, ustasi bo'lmagan mijozga kredit
+        # berib bo'lmaydi. Bu biznes-kritik qoida.
+        if payment_method == Order.PAYMENT_METHOD_CREDIT and user and not user.can_use_credit:
+            return Response(
+                {
+                    "error": (
+                        "Muddatli to'lov faqat ustalar uchun. "
+                        "Bu mijoz Ustalar ro'yxatida emas."
+                    ),
+                    "code": "master_required",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
         credit_days = None
         if payment_method == Order.PAYMENT_METHOD_CREDIT:
             try:

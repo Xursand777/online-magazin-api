@@ -35,7 +35,10 @@ const Checkout = () => {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const { cart, fetchCart, loading: cartLoading } = useCartStore();
-  const { isAuthenticated } = useAuthStore();
+  const { isAuthenticated, user } = useAuthStore();
+  // Muddatli to'lov — FAQAT ustalar uchun. Backend authoritative tarzda
+  // blocklaydi; bu yerda UX gating (option umuman ko'rinmaydi).
+  const canUseCredit = !!user?.is_master;
   const [loading, setLoading] = useState(false);
   const [cartReady, setCartReady] = useState(false);
   const [creditStatus, setCreditStatus] = useState<CreditStatus | null>(null);
@@ -82,6 +85,15 @@ const Checkout = () => {
       active = false;
     };
   }, [fetchCart, isAuthenticated, navigate]);
+
+  // Defensive: agar user usta emas, lekin payment_method 'credit'da turibsa
+  // (masalan user master edi, keyin admin uni o'chirib qo'ydi va sahifa
+  // refresh qilingan), avtomat 'cash'ga qaytaramiz.
+  useEffect(() => {
+    if (!canUseCredit && formData.payment_method === 'credit') {
+      setFormData((prev) => ({ ...prev, payment_method: 'cash' }));
+    }
+  }, [canUseCredit, formData.payment_method]);
 
   const items = cart?.items || [];
   const itemsTotalPrice = Number(cart?.total_price || 0);
@@ -213,8 +225,9 @@ const Checkout = () => {
           <section className="bg-surface-container-lowest rounded-xl border border-outline-variant shadow-sm p-lg">
             <h2 className="font-h3 text-h3 text-on-surface mb-md border-b border-outline-variant pb-sm">{t.checkout.paymentMethod}</h2>
 
-            {/* Muddatli to'lov ogohlantirishlari */}
-            {creditStatus?.credit_ban && (
+            {/* Muddatli to'lov ogohlantirishlari — faqat ustalar uchun
+                (oddiy mijozlar kreditni umuman ko'rmaydi) */}
+            {canUseCredit && creditStatus?.credit_ban && (
               <div className="mb-md p-md rounded-xl border border-error bg-error-container/30 flex items-start gap-sm">
                 <span className="material-symbols-outlined text-error text-[22px] mt-0.5">block</span>
                 <div>
@@ -225,7 +238,7 @@ const Checkout = () => {
                 </div>
               </div>
             )}
-            {!creditStatus?.credit_ban && creditStatus?.has_unpaid_credit && (
+            {canUseCredit && !creditStatus?.credit_ban && creditStatus?.has_unpaid_credit && (
               <div className="mb-md p-md rounded-xl border flex items-start gap-sm" style={{borderColor:'#f59e0b', background:'#fef3c720'}}>
                 <span className="material-symbols-outlined text-[22px] mt-0.5" style={{color:'#d97706'}}>warning</span>
                 <div>
@@ -242,7 +255,7 @@ const Checkout = () => {
                 </div>
               </div>
             )}
-            {!creditStatus?.credit_ban && !creditStatus?.has_unpaid_credit && (creditStatus?.overdue_credit_count ?? 0) > 0 && (
+            {canUseCredit && !creditStatus?.credit_ban && !creditStatus?.has_unpaid_credit && (creditStatus?.overdue_credit_count ?? 0) > 0 && (
               <div className="mb-md p-md rounded-xl border flex items-start gap-sm" style={{borderColor:'#f59e0b', background:'#fef3c720'}}>
                 <span className="material-symbols-outlined text-[20px] mt-0.5" style={{color:'#d97706'}}>info</span>
                 <p className="text-xs text-on-surface-variant">
@@ -283,6 +296,10 @@ const Checkout = () => {
                 </div>
               </label>
 
+              {/* Muddatli to'lov — FAQAT ustalar uchun ko'rinadi (is_master=true).
+                  Backend ham authoritative tarzda blocklaydi (services.py
+                  check_credit_eligibility -> master_required). */}
+              {canUseCredit && (
               <label className={creditStatus?.credit_ban || creditStatus?.has_unpaid_credit ? 'cursor-not-allowed opacity-50 select-none' : 'cursor-pointer'}>
                 <input
                   className="peer sr-only"
@@ -302,10 +319,11 @@ const Checkout = () => {
                   <span className="font-body-sm text-body-sm text-on-surface-variant text-xs">5 – 20 {t.checkout.creditDays}</span>
                 </div>
               </label>
+              )}
             </div>
 
-            {/* Muddatli to'lov kunlari slider */}
-            {formData.payment_method === 'credit' && !creditStatus?.credit_ban && !creditStatus?.has_unpaid_credit && (
+            {/* Muddatli to'lov kunlari slider — faqat ustalar uchun */}
+            {canUseCredit && formData.payment_method === 'credit' && !creditStatus?.credit_ban && !creditStatus?.has_unpaid_credit && (
               <div className="mt-md p-md rounded-xl border border-primary/40 bg-primary-container/10">
                 <div className="flex items-center justify-between mb-sm">
                   <label className="font-label-md text-label-md text-on-surface">
