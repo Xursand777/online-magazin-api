@@ -55,6 +55,15 @@ class AuthRepository {
     }
   }
 
+  Future<Map<String, dynamic>> getProfile() async {
+    try {
+      final response = await apiClient.dio.get(ApiConstants.profile);
+      return response.data as Map<String, dynamic>;
+    } catch (e) {
+      return {};
+    }
+  }
+
   /// Serverga logout signalini yuboradi — refresh tokenni blacklist'ga qo'shadi.
   ///
   /// ── XAVFSIZLIK KRITIK ─────────────────────────────────────────────────────

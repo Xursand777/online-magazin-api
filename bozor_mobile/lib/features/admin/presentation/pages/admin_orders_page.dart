@@ -181,11 +181,12 @@ class _AdminOrdersPageState extends State<AdminOrdersPage> {
     return RefreshIndicator(
       color: const Color(0xFF0A7C55),
       onRefresh: () async {
-        context.read<AdminOrdersBloc>().add(const LoadOrders());
-        await context
-            .read<AdminOrdersBloc>()
-            .stream
-            .firstWhere((s) => s.status != OrdersStatus.loading);
+        final bloc = context.read<AdminOrdersBloc>();
+        bloc.add(const LoadOrders());
+        await bloc.stream.firstWhere(
+          (s) => s.status != OrdersStatus.loading,
+          orElse: () => bloc.state,
+        );
       },
       child: ListView.builder(
         padding: const EdgeInsets.fromLTRB(12, 12, 12, 24),

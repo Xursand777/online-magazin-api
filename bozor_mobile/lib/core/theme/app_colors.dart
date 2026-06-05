@@ -27,8 +27,25 @@ class AppColors {
   static const Color outline = Color(0xFF6C7A71);
   static const Color outlineVariant = Color(0xFFBBCABF);
 
-  // Dark Mode colors
-  static const Color darkBackground = Color(0xFF0F172A); // slate-900
-  static const Color darkSurface = Color(0xFF1E293B); // slate-800
-  static const Color darkOnSurface = Color(0xFFF8FAFC); // slate-50
+  // Dark Mode colors (saytdagidek professional kulrang tonlari)
+  static const Color darkBackground = Color(0xFF222429);
+  static const Color darkOnBackground = Color(0xFFF7F8F9);
+  
+  static const Color darkSurface = Color(0xFF292C32);
+  static const Color darkOnSurface = Color(0xFFF7F8F9);
+  static const Color darkSurfaceContainerLowest = Color(0xFF272A30);
+  static const Color darkSurfaceContainerLow = Color(0xFF2D3037);
+  static const Color darkSurfaceContainer = Color(0xFF343840);
+  static const Color darkSurfaceContainerHigh = Color(0xFF3D414A);
+  static const Color darkSurfaceContainerHighest = Color(0xFF484D56);
+  static const Color darkSurfaceVariant = Color(0xFF444952);
+  static const Color darkOnSurfaceVariant = Color(0xFFD2D6DC);
+  
+  static const Color darkOutline = Color(0xFF9BA1A9);
+  static const Color darkOutlineVariant = Color(0xFF575D67);
+  
+  static const Color darkPrimary = Color(0xFF4BDE9E);
+  static const Color darkOnPrimary = Color(0xFF002619);
+  static const Color darkPrimaryContainer = Color(0xFF149A67);
+  static const Color darkOnPrimaryContainer = Color(0xFFDCFFED);
 }

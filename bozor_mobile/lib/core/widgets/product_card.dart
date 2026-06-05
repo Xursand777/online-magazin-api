@@ -3,6 +3,7 @@ import 'package:go_router/go_router.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:intl/intl.dart';
 import '../models/product_model.dart';
+import 'cart_action_button.dart';
 
 class ProductCard extends StatelessWidget {
   final ProductModel product;
@@ -33,19 +34,19 @@ class ProductCard extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            AspectRatio(
-              aspectRatio: 1, // Changed to 1:1 for a cleaner look
+            SizedBox(
+              height: 160, // Rasmlar balandligi doim bir xil bo'lishi kafolatlanadi
               child: Stack(
                 children: [
                   Container(
                     decoration: BoxDecoration(
-                      color: theme.colorScheme.surfaceContainer,
+                      color: Colors.transparent, // Orqa fonni oq yoki shaffof qilib rasmni ajralib turadigan qilamiz
                       borderRadius: const BorderRadius.vertical(
                         top: Radius.circular(16),
                       ),
                       image: DecorationImage(
                         image: CachedNetworkImageProvider(product.imageUrl),
-                        fit: BoxFit.cover,
+                        fit: BoxFit.contain, // Rasmlar kesilib qolmasligi va to'liq ko'rinishi uchun
                       ),
                     ),
                   ),
@@ -94,7 +95,7 @@ class ProductCard extends StatelessWidget {
             ),
             Expanded(
               child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -104,54 +105,40 @@ class ProductCard extends StatelessWidget {
                       style: theme.textTheme.bodyMedium?.copyWith(
                         fontWeight: FontWeight.w600,
                         height: 1.2,
+                        fontSize: 13,
                       ),
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                     ),
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.end,
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    const SizedBox(height: 8),
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              if (product.oldPrice != null)
-                                Text(
-                                  '${NumberFormat('#,###', 'uz_UZ').format(product.oldPrice).replaceAll(',', ' ')} so\'m',
-                                  style: theme.textTheme.labelSmall?.copyWith(
-                                    color: theme.colorScheme.outline,
-                                    decoration: TextDecoration.lineThrough,
-                                  ),
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                              Text(
-                                '${NumberFormat('#,###', 'uz_UZ').format(product.price).replaceAll(',', ' ')} so\'m',
-                                style: theme.textTheme.titleSmall?.copyWith(
-                                  color: theme.colorScheme.onSurface,
-                                  fontWeight: FontWeight.w800,
-                                ),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ],
+                        if (product.oldPrice != null)
+                          Text(
+                            "${NumberFormat('#,###', 'uz_UZ').format(product.oldPrice).replaceAll(',', ' ')} so'm",
+                            style: theme.textTheme.labelSmall?.copyWith(
+                              color: theme.colorScheme.outline,
+                              decoration: TextDecoration.lineThrough,
+                              fontSize: 10,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          )
+                        else
+                          const SizedBox(height: 12), // Joy saqlash uchun
+                        Text(
+                          "${NumberFormat('#,###', 'uz_UZ').format(product.price).replaceAll(',', ' ')} so'm",
+                          style: theme.textTheme.titleSmall?.copyWith(
+                            color: theme.colorScheme.onSurface,
+                            fontWeight: FontWeight.w800,
+                            fontSize: 14,
                           ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
                         ),
-                        const SizedBox(width: 8),
-                        Container(
-                          width: 36,
-                          height: 36,
-                          decoration: BoxDecoration(
-                            color: theme.colorScheme.primary,
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                          child: Icon(
-                            Icons.add_shopping_cart,
-                            size: 18,
-                            color: theme.colorScheme.onPrimary,
-                          ),
-                        ),
+                        const SizedBox(height: 6),
+                        CartActionButton(product: product),
                       ],
                     ),
                   ],

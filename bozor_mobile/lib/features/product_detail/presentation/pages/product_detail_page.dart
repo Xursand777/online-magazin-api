@@ -2,8 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:intl/intl.dart';
+import '../../../../core/widgets/cart_action_button.dart';
 import '../../../../core/models/product_model.dart';
 import '../../../cart/presentation/bloc/cart_bloc.dart';
+import 'package:go_router/go_router.dart';
 
 class ProductDetailPage extends StatelessWidget {
   final ProductModel product;
@@ -134,21 +136,35 @@ class ProductDetailPage extends StatelessWidget {
           child: Row(
             children: [
               Expanded(
-                child: ElevatedButton.icon(
-                  onPressed: () {
-                    context.read<CartBloc>().add(AddToCart(product));
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: const Text('Savatga qo\'shildi'),
-                        backgroundColor: theme.colorScheme.primary,
-                        duration: const Duration(seconds: 2),
+                child: CartActionButton(product: product),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: SizedBox(
+                  height: 38,
+                  child: ElevatedButton(
+                    onPressed: () {
+                      context.push('/checkout', extra: {
+                        'isQuickBuy': true,
+                        'product': product,
+                      });
+                    },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: theme.colorScheme.secondary,
+                      foregroundColor: theme.colorScheme.onSecondary,
+                      elevation: 0,
+                      padding: const EdgeInsets.symmetric(horizontal: 0),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10),
                       ),
-                    );
-                  },
-                  icon: const Icon(Icons.shopping_cart),
-                  label: const Text('Savatga qo\'shish'),
-                  style: ElevatedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(vertical: 16),
+                    ),
+                    child: const Text(
+                      'Tezkor xarid',
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
                   ),
                 ),
               ),

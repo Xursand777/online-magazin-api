@@ -23,8 +23,10 @@ class ApiConstants {
     // 2. Release mode → production Render
     if (kReleaseMode) return _renderUrl;
 
-    // 3. Debug mode → local server
-    return _adbReverseBaseUrl;
+    // 3. Debug mode
+    // Foydalanuvchi hozirda vaqtinchalik server (Render) ga ulanganini aytgani uchun,
+    // Debug rejimida ham to'g'ridan-to'g'ri internetdagi serverga ulaymiz.
+    return _renderUrl;
   }
 
   static List<String> get localBaseUrls {
@@ -67,6 +69,7 @@ class ApiConstants {
   static const String adminProducts = '/api/admin/products/';
   static const String adminCategories = '/api/admin/categories/';
   static const String adminBanners = '/api/admin/banners/';
+  static const String adminStockReport = '/api/admin/stock-report/';
 
   // ─── Admin: Dashboard / Buyurtmalar / POS ─────────────────────────────────────
   static const String adminDashboard = '/api/orders/admin/dashboard/';
@@ -76,4 +79,12 @@ class ApiConstants {
   static const String adminPosOrder = '/api/orders/admin/pos-order/';
   static const String adminCustomerHistory = '/api/orders/admin/customer-history/';
   static const String adminUserSearch = '/api/admin-search/';
+  static const String adminKassa = '/api/orders/admin/kassa/';
+  static const String adminWithdrawKassa = '/api/orders/admin/kassa/withdraw/';
+  static const String adminReport = '/api/orders/admin/report/';
+  static const String adminReportOrders = '/api/orders/admin/report/orders/';
+  
+  // ─── Admin: Sozlamalar (Settings) ───────────────────────────────────────────
+  static const String adminExchangeRate = '/api/admin/exchange-rate/';
+  static const String adminShopInfo = '/api/admin/shop-info/';
 }

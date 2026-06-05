@@ -3,6 +3,10 @@ import 'package:equatable/equatable.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import '../../data/repositories/auth_repository.dart';
 import '../../../../core/auth/auth_token_service.dart';
+import '../../../../core/di/injection_container.dart';
+import '../../../../core/storage/local_storage.dart';
+import '../../../cart/presentation/bloc/cart_bloc.dart';
+import '../../../admin/presentation/bloc/admin_bloc.dart';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // EVENTS
@@ -65,9 +69,17 @@ class AuthLoading extends AuthState {}
 /// ✅ Tizimga kirgan — tokenlar mavjud va yaroqli.
 class AuthAuthenticated extends AuthState {
   final bool isAdmin;
-  const AuthAuthenticated({this.isAdmin = false});
+  final bool isMaster;
+  final bool canUseCredit;
+  
+  const AuthAuthenticated({
+    this.isAdmin = false,
+    this.isMaster = false,
+    this.canUseCredit = false,
+  });
+  
   @override
-  List<Object?> get props => [isAdmin];
+  List<Object?> get props => [isAdmin, isMaster, canUseCredit];
 }
 
 /// 🔒 Tizimdan chiqqan — login sahifasiga yo'naltirish kerak.
@@ -128,7 +140,14 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     final hasTokens = await tokenService.hasTokens();
     if (hasTokens) {
       final admin = await tokenService.isAdmin();
-      emit(AuthAuthenticated(isAdmin: admin));
+      bool isMaster = false;
+      bool canUseCredit = false;
+      try {
+        final profile = await repository.getProfile();
+        isMaster = profile['is_master'] == true;
+        canUseCredit = profile['can_use_credit'] == true;
+      } catch (_) {}
+      emit(AuthAuthenticated(isAdmin: admin, isMaster: isMaster, canUseCredit: canUseCredit));
     } else {
       emit(AuthUnauthenticated());
     }
@@ -154,7 +173,14 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     emit(AuthLoading());
     try {
       final isAdmin = await repository.verifyOtp(event.phone, event.otp);
-      emit(AuthAuthenticated(isAdmin: isAdmin));
+      bool isMaster = false;
+      bool canUseCredit = false;
+      try {
+        final profile = await repository.getProfile();
+        isMaster = profile['is_master'] == true;
+        canUseCredit = profile['can_use_credit'] == true;
+      } catch (_) {}
+      emit(AuthAuthenticated(isAdmin: isAdmin, isMaster: isMaster, canUseCredit: canUseCredit));
     } catch (e) {
       emit(AuthFailure(_toUserMessage(e)));
     }
@@ -164,7 +190,13 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     LogoutEvent event,
     Emitter<AuthState> emit,
   ) async {
-    await tokenService.clearTokens();
+    // 1. Serverga blacklist signali — refresh token endi yaroqsiz.
+    //    Tarmoq xato bo'lsa ham keyingi qadamlar bajariladi (silently catches).
+    await repository.logoutOnServer();
+
+    // 2. Barcha sessiyaga oid ma'lumotlarni tozalash (universal helper).
+    await _purgeAllSessionData();
+
     emit(AuthUnauthenticated());
   }
 
@@ -172,8 +204,51 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     _ForceLogoutEvent event,
     Emitter<AuthState> emit,
   ) async {
-    // Tokenlar AuthTokenService tomonidan allaqachon o'chirilgan
+    // Tokenlar AuthTokenService tomonidan allaqachon o'chirilgan.
+    // Lekin singleton bloklar va Hive boxlari hali ham eski sessiya
+    // ma'lumotlariga ega — ularni ham tozalash zarur.
+    await _purgeAllSessionData(skipTokens: true);
+
     emit(AuthUnauthenticated());
+  }
+
+  /// Sessiyani tozalashning yagona, ishonarli yo'li.
+  ///
+  /// ── NIMA TOZALANADI ───────────────────────────────────────────────────────
+  ///   1. SecureStorage tokenlar (skipTokens=true bo'lmasa)
+  ///   2. CartBloc holati va Hive cart
+  ///   3. AdminBloc holati (singleton — yangi sessiya o'qib qolishi mumkin)
+  ///   4. Hive savatcha + qidiruv tarixi
+  ///
+  /// ── NIMA UCHUN BU JUDA MUHIM ──────────────────────────────────────────────
+  /// CartBloc va AdminBloc DI'da SINGLETON. Logout dan keyin emas, balki
+  /// app o'chirilgunga qadar bitta instance ishlatadi. Agar tozalanmasa:
+  ///   • A admin logout → B admin login → B admin A ning ma'lumotlarini ko'radi
+  ///   • Cart A foydalanuvchi qo'shgan mahsulotlar B foydalanuvchida chiqadi
+  Future<void> _purgeAllSessionData({bool skipTokens = false}) async {
+    // Tokenlar
+    if (!skipTokens) {
+      try {
+        await tokenService.clearTokens();
+      } catch (_) {/* storage muammosi — UI hamon logout state ga o'tishi shart */}
+    }
+
+    // Singleton bloklarni resetlash (try-catch — DI ro'yxatidan o'tmagan bo'lsa)
+    try {
+      sl<CartBloc>().add(const ResetCart());
+    } catch (_) {/* CartBloc DI da yo'q bo'lishi mumkin */}
+
+    try {
+      if (sl.isRegistered<AdminBloc>()) {
+        sl<AdminBloc>().add(const ResetAdminData());
+      }
+    } catch (_) {/* AdminBloc DI da yo'q bo'lishi mumkin */}
+
+    // Hive boxlarini majburiy tozalash (CartBloc reset ham bunday qiladi,
+    // lekin ikkita qatlam — ishonchlilik uchun).
+    try {
+      await LocalStorage.clearAllUserData();
+    } catch (_) {/* Hive xatosi — kritik emas */}
   }
 
   // ── Helper ────────────────────────────────────────────────────────────────

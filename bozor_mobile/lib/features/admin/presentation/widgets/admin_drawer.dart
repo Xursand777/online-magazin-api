@@ -14,15 +14,24 @@ class AdminDrawer extends StatelessWidget {
   static const List<_NavGroup> _groups = [
     _NavGroup('ASOSIY', [
       _NavItem('Dashboard', Icons.dashboard_rounded, '/admin'),
+      _NavItem('Hisobotlar', Icons.bar_chart_rounded, '/admin/reports'),
     ]),
     _NavGroup('SAVDO', [
       _NavItem("Do'kon (POS)", Icons.point_of_sale_rounded, '/admin/pos'),
       _NavItem('Buyurtmalar', Icons.local_shipping_rounded, '/admin/orders'),
+      _NavItem('Nasiya', Icons.calendar_month_rounded, '/admin/nasiya'),
+      _NavItem('Moliya / Kassa', Icons.account_balance_wallet_rounded, '/admin/kassa'),
+    ]),
+    _NavGroup('OMBOR', [
+      _NavItem('Zaxira holati', Icons.warehouse_rounded, '/admin/stock'),
     ]),
     _NavGroup('KATALOG', [
       _NavItem('Mahsulotlar', Icons.inventory_2_rounded, '/admin/products'),
       _NavItem('Kategoriyalar', Icons.category_rounded, '/admin/categories'),
       _NavItem('Bannerlar', Icons.view_carousel_rounded, '/admin/banners'),
+    ]),
+    _NavGroup('BOSHQA', [
+      _NavItem('Sozlamalar', Icons.settings_rounded, '/admin/settings'),
     ]),
   ];
 

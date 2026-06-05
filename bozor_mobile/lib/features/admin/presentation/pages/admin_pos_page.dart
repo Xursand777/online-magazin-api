@@ -24,10 +24,24 @@ class _AdminPosPageState extends State<AdminPosPage> {
   static const Color _brandDark = Color(0xFF063F2B);
   static const Color _brand = Color(0xFF0A7C55);
   final _searchCtrl = TextEditingController();
+  final _scrollController = ScrollController();
+
+  @override
+  void initState() {
+    super.initState();
+    _scrollController.addListener(_onScroll);
+  }
+
+  void _onScroll() {
+    if (_scrollController.position.pixels >= _scrollController.position.maxScrollExtent - 200) {
+      context.read<AdminPosBloc>().add(const LoadMorePosProducts());
+    }
+  }
 
   @override
   void dispose() {
     _searchCtrl.dispose();
+    _scrollController.dispose();
     super.dispose();
   }
 
@@ -177,6 +191,7 @@ class _AdminPosPageState extends State<AdminPosPage> {
       );
     }
     return GridView.builder(
+      controller: _scrollController,
       padding: const EdgeInsets.fromLTRB(12, 12, 12, 96),
       gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
         maxCrossAxisExtent: 220,
@@ -184,8 +199,11 @@ class _AdminPosPageState extends State<AdminPosPage> {
         crossAxisSpacing: 10,
         childAspectRatio: 0.92,
       ),
-      itemCount: units.length,
+      itemCount: units.length + (state.isFetchingMore ? 1 : 0),
       itemBuilder: (context, i) {
+        if (i >= units.length) {
+          return const Center(child: CircularProgressIndicator());
+        }
         final unit = units[i];
         final inCart = state.cart
             .where((c) => c.cartId == unit.cartId)

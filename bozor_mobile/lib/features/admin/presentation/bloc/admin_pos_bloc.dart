@@ -15,6 +15,10 @@ class LoadPosProducts extends AdminPosEvent {
   const LoadPosProducts();
 }
 
+class LoadMorePosProducts extends AdminPosEvent {
+  const LoadMorePosProducts();
+}
+
 class PosSearchChanged extends AdminPosEvent {
   final String query;
   const PosSearchChanged(this.query);
@@ -80,8 +84,12 @@ class AdminPosState extends Equatable {
   final String search;
   final bool isCheckingOut;
   final String? error;
-  final String? warning; // savatcha bo'yicha tezkor ogohlantirish
+  final String? warning;
   final AdminOrder? completedOrder;
+  
+  final bool isFetchingMore;
+  final bool hasReachedMax;
+  final int currentPage;
 
   const AdminPosState({
     this.status = PosStatus.initial,
@@ -92,6 +100,9 @@ class AdminPosState extends Equatable {
     this.error,
     this.warning,
     this.completedOrder,
+    this.isFetchingMore = false,
+    this.hasReachedMax = false,
+    this.currentPage = 1,
   });
 
   double get totalAmount =>
@@ -100,8 +111,9 @@ class AdminPosState extends Equatable {
       cart.fold(0, (sum, i) => sum + i.lineProfit);
   int get cartCount => cart.length;
 
-  /// Qidiruvga mos keluvchi tanlash birliklari.
   List<PosCartItem> get filteredUnits {
+    // API orqali filtrlangan bo'lsa ham, ba'zi xususiyatlar uchun (masalan color/size) 
+    // mahalliy filtr ham qoldiriladi
     final q = search.toLowerCase().trim();
     final result = <PosCartItem>[];
     for (final p in products) {
@@ -128,6 +140,9 @@ class AdminPosState extends Equatable {
     String? warning,
     AdminOrder? completedOrder,
     bool clearCompleted = false,
+    bool? isFetchingMore,
+    bool? hasReachedMax,
+    int? currentPage,
   }) {
     return AdminPosState(
       status: status ?? this.status,
@@ -139,6 +154,9 @@ class AdminPosState extends Equatable {
       warning: warning,
       completedOrder:
           clearCompleted ? null : (completedOrder ?? this.completedOrder),
+      isFetchingMore: isFetchingMore ?? this.isFetchingMore,
+      hasReachedMax: hasReachedMax ?? this.hasReachedMax,
+      currentPage: currentPage ?? this.currentPage,
     );
   }
 
@@ -152,16 +170,22 @@ class AdminPosState extends Equatable {
         error,
         warning,
         completedOrder,
+        isFetchingMore,
+        hasReachedMax,
+        currentPage,
       ];
 }
 
 // ─── BLoC ────────────────────────────────────────────────────────────────────
+
 class AdminPosBloc extends Bloc<AdminPosEvent, AdminPosState> {
   final AdminRepository repository;
 
   AdminPosBloc({required this.repository}) : super(const AdminPosState()) {
     on<LoadPosProducts>(_onLoad);
+    on<LoadMorePosProducts>(_onLoadMore);
     on<PosSearchChanged>(_onSearch);
+    
     on<PosAddToCart>(_onAdd);
     on<PosRemoveFromCart>(_onRemove);
     on<PosUpdateQty>(_onUpdateQty);
@@ -171,18 +195,42 @@ class AdminPosBloc extends Bloc<AdminPosEvent, AdminPosState> {
   }
 
   Future<void> _onLoad(LoadPosProducts event, Emitter<AdminPosState> emit) async {
-    emit(state.copyWith(status: PosStatus.loading, error: null));
+    emit(state.copyWith(status: PosStatus.loading, error: null, hasReachedMax: false, currentPage: 1));
     try {
-      final products = await repository.getPosProducts();
-      emit(state.copyWith(status: PosStatus.success, products: products));
-    } catch (e) {
+      final response = await repository.getPosProducts(page: 1, q: state.search);
       emit(state.copyWith(
-          status: PosStatus.failure, error: AdminRepository.parseError(e)));
+        status: PosStatus.success, 
+        products: response.products,
+        hasReachedMax: response.hasReachedMax,
+        currentPage: 1,
+      ));
+    } catch (e) {
+      emit(state.copyWith(status: PosStatus.failure, error: AdminRepository.parseError(e)));
+    }
+  }
+
+  Future<void> _onLoadMore(LoadMorePosProducts event, Emitter<AdminPosState> emit) async {
+    if (state.hasReachedMax || state.status == PosStatus.loading || state.isFetchingMore) return;
+    
+    emit(state.copyWith(isFetchingMore: true, error: null));
+    try {
+      final nextPage = state.currentPage + 1;
+      final response = await repository.getPosProducts(page: nextPage, q: state.search);
+      emit(state.copyWith(
+        isFetchingMore: false,
+        products: List.of(state.products)..addAll(response.products),
+        hasReachedMax: response.hasReachedMax,
+        currentPage: nextPage,
+      ));
+    } catch (e) {
+      emit(state.copyWith(isFetchingMore: false, error: AdminRepository.parseError(e)));
     }
   }
 
   void _onSearch(PosSearchChanged event, Emitter<AdminPosState> emit) {
+    if (state.search == event.query) return;
     emit(state.copyWith(search: event.query));
+    add(const LoadPosProducts());
   }
 
   void _onAdd(PosAddToCart event, Emitter<AdminPosState> emit) {
@@ -265,15 +313,11 @@ class AdminPosBloc extends Bloc<AdminPosEvent, AdminPosState> {
         creditDays: event.creditDays,
         items: state.cart,
       );
-      // Sotuvdan keyin mahsulot zaxiralari o'zgargani uchun ro'yxatni yangilaymiz.
-      List<PosProduct> products = state.products;
-      try {
-        products = await repository.getPosProducts();
-      } catch (_) {/* zaxira yangilanmasa ham savdo muvaffaqiyatli */}
+      // Refresh current page
+      add(const LoadPosProducts());
       emit(state.copyWith(
         isCheckingOut: false,
         cart: const [],
-        products: products,
         completedOrder: order,
       ));
     } catch (e) {

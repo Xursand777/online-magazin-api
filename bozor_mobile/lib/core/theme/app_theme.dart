@@ -70,14 +70,24 @@ class AppTheme {
       useMaterial3: true,
       brightness: Brightness.dark,
       colorScheme: const ColorScheme.dark(
-        primary: AppColors.primaryContainer, // Lighter primary for dark mode
-        onPrimary: AppColors.onPrimary,
+        primary: AppColors.darkPrimary,
+        onPrimary: AppColors.darkOnPrimary,
+        primaryContainer: AppColors.darkPrimaryContainer,
+        onPrimaryContainer: AppColors.darkOnPrimaryContainer,
         secondary: AppColors.secondaryContainer,
         surface: AppColors.darkSurface,
         onSurface: AppColors.darkOnSurface,
+        surfaceContainerLowest: AppColors.darkSurfaceContainerLowest,
+        surfaceContainerLow: AppColors.darkSurfaceContainerLow,
+        surfaceContainer: AppColors.darkSurfaceContainer,
+        surfaceContainerHigh: AppColors.darkSurfaceContainerHigh,
+        surfaceContainerHighest: AppColors.darkSurfaceContainerHighest,
+        surfaceVariant: AppColors.darkSurfaceVariant,
+        onSurfaceVariant: AppColors.darkOnSurfaceVariant,
         error: AppColors.error,
         onError: AppColors.onError,
-        outline: AppColors.outlineVariant,
+        outline: AppColors.darkOutline,
+        outlineVariant: AppColors.darkOutlineVariant,
       ),
       scaffoldBackgroundColor: AppColors.darkBackground,
       textTheme: TextTheme(
@@ -106,14 +116,14 @@ class AppTheme {
         elevation: 0,
         centerTitle: false,
         titleTextStyle: AppTextStyles.headlineMd.copyWith(
-          color: AppColors.primaryContainer,
+          color: AppColors.darkPrimary,
         ),
         iconTheme: const IconThemeData(color: AppColors.darkOnSurface),
       ),
       elevatedButtonTheme: ElevatedButtonThemeData(
         style: ElevatedButton.styleFrom(
-          backgroundColor: AppColors.primaryContainer,
-          foregroundColor: AppColors.darkBackground,
+          backgroundColor: AppColors.darkPrimary,
+          foregroundColor: AppColors.darkOnPrimary,
           textStyle: AppTextStyles.labelBold,
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(12),
@@ -122,12 +132,12 @@ class AppTheme {
         ),
       ),
       cardTheme: CardThemeData(
-        color: AppColors.darkSurface,
+        color: AppColors.darkSurfaceContainer,
         elevation: 0,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(12),
-          side: BorderSide(
-            color: AppColors.outlineVariant.withValues(alpha: 0.2),
+          side: const BorderSide(
+            color: AppColors.darkOutlineVariant,
             width: 1,
           ),
         ),

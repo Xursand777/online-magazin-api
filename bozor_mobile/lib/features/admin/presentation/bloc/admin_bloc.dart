@@ -13,6 +13,22 @@ abstract class AdminEvent extends Equatable {
 
 class LoadAdminData extends AdminEvent {}
 
+class LoadMoreAdminProducts extends AdminEvent {}
+
+class SearchAdminProducts extends AdminEvent {
+  final String query;
+  const SearchAdminProducts(this.query);
+  @override List<Object?> get props => [query];
+}
+
+/// Logout vaqtida bloc holatini boshlang'ich ko'rinishga qaytaradi.
+/// Bu BLoC singleton — eski admin ma'lumotlari yangi sessiyada chiqib qolmasligi kerak.
+class ResetAdminData extends AdminEvent {
+  const ResetAdminData();
+  @override
+  List<Object?> get props => [];
+}
+
 class DeleteAdminProduct extends AdminEvent {
   final int id;
   const DeleteAdminProduct(this.id);
@@ -39,14 +55,14 @@ class DeleteAdminCategory extends AdminEvent {
 }
 
 class CreateAdminCategory extends AdminEvent {
-  final Map<String, dynamic> body;
+  final dynamic body;
   const CreateAdminCategory(this.body);
   @override List<Object?> get props => [body];
 }
 
 class UpdateAdminCategory extends AdminEvent {
   final int id;
-  final Map<String, dynamic> body;
+  final dynamic body;
   const UpdateAdminCategory(this.id, this.body);
   @override List<Object?> get props => [id, body];
 }
@@ -74,29 +90,41 @@ class UpdateAdminBanner extends AdminEvent {
 
 class AdminState extends Equatable {
   final List<AdminProductModel> products;
+  final bool hasReachedMaxProducts;
+  final int productsPage;
+  final String productsQuery;
   final List<AdminCategoryModel> categories;
   final List<AdminBannerModel> banners;
   final bool isLoading;
   final bool isActionLoading;
+  final bool isFetchingMore;
   final String? error;
   final String? successMessage;
 
   const AdminState({
     this.products = const [],
+    this.hasReachedMaxProducts = false,
+    this.productsPage = 1,
+    this.productsQuery = '',
     this.categories = const [],
     this.banners = const [],
     this.isLoading = false,
     this.isActionLoading = false,
+    this.isFetchingMore = false,
     this.error,
     this.successMessage,
   });
 
   AdminState copyWith({
     List<AdminProductModel>? products,
+    bool? hasReachedMaxProducts,
+    int? productsPage,
+    String? productsQuery,
     List<AdminCategoryModel>? categories,
     List<AdminBannerModel>? banners,
     bool? isLoading,
     bool? isActionLoading,
+    bool? isFetchingMore,
     String? error,
     String? successMessage,
     bool clearError = false,
@@ -104,18 +132,33 @@ class AdminState extends Equatable {
   }) {
     return AdminState(
       products: products ?? this.products,
+      hasReachedMaxProducts: hasReachedMaxProducts ?? this.hasReachedMaxProducts,
+      productsPage: productsPage ?? this.productsPage,
+      productsQuery: productsQuery ?? this.productsQuery,
       categories: categories ?? this.categories,
       banners: banners ?? this.banners,
       isLoading: isLoading ?? this.isLoading,
       isActionLoading: isActionLoading ?? this.isActionLoading,
+      isFetchingMore: isFetchingMore ?? this.isFetchingMore,
       error: clearError ? null : (error ?? this.error),
       successMessage: clearSuccess ? null : (successMessage ?? this.successMessage),
     );
   }
 
   @override
-  List<Object?> get props =>
-      [products, categories, banners, isLoading, isActionLoading, error, successMessage];
+  List<Object?> get props => [
+        products,
+        hasReachedMaxProducts,
+        productsPage,
+        productsQuery,
+        categories,
+        banners,
+        isLoading,
+        isActionLoading,
+        isFetchingMore,
+        error,
+        successMessage
+      ];
 }
 
 // ─── BLoC ────────────────────────────────────────────────────────────────────
@@ -125,6 +168,7 @@ class AdminBloc extends Bloc<AdminEvent, AdminState> {
 
   AdminBloc({required this.repository}) : super(const AdminState()) {
     on<LoadAdminData>(_onLoad);
+    on<ResetAdminData>(_onReset);
     on<DeleteAdminProduct>(_onDeleteProduct);
     on<CreateAdminProduct>(_onCreateProduct);
     on<UpdateAdminProduct>(_onUpdateProduct);
@@ -134,24 +178,63 @@ class AdminBloc extends Bloc<AdminEvent, AdminState> {
     on<DeleteAdminBanner>(_onDeleteBanner);
     on<CreateAdminBanner>(_onCreateBanner);
     on<UpdateAdminBanner>(_onUpdateBanner);
+    on<SearchAdminProducts>(_onSearchAdminProducts);
+    on<LoadMoreAdminProducts>(_onLoadMoreAdminProducts);
+  }
+
+  void _onReset(ResetAdminData event, Emitter<AdminState> emit) {
+    emit(const AdminState());
   }
 
   Future<void> _onLoad(LoadAdminData event, Emitter<AdminState> emit) async {
     emit(state.copyWith(isLoading: true, clearError: true));
     try {
-      final results = await Future.wait([
-        repository.getProducts(),
-        repository.getCategories(),
-        repository.getBanners(),
-      ]);
+      final productsResult = await repository.getProducts(page: 1, query: state.productsQuery);
+      final categories = await repository.getCategories();
+      final banners = await repository.getBanners();
       emit(state.copyWith(
-        products: results[0] as List<AdminProductModel>,
-        categories: results[1] as List<AdminCategoryModel>,
-        banners: results[2] as List<AdminBannerModel>,
+        products: productsResult.items,
+        hasReachedMaxProducts: productsResult.hasReachedMax,
+        productsPage: 1,
+        categories: categories,
+        banners: banners,
         isLoading: false,
       ));
     } catch (e) {
       emit(state.copyWith(isLoading: false, error: e.toString()));
+    }
+  }
+
+  Future<void> _onSearchAdminProducts(SearchAdminProducts event, Emitter<AdminState> emit) async {
+    emit(state.copyWith(isLoading: true, productsQuery: event.query, clearError: true));
+    try {
+      final productsResult = await repository.getProducts(page: 1, query: event.query);
+      emit(state.copyWith(
+        products: productsResult.items,
+        hasReachedMaxProducts: productsResult.hasReachedMax,
+        productsPage: 1,
+        isLoading: false,
+      ));
+    } catch (e) {
+      emit(state.copyWith(isLoading: false, error: e.toString()));
+    }
+  }
+
+  Future<void> _onLoadMoreAdminProducts(LoadMoreAdminProducts event, Emitter<AdminState> emit) async {
+    if (state.hasReachedMaxProducts || state.isFetchingMore) return;
+    
+    emit(state.copyWith(isFetchingMore: true));
+    try {
+      final nextPage = state.productsPage + 1;
+      final productsResult = await repository.getProducts(page: nextPage, query: state.productsQuery);
+      emit(state.copyWith(
+        products: [...state.products, ...productsResult.items],
+        hasReachedMaxProducts: productsResult.hasReachedMax,
+        productsPage: nextPage,
+        isFetchingMore: false,
+      ));
+    } catch (e) {
+      emit(state.copyWith(isFetchingMore: false));
     }
   }
 

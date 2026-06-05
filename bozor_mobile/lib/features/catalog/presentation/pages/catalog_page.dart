@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:go_router/go_router.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import '../../../../core/di/injection_container.dart';
-import '../../../../core/widgets/product_card.dart';
 import '../bloc/catalog_bloc.dart';
+import '../../../../core/models/category_model.dart';
 
 class CatalogPage extends StatelessWidget {
   const CatalogPage({super.key});
@@ -24,60 +26,52 @@ class CatalogView extends StatelessWidget {
     final theme = Theme.of(context);
 
     return Scaffold(
+      backgroundColor: theme.scaffoldBackgroundColor,
       appBar: _buildSearchBar(context, theme),
-      body: Column(
-        children: [
-          _buildFiltersSection(theme),
-          Expanded(
-            child: BlocBuilder<CatalogBloc, CatalogState>(
-              builder: (context, state) {
-                if (state.isLoading) {
-                  return const Center(child: CircularProgressIndicator());
-                }
-                if (state.error != null) {
-                  return Center(child: Text('Error: ${state.error}'));
-                }
-                if (state.products.isEmpty) {
-                  return const Center(child: Text('No products found.'));
-                }
+      body: BlocBuilder<CatalogBloc, CatalogState>(
+        builder: (context, state) {
+          if (state.isLoading && state.categories.isEmpty) {
+            return const Center(child: CircularProgressIndicator());
+          }
+          if (state.error != null && state.categories.isEmpty) {
+            return Center(child: Text('Xatolik: ${state.error}'));
+          }
+          if (state.categories.isEmpty) {
+            return const Center(child: Text('Kataloglar topilmadi.'));
+          }
 
-                return GridView.builder(
-                  padding: const EdgeInsets.all(16),
-                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                    crossAxisCount: 2,
-                    childAspectRatio: 0.6,
-                    crossAxisSpacing: 16,
-                    mainAxisSpacing: 16,
-                  ),
-                  itemCount: state.products.length,
-                  itemBuilder: (context, index) {
-                    return ProductCard(product: state.products[index]);
-                  },
-                );
-              },
-            ),
-          ),
-        ],
-      ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () {
-          // TODO: Show complex filter bottom sheet
+          // API dan kelayotgan asosiy ro'yxat ota-kataloglardan iborat
+          final parentCategories = state.categories;
+          
+          return ListView.builder(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+            itemCount: parentCategories.length,
+            itemBuilder: (context, index) {
+              final catalog = parentCategories[index];
+              // Kichik kategoriyalar (nested listdan olinadi)
+              final childCategories = catalog.children ?? [];
+
+              return _CatalogAccordionItem(
+                catalog: catalog,
+                childCategories: childCategories,
+              );
+            },
+          );
         },
-        backgroundColor: theme.colorScheme.onSurface,
-        foregroundColor: theme.colorScheme.surface,
-        icon: const Icon(Icons.tune),
-        label: const Text('Filter'),
       ),
     );
   }
 
   PreferredSizeWidget _buildSearchBar(BuildContext context, ThemeData theme) {
     return AppBar(
+      backgroundColor: theme.scaffoldBackgroundColor,
+      surfaceTintColor: Colors.transparent,
+      elevation: 0,
       titleSpacing: 16,
       title: Container(
         height: 48,
         decoration: BoxDecoration(
-          color: theme.colorScheme.surfaceContainer,
+          color: theme.colorScheme.surface,
           borderRadius: BorderRadius.circular(12),
           border: Border.all(color: theme.colorScheme.outlineVariant),
         ),
@@ -89,195 +83,156 @@ class CatalogView extends StatelessWidget {
             Expanded(
               child: TextField(
                 onSubmitted: (value) {
-                  context.read<CatalogBloc>().add(SearchProducts(value));
+                  // TODO: Global mahsulot qidirish logikasi
                 },
+                style: theme.textTheme.bodyLarge?.copyWith(
+                  color: theme.colorScheme.onSurface,
+                ),
                 decoration: InputDecoration(
-                  hintText: 'Search catalog...',
+                  hintText: 'Qidirish...',
                   border: InputBorder.none,
-                  hintStyle: theme.textTheme.bodyMedium?.copyWith(
+                  hintStyle: TextStyle(
                     color: theme.colorScheme.onSurfaceVariant,
+                    fontSize: 15,
                   ),
                 ),
               ),
             ),
-            IconButton(
-              icon: Icon(Icons.mic, color: theme.colorScheme.onSurfaceVariant),
-              onPressed: () {},
-            ),
           ],
         ),
       ),
     );
   }
+}
 
-  Widget _buildFiltersSection(ThemeData theme) {
-    return BlocBuilder<CatalogBloc, CatalogState>(
-      builder: (context, state) {
-        return Container(
-          decoration: BoxDecoration(
-            border: Border(
-              bottom: BorderSide(
-                color: theme.colorScheme.surfaceContainerHighest,
+class _CatalogAccordionItem extends StatefulWidget {
+  final CategoryModel catalog;
+  final List<CategoryModel> childCategories;
+
+  const _CatalogAccordionItem({
+    required this.catalog,
+    required this.childCategories,
+  });
+
+  @override
+  State<_CatalogAccordionItem> createState() => _CatalogAccordionItemState();
+}
+
+class _CatalogAccordionItemState extends State<_CatalogAccordionItem> {
+  bool _isExpanded = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surface,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: theme.colorScheme.outlineVariant.withValues(alpha: 0.5)),
+      ),
+      child: Column(
+        children: [
+          // Sarlavha qismi
+          InkWell(
+            onTap: () {
+              if (widget.childCategories.isNotEmpty) {
+                setState(() {
+                  _isExpanded = !_isExpanded;
+                });
+              } else {
+                // Agar ichki kategoriyasi bo'lmasa to'g'ridan to'g'ri o'tish
+                context.push('/category/${widget.catalog.id}', extra: widget.catalog.name);
+              }
+            },
+            borderRadius: BorderRadius.circular(12),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              child: Row(
+                children: [
+                  // Rasm yoki Ikonka
+                  Container(
+                    width: 48,
+                    height: 48,
+                    decoration: BoxDecoration(
+                      color: theme.colorScheme.surfaceContainer,
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: widget.catalog.iconUrl != null && widget.catalog.iconUrl!.isNotEmpty
+                        ? ClipRRect(
+                            borderRadius: BorderRadius.circular(8),
+                            child: CachedNetworkImage(
+                              imageUrl: widget.catalog.iconUrl!,
+                              fit: BoxFit.cover,
+                              errorWidget: (context, url, error) => const Icon(Icons.category, color: Colors.grey),
+                            ),
+                          )
+                        : const Icon(Icons.category, color: Colors.grey),
+                  ),
+                  const SizedBox(width: 16),
+                  // Nom
+                  Expanded(
+                    child: Text(
+                      widget.catalog.name,
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w500,
+                        color: theme.colorScheme.onSurface,
+                      ),
+                    ),
+                  ),
+                  // O'ng icon
+                  if (widget.childCategories.isNotEmpty)
+                    Icon(
+                      _isExpanded ? Icons.keyboard_arrow_up : Icons.keyboard_arrow_down,
+                      color: theme.colorScheme.onSurfaceVariant,
+                    )
+                  else
+                    Icon(
+                      Icons.keyboard_arrow_right,
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                ],
               ),
             ),
           ),
-          padding: const EdgeInsets.symmetric(vertical: 16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                child: Row(
-                  children: [
-                    _buildCategoryItem(
-                      context,
-                      theme,
-                      name: 'All',
-                      icon: Icons.widgets,
-                      isSelected: state.selectedCategoryId == null,
-                      onTap: () => context.read<CatalogBloc>().add(
-                        const FilterByCategory(null),
-                      ),
-                    ),
-                    ...state.categories.map(
-                      (category) => _buildCategoryItem(
-                        context,
-                        theme,
-                        name: category.name,
-                        icon: Icons.category, // Fallback icon
-                        isSelected: state.selectedCategoryId == category.id,
-                        onTap: () => context.read<CatalogBloc>().add(
-                          FilterByCategory(category.id),
+          
+          // Ochiladigan qism (ichki kategoriyalar)
+          AnimatedCrossFade(
+            firstChild: const SizedBox(width: double.infinity, height: 0),
+            secondChild: Column(
+              children: widget.childCategories.map((child) {
+                return InkWell(
+                  onTap: () {
+                    context.push('/category/${child.id}', extra: child.name);
+                  },
+                  child: Padding(
+                    padding: const EdgeInsets.only(left: 16, right: 16, top: 12, bottom: 12),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            child.name,
+                            style: theme.textTheme.bodyMedium?.copyWith(
+                              color: theme.colorScheme.onSurfaceVariant,
+                            ),
+                          ),
                         ),
-                      ),
+                        Icon(
+                          Icons.keyboard_arrow_right,
+                          color: theme.colorScheme.onSurfaceVariant,
+                          size: 20,
+                        ),
+                      ],
                     ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 16),
-              SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                child: Row(
-                  children: [
-                    _buildSortChip(
-                      context,
-                      theme,
-                      'Popular',
-                      'popular',
-                      state.selectedSort,
-                    ),
-                    const SizedBox(width: 8),
-                    _buildSortChip(
-                      context,
-                      theme,
-                      'New Arrivals',
-                      'new',
-                      state.selectedSort,
-                    ),
-                    const SizedBox(width: 8),
-                    _buildSortChip(
-                      context,
-                      theme,
-                      'Cheap',
-                      'cheap',
-                      state.selectedSort,
-                    ),
-                    const SizedBox(width: 8),
-                    _buildSortChip(
-                      context,
-                      theme,
-                      'Expensive',
-                      'expensive',
-                      state.selectedSort,
-                    ),
-                  ],
-                ),
-              ),
-            ],
+                  ),
+                );
+              }).toList(),
+            ),
+            crossFadeState: _isExpanded ? CrossFadeState.showSecond : CrossFadeState.showFirst,
+            duration: const Duration(milliseconds: 200),
           ),
-        );
-      },
-    );
-  }
-
-  Widget _buildCategoryItem(
-    BuildContext context,
-    ThemeData theme, {
-    required String name,
-    required IconData icon,
-    required bool isSelected,
-    required VoidCallback onTap,
-  }) {
-    return Padding(
-      padding: const EdgeInsets.only(right: 24),
-      child: GestureDetector(
-        onTap: onTap,
-        child: Column(
-          children: [
-            Container(
-              width: 56,
-              height: 56,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: isSelected
-                    ? theme.colorScheme.primary
-                    : theme.colorScheme.surfaceContainer,
-                border: isSelected
-                    ? null
-                    : Border.all(color: theme.colorScheme.outlineVariant),
-              ),
-              child: Icon(
-                icon,
-                color: isSelected
-                    ? theme.colorScheme.onPrimary
-                    : theme.colorScheme.onSurfaceVariant,
-              ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              name,
-              style: theme.textTheme.labelSmall?.copyWith(
-                color: isSelected
-                    ? theme.colorScheme.primary
-                    : theme.colorScheme.onSurface,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildSortChip(
-    BuildContext context,
-    ThemeData theme,
-    String label,
-    String value,
-    String? selectedValue,
-  ) {
-    final isSelected = value == selectedValue;
-    return ActionChip(
-      label: Text(label),
-      onPressed: () {
-        context.read<CatalogBloc>().add(SortProducts(value));
-      },
-      backgroundColor: isSelected
-          ? theme.colorScheme.primary
-          : theme.colorScheme.surfaceContainerHighest,
-      labelStyle: theme.textTheme.labelSmall?.copyWith(
-        color: isSelected
-            ? theme.colorScheme.onPrimary
-            : theme.colorScheme.onSurface,
-      ),
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(24),
-        side: BorderSide(
-          color: isSelected
-              ? Colors.transparent
-              : theme.colorScheme.outlineVariant,
-        ),
+        ],
       ),
     );
   }

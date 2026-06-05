@@ -138,7 +138,7 @@ class _SeeAllProductsPageState extends State<SeeAllProductsPage> {
                 sliver: SliverGrid.builder(
                   gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
                     crossAxisCount: 2,
-                    childAspectRatio: 0.65,
+                    mainAxisExtent: 320, // Ixcham va chiroyli balandlik
                     crossAxisSpacing: 16,
                     mainAxisSpacing: 16,
                   ),

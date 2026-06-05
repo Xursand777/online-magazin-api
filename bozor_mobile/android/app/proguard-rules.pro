@@ -43,3 +43,5 @@
 
 # Reflection orqali ishlatiladigan annotation'lar
 -keepattributes *Annotation*
+-dontwarn com.google.android.play.core.**
+-keep class com.google.android.play.core.** { *; }

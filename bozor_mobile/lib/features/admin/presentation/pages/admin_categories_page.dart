@@ -1,5 +1,9 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:dio/dio.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import '../bloc/admin_bloc.dart';
 import '../../data/models/admin_product_model.dart';
 import '../widgets/admin_drawer.dart';
@@ -157,17 +161,29 @@ class _CategoryTile extends StatelessWidget {
       child: ListTile(
         contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
         leading: Container(
-          width: 44,
-          height: 44,
+          width: 48,
+          height: 48,
           decoration: BoxDecoration(
-            color: const Color(0xFF2563EB).withValues(alpha: 0.1),
-            borderRadius: BorderRadius.circular(10),
+            color: theme.colorScheme.surfaceContainerHighest,
+            borderRadius: BorderRadius.circular(12),
           ),
-          child: const Icon(
-            Icons.category_rounded,
-            color: Color(0xFF2563EB),
-            size: 22,
-          ),
+          clipBehavior: Clip.hardEdge,
+          child: (category.imageUrl != null && category.imageUrl!.isNotEmpty)
+              ? CachedNetworkImage(
+                  imageUrl: category.imageUrl!,
+                  fit: BoxFit.cover,
+                  placeholder: (context, url) =>
+                      const Center(child: CircularProgressIndicator(strokeWidth: 2)),
+                  errorWidget: (context, url, error) => const Icon(
+                    Icons.category_rounded,
+                    color: Colors.grey,
+                  ),
+                )
+              : const Icon(
+                  Icons.category_rounded,
+                  color: Colors.grey,
+                  size: 24,
+                ),
         ),
         title: Text(
           category.name,
@@ -275,6 +291,8 @@ class _CategoryFormSheetState extends State<_CategoryFormSheet> {
   int? _parentId;
   bool _isActive = true;
   bool _isPopular = false;
+  File? _imageFile;
+  String? _existingImageUrl;
 
   @override
   void initState() {
@@ -285,6 +303,7 @@ class _CategoryFormSheetState extends State<_CategoryFormSheet> {
       _parentId = c.parentId;
       _isActive = c.isActive;
       _isPopular = c.isPopular;
+      _existingImageUrl = c.imageUrl;
     }
   }
 
@@ -294,8 +313,20 @@ class _CategoryFormSheetState extends State<_CategoryFormSheet> {
     super.dispose();
   }
 
-  void _submit() {
+  Future<void> _pickImage() async {
+    final picker = ImagePicker();
+    final pickedFile = await picker.pickImage(source: ImageSource.gallery, imageQuality: 80);
+    if (pickedFile != null) {
+      setState(() {
+        _imageFile = File(pickedFile.path);
+        _existingImageUrl = null;
+      });
+    }
+  }
+
+  Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) return;
+    
     final body = <String, dynamic>{
       'name': _name.text.trim(),
       'is_active': _isActive,
@@ -303,11 +334,22 @@ class _CategoryFormSheetState extends State<_CategoryFormSheet> {
     };
     if (_parentId != null) body['parent'] = _parentId;
 
+    dynamic finalData = body;
+
+    if (_imageFile != null) {
+      final formData = FormData.fromMap(body);
+      formData.files.add(MapEntry(
+        'image',
+        await MultipartFile.fromFile(_imageFile!.path, filename: _imageFile!.path.split('/').last),
+      ));
+      finalData = formData;
+    }
+
     final bloc = context.read<AdminBloc>();
     if (widget.category == null) {
-      bloc.add(CreateAdminCategory(body));
+      bloc.add(CreateAdminCategory(finalData));
     } else {
-      bloc.add(UpdateAdminCategory(widget.category!.id, body));
+      bloc.add(UpdateAdminCategory(widget.category!.id, finalData));
     }
     Navigator.pop(context);
   }
@@ -371,6 +413,53 @@ class _CategoryFormSheetState extends State<_CategoryFormSheet> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
+                    Text(
+                      'Kategoriya rasmi',
+                      style: theme.textTheme.labelMedium?.copyWith(
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    GestureDetector(
+                      onTap: _pickImage,
+                      child: Container(
+                        width: double.infinity,
+                        height: 120,
+                        decoration: BoxDecoration(
+                          color: theme.colorScheme.surfaceContainerLowest,
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: theme.colorScheme.outlineVariant),
+                        ),
+                        child: _imageFile != null
+                            ? ClipRRect(
+                                borderRadius: BorderRadius.circular(12),
+                                child: Image.file(_imageFile!, fit: BoxFit.cover),
+                              )
+                            : (_existingImageUrl != null && _existingImageUrl!.isNotEmpty)
+                                ? ClipRRect(
+                                    borderRadius: BorderRadius.circular(12),
+                                    child: CachedNetworkImage(
+                                      imageUrl: _existingImageUrl!,
+                                      fit: BoxFit.cover,
+                                    ),
+                                  )
+                                : Column(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      Icon(Icons.add_photo_alternate_outlined,
+                                          size: 32, color: theme.colorScheme.primary),
+                                      const SizedBox(height: 8),
+                                      Text(
+                                        'Rasm yuklash',
+                                        style: theme.textTheme.labelMedium?.copyWith(
+                                          color: theme.colorScheme.primary,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
                     Text(
                       'Kategoriya nomi *',
                       style: theme.textTheme.labelMedium?.copyWith(

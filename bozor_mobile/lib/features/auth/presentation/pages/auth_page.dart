@@ -70,9 +70,11 @@ class _AuthViewState extends State<AuthView> {
               _stopSlowServerTimer();
             }
 
-            if (state is AuthAuthenticated) {
-              context.go(state.isAdmin ? '/admin' : '/');
-            } else if (state is AuthFailure) {
+            // AuthAuthenticated → GoRouter redirect avtomatik yo'naltiradi
+            // (app_router.dart). Bu yerda qo'shimcha context.go() chaqirmаymiz —
+            // ikki marta navigate race condition va noto'g'ri role yo'naltirishiga
+            // olib keladi.
+            if (state is AuthFailure) {
               ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(
                   content: Text(state.message),

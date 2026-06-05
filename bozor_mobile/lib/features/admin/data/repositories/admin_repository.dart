@@ -5,6 +5,9 @@ import '../models/admin_product_model.dart';
 import '../models/admin_dashboard_model.dart';
 import '../models/admin_order_model.dart';
 import '../models/pos_model.dart';
+import '../models/admin_kassa_model.dart';
+import '../models/admin_report_model.dart';
+import '../models/admin_stock_model.dart';
 
 class AdminRepository {
   final ApiClient apiClient;
@@ -30,11 +33,24 @@ class AdminRepository {
 
   // ─── Products ────────────────────────────────────────────────────────────────
 
-  Future<List<AdminProductModel>> getProducts() async {
-    final response = await apiClient.dio.get(ApiConstants.adminProducts);
+  Future<({List<AdminProductModel> items, bool hasReachedMax})> getProducts({int page = 1, String query = ''}) async {
+    final response = await apiClient.dio.get(
+      ApiConstants.adminProducts,
+      queryParameters: {
+        if (page > 1) 'page': page,
+        if (query.isNotEmpty) 'q': query,
+      },
+    );
     final data = response.data;
-    final list = data is List ? data : (data['results'] as List? ?? []);
-    return list.map((j) => AdminProductModel.fromJson(j as Map<String, dynamic>)).toList();
+    if (data is Map) {
+      final list = data['results'] as List? ?? [];
+      final items = list.map((j) => AdminProductModel.fromJson(j as Map<String, dynamic>)).toList();
+      return (items: items, hasReachedMax: data['next'] == null);
+    } else {
+      final list = data as List? ?? [];
+      final items = list.map((j) => AdminProductModel.fromJson(j as Map<String, dynamic>)).toList();
+      return (items: items, hasReachedMax: true);
+    }
   }
 
   Future<AdminProductModel> createProduct(FormData formData) async {
@@ -130,6 +146,7 @@ class AdminRepository {
     String? dateTo,
     String? paymentMethod,
     String? isCredit,
+    String? nasiyaStatus,
     int page = 1,
   }) async {
     final params = <String, dynamic>{'page': page};
@@ -141,6 +158,9 @@ class AdminRepository {
       params['payment_method'] = paymentMethod;
     }
     if (isCredit != null && isCredit.isNotEmpty) params['is_credit'] = isCredit;
+    if (nasiyaStatus != null && nasiyaStatus.isNotEmpty) {
+      params['nasiya_status'] = nasiyaStatus;
+    }
 
     final response =
         await apiClient.dio.get(ApiConstants.adminOrders, queryParameters: params);
@@ -164,17 +184,36 @@ class AdminRepository {
     return AdminOrder.fromJson(response.data as Map<String, dynamic>);
   }
 
+  Future<Map<String, int>> getNasiyaSummary() async {
+    final response = await apiClient.dio.get('${ApiConstants.adminOrders}nasiya/summary/');
+    final data = response.data as Map<String, dynamic>;
+    return {
+      'paid_count': data['paid_count'] as int? ?? 0,
+      'overdue_count': data['overdue_count'] as int? ?? 0,
+      'active_count': data['active_count'] as int? ?? 0,
+    };
+  }
+
   // ─── POS (Do'kon) ─────────────────────────────────────────────────────────
-  Future<List<PosProduct>> getPosProducts() async {
+  Future<({List<PosProduct> products, bool hasReachedMax})> getPosProducts({int page = 1, String q = ''}) async {
+    final params = <String, dynamic>{'page': page, 'page_size': 20};
+    if (q.isNotEmpty) params['search'] = q;
+
     final response = await apiClient.dio.get(
       ApiConstants.adminProducts,
-      queryParameters: {'limit': 1000, 'page_size': 1000},
+      queryParameters: params,
     );
     final data = response.data;
-    final list = data is List ? data : (data['results'] as List? ?? []);
-    return list
-        .map((j) => PosProduct.fromJson(j as Map<String, dynamic>))
-        .toList();
+    if (data is Map<String, dynamic> && data.containsKey('results')) {
+      final list = data['results'] as List? ?? [];
+      final products = list.map((j) => PosProduct.fromJson(j as Map<String, dynamic>)).toList();
+      final hasNext = data['next'] != null;
+      return (products: products, hasReachedMax: !hasNext);
+    } else {
+      final list = data as List? ?? [];
+      final products = list.map((j) => PosProduct.fromJson(j as Map<String, dynamic>)).toList();
+      return (products: products, hasReachedMax: true);
+    }
   }
 
   /// Telefon raqam bo'yicha mijozni qidiradi. Topilmasa `null` qaytaradi.
@@ -226,5 +265,105 @@ class AdminRepository {
       queryParameters: {'phone': phone},
     );
     return CustomerHistory.fromJson(response.data as Map<String, dynamic>);
+  }
+
+  // ─── Stock Report ────────────────────────────────────────────────────────────
+
+  Future<AdminStockReport> getAdminStockReport({int minStock = 0, int maxStock = 10}) async {
+    final response = await apiClient.dio.get(
+      ApiConstants.adminStockReport,
+      queryParameters: {
+        'min_stock': minStock,
+        'max_stock': maxStock,
+      },
+    );
+    return AdminStockReport.fromJson(response.data as Map<String, dynamic>);
+  }
+
+  // ─── Kassa ───────────────────────────────────────────────────────────────
+  Future<AdminKassaModel> getKassaData() async {
+    final response = await apiClient.dio.get(ApiConstants.adminKassa);
+    return AdminKassaModel.fromJson(response.data as Map<String, dynamic>);
+  }
+
+  Future<void> withdrawKassa(double amount, String note) async {
+    await apiClient.dio.post(
+      ApiConstants.adminWithdrawKassa,
+      data: {'amount': amount, 'note': note},
+    );
+  }
+
+  // ─── Hisobotlar (Reports) ──────────────────────────────────────────────────
+  Future<ReportData> getReportData({
+    String? dateFrom,
+    String? dateTo,
+    String? period,
+  }) async {
+    final params = <String, dynamic>{};
+    if (dateFrom != null && dateFrom.isNotEmpty) params['date_from'] = dateFrom;
+    if (dateTo != null && dateTo.isNotEmpty) params['date_to'] = dateTo;
+    if (period != null && period.isNotEmpty) params['period'] = period;
+
+    final response = await apiClient.dio.get(ApiConstants.adminReport, queryParameters: params);
+    return ReportData.fromJson(response.data as Map<String, dynamic>);
+  }
+
+  Future<({List<ReportOrder> orders, bool hasReachedMax})> getReportOrders({
+    String? dateFrom,
+    String? dateTo,
+    int page = 1,
+  }) async {
+    final params = <String, dynamic>{
+      if (page > 1) 'page': page,
+      if (dateFrom != null && dateFrom.isNotEmpty) 'date_from': dateFrom,
+      if (dateTo != null && dateTo.isNotEmpty) 'date_to': dateTo,
+    };
+
+    final response = await apiClient.dio.get(ApiConstants.adminReportOrders, queryParameters: params);
+    final data = response.data;
+    if (data is Map) {
+      final list = data['results'] as List? ?? [];
+      final items = list.map((j) => ReportOrder.fromJson(j as Map<String, dynamic>)).toList();
+      return (orders: items, hasReachedMax: data['next'] == null);
+    } else {
+      final list = data as List? ?? [];
+      final items = list.map((j) => ReportOrder.fromJson(j as Map<String, dynamic>)).toList();
+      return (orders: items, hasReachedMax: true);
+    }
+  }
+
+  // ─── Sozlamalar (Settings) ────────────────────────────────────────────────
+  
+  Future<double> getExchangeRate() async {
+    final response = await apiClient.dio.get(ApiConstants.adminExchangeRate);
+    final data = response.data;
+    if (data is Map && data.containsKey('usd_rate')) {
+      return double.tryParse(data['usd_rate'].toString()) ?? 0.0;
+    }
+    return 0.0;
+  }
+
+  Future<void> updateExchangeRate(double rate) async {
+    await apiClient.dio.post(
+      ApiConstants.adminExchangeRate,
+      data: {'usd_rate': rate},
+    );
+  }
+
+  Future<Map<String, dynamic>> getShopInfo() async {
+    final response = await apiClient.dio.get(ApiConstants.adminShopInfo);
+    return response.data as Map<String, dynamic>;
+  }
+
+  Future<void> updateShopInfo({String? name, String? phone, String? address}) async {
+    final data = <String, dynamic>{};
+    if (name != null) data['shop_name'] = name;
+    if (phone != null) data['shop_phone'] = phone;
+    if (address != null) data['shop_address'] = address;
+    
+    await apiClient.dio.patch(
+      ApiConstants.adminShopInfo,
+      data: data,
+    );
   }
 }

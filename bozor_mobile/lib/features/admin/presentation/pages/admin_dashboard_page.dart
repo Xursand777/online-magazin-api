@@ -63,11 +63,12 @@ class AdminDashboardPage extends StatelessWidget {
           return RefreshIndicator(
             color: _brand,
             onRefresh: () async {
-              context.read<AdminDashboardBloc>().add(const RefreshDashboard());
-              await context
-                  .read<AdminDashboardBloc>()
-                  .stream
-                  .firstWhere((s) => s.status != DashboardStatus.loading);
+              final bloc = context.read<AdminDashboardBloc>();
+              bloc.add(const RefreshDashboard());
+              await bloc.stream.firstWhere(
+                (s) => s.status != DashboardStatus.loading,
+                orElse: () => bloc.state,
+              );
             },
             child: ListView(
               padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
@@ -117,41 +118,53 @@ class _KpiGrid extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return GridView.count(
-      crossAxisCount: 2,
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
-      mainAxisSpacing: 12,
-      crossAxisSpacing: 12,
-      childAspectRatio: 1.45,
+    final kpis = [
+      _KpiCard(
+        icon: Icons.receipt_long_rounded,
+        label: 'Bugungi buyurtmalar',
+        value: '${data.todayOrders}',
+        sub: "${formatSom(data.todayRevenue)} so'm",
+        color: const Color(0xFF0A7C55),
+      ),
+      _KpiCard(
+        icon: Icons.payments_rounded,
+        label: 'Oylik tushum',
+        value: formatSom(data.monthRevenue),
+        sub: '${data.monthOrders} ta buyurtma',
+        color: const Color(0xFF2563EB),
+      ),
+      _KpiCard(
+        icon: Icons.pending_actions_rounded,
+        label: 'Kutilayotgan',
+        value: '${data.pendingOrders}',
+        sub: '${data.processingOrders} ta jarayonda',
+        color: const Color(0xFFD97706),
+      ),
+      _KpiCard(
+        icon: Icons.account_balance_wallet_rounded,
+        label: 'Kassa balansi',
+        value: formatSom(data.kassaBalance),
+        sub: "so'm",
+        color: const Color(0xFF7C3AED),
+      ),
+    ];
+
+    return Column(
       children: [
-        _KpiCard(
-          icon: Icons.receipt_long_rounded,
-          label: 'Bugungi buyurtmalar',
-          value: '${data.todayOrders}',
-          sub: "${formatSom(data.todayRevenue)} so'm",
-          color: const Color(0xFF0A7C55),
+        Row(
+          children: [
+            Expanded(child: kpis[0]),
+            const SizedBox(width: 12),
+            Expanded(child: kpis[1]),
+          ],
         ),
-        _KpiCard(
-          icon: Icons.payments_rounded,
-          label: 'Oylik tushum',
-          value: formatSom(data.monthRevenue),
-          sub: '${data.monthOrders} ta buyurtma',
-          color: const Color(0xFF2563EB),
-        ),
-        _KpiCard(
-          icon: Icons.pending_actions_rounded,
-          label: 'Kutilayotgan',
-          value: '${data.pendingOrders}',
-          sub: '${data.processingOrders} ta jarayonda',
-          color: const Color(0xFFD97706),
-        ),
-        _KpiCard(
-          icon: Icons.account_balance_wallet_rounded,
-          label: 'Kassa balansi',
-          value: formatSom(data.kassaBalance),
-          sub: "so'm",
-          color: const Color(0xFF7C3AED),
+        const SizedBox(height: 12),
+        Row(
+          children: [
+            Expanded(child: kpis[2]),
+            const SizedBox(width: 12),
+            Expanded(child: kpis[3]),
+          ],
         ),
       ],
     );
@@ -201,7 +214,7 @@ class _KpiCard extends StatelessWidget {
             ),
             child: Icon(icon, color: color, size: 20),
           ),
-          const Spacer(),
+          const SizedBox(height: 12),
           FittedBox(
             fit: BoxFit.scaleDown,
             alignment: Alignment.centerLeft,
@@ -270,14 +283,24 @@ class _AlertGrid extends StatelessWidget {
         color: const Color(0xFF2563EB),
       ),
     ];
-    return GridView.count(
-      crossAxisCount: 2,
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
-      mainAxisSpacing: 10,
-      crossAxisSpacing: 10,
-      childAspectRatio: 2.6,
-      children: alerts,
+    return Column(
+      children: [
+        Row(
+          children: [
+            Expanded(child: alerts[0]),
+            const SizedBox(width: 10),
+            Expanded(child: alerts[1]),
+          ],
+        ),
+        const SizedBox(height: 10),
+        Row(
+          children: [
+            Expanded(child: alerts[2]),
+            const SizedBox(width: 10),
+            Expanded(child: alerts[3]),
+          ],
+        ),
+      ],
     );
   }
 }

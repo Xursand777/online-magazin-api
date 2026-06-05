@@ -18,6 +18,11 @@ import '../../features/admin/presentation/bloc/admin_bloc.dart';
 import '../../features/admin/presentation/bloc/admin_dashboard_bloc.dart';
 import '../../features/admin/presentation/bloc/admin_orders_bloc.dart';
 import '../../features/admin/presentation/bloc/admin_pos_bloc.dart';
+import '../../features/admin/presentation/bloc/admin_kassa_bloc.dart';
+import '../../features/admin/presentation/bloc/admin_nasiya_bloc.dart';
+import '../../features/admin/presentation/bloc/admin_report_bloc.dart';
+import '../../features/admin/presentation/bloc/admin_settings_bloc.dart';
+import '../../features/admin/presentation/bloc/admin_stock_bloc.dart';
 
 final sl = GetIt.instance;
 
@@ -100,6 +105,11 @@ Future<void> init() async {
   sl.registerFactory<AdminDashboardBloc>(() => AdminDashboardBloc(repository: sl()));
   sl.registerFactory<AdminOrdersBloc>(   () => AdminOrdersBloc(repository:    sl()));
   sl.registerFactory<AdminPosBloc>(      () => AdminPosBloc(repository:       sl()));
+  sl.registerFactory<AdminKassaBloc>(    () => AdminKassaBloc(repository:     sl()));
+  sl.registerFactory<AdminNasiyaBloc>(   () => AdminNasiyaBloc(repository:    sl()));
+  sl.registerFactory<AdminReportBloc>(   () => AdminReportBloc(repository:    sl()));
+  sl.registerFactory<AdminStockBloc>(    () => AdminStockBloc(repository:     sl()));
+  sl.registerFactory<AdminSettingsBloc>( () => AdminSettingsBloc(repository:  sl()));
 
   // CartBloc — singleton (savatcha butun ilova bo'yicha bir xil)
   sl.registerLazySingleton<CartBloc>(
