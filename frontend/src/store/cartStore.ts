@@ -77,7 +77,9 @@ const readLocalCartItems = (): CartItem[] => {
     const raw = localStorage.getItem(LOCAL_CART_STORAGE_KEY);
     if (!raw) return [];
     const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : [];
+    if (!Array.isArray(parsed)) return [];
+    // Noto'g'ri (product yo'q) bo'lgan eski/buzilgan obyektlarni o'chirib yuboramiz
+    return parsed.filter((item) => item && item.product);
   } catch {
     return [];
   }
@@ -99,7 +101,10 @@ const getDisplayPrice = (item: CartItem) => {
     return Number(item.variant_details.price);
   }
   if (item.price_snapshot) return Number(item.price_snapshot);
-  const { product_details } = item;
+  
+  const product_details = item.product_details;
+  if (!product_details) return 0; // Agar xato bilan null kelib qolgan bo'lsa, crash bermaslik uchun
+  
   if (product_details.is_discount && product_details.discount_price) {
     return Number(product_details.discount_price);
   }
@@ -210,9 +215,9 @@ export const useCartStore = create<CartState>((set, get) => ({
         set({ cart: buildLocalCartData(readLocalCartItems()) });
       }
     } catch {
-      if (!isAuthenticated) {
-        set({ cart: buildLocalCartData(readLocalCartItems()) });
-      }
+      // Qanday xatolik bo'lishidan qat'iy nazar (auth eskirgan yoki server down),
+      // cart null qolib ketmasligi, ya'ni yo'qolib qolmasligi uchun fallback beramiz.
+      set({ cart: buildLocalCartData(readLocalCartItems()) });
     } finally {
       set({ loading: false });
     }
