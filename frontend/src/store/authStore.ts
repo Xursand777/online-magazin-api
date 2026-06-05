@@ -25,6 +25,10 @@ interface AuthUser {
   is_admin: boolean;
   role?: StaffRole | null;
   is_master?: boolean;
+  // Backend hisoblaydi (User.can_use_credit property). Frontend UX gating
+  // (Checkout, AdminPOS) shu maydondan foydalanadi. Backend authoritative —
+  // bypass urinishlari 400 master_required bilan rad etiladi.
+  can_use_credit?: boolean;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

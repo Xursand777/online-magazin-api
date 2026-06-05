@@ -14,7 +14,9 @@ import SearchPage from './pages/SearchPage';
 import NotFound from './pages/NotFound';
 import ProtectedRoute from './components/ProtectedRoute';
 import { useCartStore } from './store/cartStore';
+import { useAuthStore } from './store/authStore';
 import { applyThemeMode, useThemeStore } from './store/themeStore';
+import { getProfile } from './api/endpoints';
 
 // ── Lazy load: faqat admin foydalanuvchilar uchun yuklanadi ───────────────────
 // AdminPanel eng katta komponent (~500KB). Odatdagi foydalanuvchilar uni
@@ -54,6 +56,28 @@ function App() {
   useEffect(() => {
     applyThemeMode(theme);
   }, [theme]);
+
+  // Page load'da is_master + can_use_credit ni server'dan sinxronlash.
+  // Sabab: eski sessiya (auth localStorage cache) is_master'siz bo'lishi
+  // mumkin -> Checkout/POS gating buzilardi. Bu useEffect har refresh'da
+  // serverdan freshtek qiymat olib authStore'ga yozadi.
+  const isAuthed = useAuthStore((s) => s.isAuthenticated);
+  const updateUser = useAuthStore((s) => s.updateUser);
+  useEffect(() => {
+    if (!isAuthed) return;
+    getProfile()
+      .then((r) => {
+        const p = (r.data || {}) as { is_master?: boolean; can_use_credit?: boolean };
+        updateUser({
+          is_master: !!p.is_master,
+          // can_use_credit shu vaqtga is_master bilan ekvivalent (User
+          // domain), lekin alohida ham saqlaymiz — kelajakdagi qoidalar
+          // qo'shilsa code o'zgartirish kerakmas.
+          can_use_credit: p.can_use_credit !== undefined ? !!p.can_use_credit : !!p.is_master,
+        });
+      })
+      .catch(() => { /* offline yoki 401 — silent, login chiqib ketadi */ });
+  }, [isAuthed, updateUser]);
 
   return (
     <BrowserRouter>

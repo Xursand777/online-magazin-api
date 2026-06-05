@@ -38,7 +38,9 @@ const Checkout = () => {
   const { isAuthenticated, user } = useAuthStore();
   // Muddatli to'lov — FAQAT ustalar uchun. Backend authoritative tarzda
   // blocklaydi; bu yerda UX gating (option umuman ko'rinmaydi).
-  const canUseCredit = !!user?.is_master;
+  // App.tsx page load'da is_master va can_use_credit'ni server'dan
+  // sinxronlashtiradi -> bu shartlar har doim freshtek.
+  const canUseCredit = !!(user?.can_use_credit ?? user?.is_master);
   const [loading, setLoading] = useState(false);
   const [cartReady, setCartReady] = useState(false);
   const [creditStatus, setCreditStatus] = useState<CreditStatus | null>(null);
