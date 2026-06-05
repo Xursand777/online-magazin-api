@@ -90,6 +90,10 @@ class UserProfileSerializer(serializers.ModelSerializer):
     last_name  = serializers.CharField(source='user.last_name', required=False)
     is_admin   = serializers.SerializerMethodField()
     role       = serializers.CharField(source='user.role', read_only=True, allow_null=True)
+    # Frontend kredit option'ini gating qilish uchun (backend authoritative
+    # check'ni almashtirmaydi — UX uchun)
+    is_master      = serializers.BooleanField(source='user.is_master', read_only=True)
+    can_use_credit = serializers.BooleanField(source='user.can_use_credit', read_only=True)
 
     def get_is_admin(self, obj):
         return obj.user.is_superuser or bool(obj.user.role)
@@ -97,7 +101,8 @@ class UserProfileSerializer(serializers.ModelSerializer):
     class Meta:
         model = UserProfile
         fields = ('phone', 'first_name', 'last_name', 'avatar', 'birth_date', 'gender',
-                  'language', 'delivery_address', 'is_admin', 'role')
+                  'language', 'delivery_address', 'is_admin', 'role',
+                  'is_master', 'can_use_credit')
 
     def update(self, instance, validated_data):
         user_data = validated_data.pop('user', {})

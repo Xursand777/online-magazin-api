@@ -755,16 +755,36 @@ def mark_overdue_credits(user) -> dict:
 def check_credit_eligibility(user):
     """
     Foydalanuvchi buyurtma bera olishini tekshiradi.
-    Quyidagi holatlarda xato qaytaradi:
-      - credit_ban=True (3 marta muddati o'tgan)
-      - Muddati o'tgan, to'lanmagan muddatli buyurtma mavjud
-      - Hali to'lanmagan aktiv muddatli buyurtma mavjud
+
+    Tartib (eng cheklov birinchi):
+      0. Faqat ustalar muddatli to'lov ishlatishi mumkin. ←── ENG MUHIM
+      1. credit_ban=True (3 marta muddati o'tgan)
+      2. Muddati o'tgan, to'lanmagan muddatli buyurtma mavjud
+      3. Hali to'lanmagan aktiv muddatli buyurtma mavjud
+
     Race condition'dan himoya uchun select_for_update ishlatiladi.
+
+    XAVFSIZLIK: bu funksiya BACKEND AUTHORITATIVE check — frontend gating
+    (Checkout.tsx, AdminPOS.tsx) faqat UX uchun. Bypass urinishlari (URL
+    manipulatsiya, to'g'ridan-to'g'ri API call) shu yerda blocklanadi.
     """
     from django.db import transaction as db_transaction
 
     # Foydalanuvchini lock qilib olamiz
     user_locked = user.__class__.objects.select_for_update().get(pk=user.pk)
+
+    # ── 0-tekshiruv — Muddatli to'lov FAQAT ustalar uchun ───────────────────
+    # Bu eng yuqori cheklov: agar mijoz usta bo'lmasa, boshqa hech narsani
+    # tekshirmaymiz (overdue, ban — kerakmas). Aniq error code'i frontend
+    # uchun (translation/UI uchun).
+    if not user_locked.can_use_credit:
+        raise serializers.ValidationError({
+            'error': (
+                "Muddatli to'lov faqat ustalar uchun. "
+                "Iltimos, naqd yoki karta bilan to'lash usulini tanlang."
+            ),
+            'code': 'master_required',
+        })
 
     if user_locked.credit_ban:
         raise serializers.ValidationError({

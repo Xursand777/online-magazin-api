@@ -70,6 +70,22 @@ class User(AbstractUser):
         return bool(self.role) or self.is_superuser
 
     @property
+    def can_use_credit(self) -> bool:
+        """
+        Muddatli to'lov huquqi — FAQAT ustalarda.
+
+        Biznes qoidasi: muddatli to'lov (kredit) — bizning brendga ishonchli
+        mijozlar (ustalar) uchun. Oddiy mijozlar faqat naqd yoki karta bilan
+        to'laydi. Backend bu xususiyatni ham authoritative tarzda tekshiradi
+        (frontend gating'i UX uchun, lekin xavfsizlik backend'da).
+
+        Kelajakda boshqa shartlar qo'shilsa (masalan, "kamida 5 ta sotib
+        olgan ustalar"), shu yerda jam qilamiz — joriy chaqiruvchilar
+        o'zgarmaydi.
+        """
+        return bool(self.is_master)
+
+    @property
     def role_display(self) -> str:
         if self.is_superuser and not self.role:
             return 'Super Admin'

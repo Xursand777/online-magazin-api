@@ -362,7 +362,10 @@ class AdminUserSearchView(views.APIView):
             "first_name": user.first_name,
             "last_name": user.last_name,
             "credit_ban": user.credit_ban,
-            "overdue_credit_count": user.overdue_credit_count
+            "overdue_credit_count": user.overdue_credit_count,
+            # POS — muddatli to'lov tugmasi'ni gating uchun
+            "is_master": user.is_master,
+            "can_use_credit": user.can_use_credit,
         })
 
 

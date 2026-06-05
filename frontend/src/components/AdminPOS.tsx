@@ -448,6 +448,11 @@ const AdminPOS = () => {
       adminSearchUser(fullPhone)
         .then((res) => {
           setUserData(res.data);
+          // Defensive: agar tanlangan to'lov 'credit' lekin yangi mijoz usta
+          // emas, avtomat 'cash'ga qaytaramiz (option allaqachon yashirin)
+          if (paymentMethod === 'credit' && !res.data.can_use_credit) {
+            setPaymentMethod('cash');
+          }
           // Pre-fill name only if field is empty
           if (!fullName.trim()) {
             const n = `${res.data.first_name || ''} ${res.data.last_name || ''}`.trim();
@@ -456,6 +461,8 @@ const AdminPOS = () => {
         })
         .catch(() => {
           setUserData(null);
+          // Mehmon mijoz -> kredit'ni avtomat 'cash'ga qaytaramiz
+          if (paymentMethod === 'credit') setPaymentMethod('cash');
         })
         .finally(() => setSearchingUser(false));
     }, 500);
@@ -529,6 +536,11 @@ const AdminPOS = () => {
 
     if (paymentMethod === 'credit' && !userData) {
       return toast.error("Muddatli to'lov uchun mijoz tizimda ro'yxatdan o'tgan bo'lishi shart.");
+    }
+    // Defensive: backend ham aynan shu tekshiruvni bajaradi (master_required).
+    // Bu yerda toast tezroq, lekin haqiqiy himoya backend'da.
+    if (paymentMethod === 'credit' && userData && !userData.can_use_credit) {
+      return toast.error("Bu mijoz Ustalar ro'yxatida emas — muddatli to'lov yo'q.");
     }
     if (paymentMethod === 'credit' && userData?.credit_ban) {
       return toast.error("Bu mijozga muddatli to'lov taqiqlangan!");
@@ -762,6 +774,11 @@ const AdminPOS = () => {
                         ? `${userData.first_name} ${userData.last_name}`.trim()
                         : 'Ro\'yxatdan o\'tgan mijoz'}
                     </span>
+                    {userData.is_master && (
+                      <span className="ml-2 px-1.5 py-0.5 rounded-md bg-amber-100 text-amber-800 text-[10px] font-bold uppercase tracking-wider dark:bg-amber-900/40 dark:text-amber-200">
+                        Usta
+                      </span>
+                    )}
                     {userData.credit_ban && (
                       <span className="ml-auto text-error font-semibold">Muddatli to'lov bloklangan</span>
                     )}
@@ -780,21 +797,21 @@ const AdminPOS = () => {
                 )}
               </div>
 
-              {/* Payment method */}
+              {/* Payment method — Muddatli to'lov FAQAT ustalar uchun ko'rinadi.
+                  Backend ham authoritative tarzda blocklaydi (master_required). */}
               <div>
                 <label className="block text-xs font-semibold text-on-surface-variant mb-2">To'lov turi</label>
-                <div className="grid grid-cols-3 gap-2">
-                  {(['cash', 'card', 'credit'] as const).map((m) => {
-                    const isCreditBlocked = m === 'credit' && (!userData || userData?.credit_ban);
-                    const icons = { cash: 'payments', card: 'credit_card', credit: 'schedule' };
-                    const labels = { cash: 'Naqd pul', card: 'Karta', credit: "Muddatli" };
+                <div className={`grid gap-2 ${userData?.can_use_credit ? 'grid-cols-3' : 'grid-cols-2'}`}>
+                  {/* Cash + Card barcha mijozlar uchun */}
+                  {(['cash', 'card'] as const).map((m) => {
+                    const icons = { cash: 'payments', card: 'credit_card' };
+                    const labels = { cash: 'Naqd pul', card: 'Karta' };
                     return (
                       <button
                         key={m}
                         type="button"
-                        disabled={isCreditBlocked}
                         onClick={() => setPaymentMethod(m)}
-                        className={`flex flex-col items-center gap-1 rounded-xl border py-3 text-xs font-bold transition-all disabled:opacity-40 disabled:cursor-not-allowed ${
+                        className={`flex flex-col items-center gap-1 rounded-xl border py-3 text-xs font-bold transition-all ${
                           paymentMethod === m
                             ? 'border-primary bg-primary/10 text-primary shadow-sm'
                             : 'border-outline-variant text-on-surface-variant hover:bg-surface-container hover:border-outline'
@@ -805,16 +822,37 @@ const AdminPOS = () => {
                       </button>
                     );
                   })}
+                  {/* Muddatli — faqat usta mijozlar uchun */}
+                  {userData?.can_use_credit && (
+                    <button
+                      type="button"
+                      disabled={userData?.credit_ban}
+                      onClick={() => setPaymentMethod('credit')}
+                      className={`flex flex-col items-center gap-1 rounded-xl border py-3 text-xs font-bold transition-all disabled:opacity-40 disabled:cursor-not-allowed ${
+                        paymentMethod === 'credit'
+                          ? 'border-primary bg-primary/10 text-primary shadow-sm'
+                          : 'border-outline-variant text-on-surface-variant hover:bg-surface-container hover:border-outline'
+                      }`}
+                    >
+                      <span className="material-symbols-outlined text-[22px]">schedule</span>
+                      Muddatli
+                    </button>
+                  )}
                 </div>
-                {!userData && paymentMethod !== 'credit' && (
+                {!userData && (
                   <p className="text-xs text-on-surface-variant mt-1.5 pl-1">
                     Ro'yxatdan o'tgan bo'lmasa muddatli to'lov mavjud emas
                   </p>
                 )}
+                {userData && !userData.can_use_credit && (
+                  <p className="text-xs text-on-surface-variant mt-1.5 pl-1">
+                    Bu mijoz Ustalar ro'yxatida emas — muddatli to'lov yo'q
+                  </p>
+                )}
               </div>
 
-              {/* Credit days slider */}
-              {paymentMethod === 'credit' && (
+              {/* Credit days slider — faqat master mijoz tanlangan bo'lsa */}
+              {paymentMethod === 'credit' && userData?.can_use_credit && (
                 <div className="p-3 rounded-xl border border-primary/40 bg-primary-container/10">
                   <div className="flex justify-between mb-1">
                     <label className="text-sm font-semibold text-on-surface">To'lov muddati</label>
