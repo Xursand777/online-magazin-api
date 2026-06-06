@@ -22,6 +22,7 @@ import '../../features/admin/presentation/bloc/admin_kassa_bloc.dart';
 import '../../features/admin/presentation/bloc/admin_nasiya_bloc.dart';
 import '../../features/admin/presentation/bloc/admin_report_bloc.dart';
 import '../../features/admin/presentation/bloc/admin_settings_bloc.dart';
+import '../../features/admin/presentation/bloc/admin_master_bloc.dart';
 import '../../features/admin/presentation/bloc/admin_staff_bloc.dart';
 import '../../features/admin/presentation/bloc/admin_stock_bloc.dart';
 
@@ -109,6 +110,7 @@ Future<void> init() async {
   sl.registerFactory<AdminKassaBloc>(    () => AdminKassaBloc(repository:     sl()));
   sl.registerFactory<AdminNasiyaBloc>(   () => AdminNasiyaBloc(repository:    sl()));
   sl.registerFactory<AdminReportBloc>(   () => AdminReportBloc(repository:    sl()));
+  sl.registerFactory<AdminMasterBloc>(   () => AdminMasterBloc(repository:    sl()));
   sl.registerFactory<AdminStaffBloc>(    () => AdminStaffBloc(repository:     sl()));
   sl.registerFactory<AdminStockBloc>(    () => AdminStockBloc(repository:     sl()));
   sl.registerFactory<AdminSettingsBloc>( () => AdminSettingsBloc(repository:  sl()));

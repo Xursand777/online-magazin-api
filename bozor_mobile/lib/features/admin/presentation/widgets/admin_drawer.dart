@@ -32,6 +32,7 @@ class AdminDrawer extends StatelessWidget {
     ]),
     _NavGroup('TIZIM', [
       _NavItem('Xodimlar', Icons.manage_accounts_rounded, '/admin/staff'),
+      _NavItem('Ustalar', Icons.construction_rounded, '/admin/masters'),
       _NavItem('Sozlamalar', Icons.settings_rounded, '/admin/settings'),
     ]),
   ];

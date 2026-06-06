@@ -23,6 +23,7 @@ import '../../features/admin/presentation/pages/admin_kassa_page.dart';
 import '../../features/admin/presentation/pages/admin_nasiya_page.dart';
 import '../../features/admin/presentation/pages/admin_report_page.dart';
 import '../../features/admin/presentation/pages/admin_settings_page.dart';
+import '../../features/admin/presentation/pages/admin_masters_page.dart';
 import '../../features/admin/presentation/pages/admin_staff_page.dart';
 import '../../features/admin/presentation/pages/admin_stock_page.dart';
 import '../../features/admin/presentation/bloc/admin_dashboard_bloc.dart';
@@ -32,6 +33,7 @@ import '../../features/admin/presentation/bloc/admin_kassa_bloc.dart';
 import '../../features/admin/presentation/bloc/admin_nasiya_bloc.dart';
 import '../../features/admin/presentation/bloc/admin_report_bloc.dart';
 import '../../features/admin/presentation/bloc/admin_settings_bloc.dart';
+import '../../features/admin/presentation/bloc/admin_master_bloc.dart';
 import '../../features/admin/presentation/bloc/admin_staff_bloc.dart';
 import '../../features/admin/presentation/bloc/admin_stock_bloc.dart';
 import '../di/injection_container.dart';
@@ -196,6 +198,14 @@ class AppRouter {
               builder: (context, _) => BlocProvider(
                 create: (_) => sl<AdminReportBloc>()..add(LoadReportData()),
                 child: const AdminReportPage(),
+              ),
+            ),
+            GoRoute(
+              path: '/admin/masters',
+              builder: (context, _) => BlocProvider(
+                create: (_) =>
+                    sl<AdminMasterBloc>()..add(const LoadMasters()),
+                child: const AdminMastersPage(),
               ),
             ),
             GoRoute(

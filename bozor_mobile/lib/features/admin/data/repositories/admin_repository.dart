@@ -4,6 +4,7 @@ import '../../../../core/network/api_constants.dart';
 import '../models/admin_product_model.dart';
 import '../models/admin_dashboard_model.dart';
 import '../models/admin_order_model.dart';
+import '../models/admin_master_model.dart';
 import '../models/admin_staff_model.dart';
 import '../models/pos_model.dart';
 import '../models/admin_kassa_model.dart';
@@ -331,6 +332,48 @@ class AdminRepository {
       final items = list.map((j) => ReportOrder.fromJson(j as Map<String, dynamic>)).toList();
       return (orders: items, hasReachedMax: true);
     }
+  }
+
+  // ─── Ustalar (Masters) ────────────────────────────────────────────────────
+
+  /// Barcha ustalarni oladi.
+  Future<List<MasterMember>> getMasters({String? q}) async {
+    final response = await apiClient.dio.get(
+      ApiConstants.adminMasters,
+      queryParameters: q != null && q.isNotEmpty ? {'q': q} : null,
+    );
+    final list = response.data as List? ?? [];
+    return list
+        .map((j) => MasterMember.fromJson(j as Map<String, dynamic>))
+        .toList();
+  }
+
+  /// Foydalanuvchini usta qiladi.
+  Future<Map<String, dynamic>> assignMaster({required String phone}) async {
+    final response = await apiClient.dio.post(
+      ApiConstants.adminMasterAssign,
+      data: {'phone': phone},
+    );
+    return response.data as Map<String, dynamic>;
+  }
+
+  /// Ustadan olib tashlaydi.
+  Future<void> removeMaster(int id) async {
+    await apiClient.dio.delete(ApiConstants.adminMasterRemove(id));
+  }
+
+  /// Usta chegirma foizini oladi.
+  Future<MasterDiscount> getMasterDiscount() async {
+    final response = await apiClient.dio.get(ApiConstants.adminMasterDiscount);
+    return MasterDiscount.fromJson(response.data as Map<String, dynamic>);
+  }
+
+  /// Usta chegirma foizini o'zgartiradi.
+  Future<void> setMasterDiscount(double percent) async {
+    await apiClient.dio.post(
+      ApiConstants.adminMasterDiscount,
+      data: {'percent': percent},
+    );
   }
 
   // ─── Xodimlar (Staff) ────────────────────────────────────────────────────

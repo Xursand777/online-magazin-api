@@ -89,6 +89,12 @@ class ApiConstants {
   static const String adminStaffAssignRole = '/api/admin/staff/assign-role/';
   static String adminStaffFire(int id) => '/api/admin/staff/$id/fire/';
 
+  // ─── Admin: Ustalar (Masters) ─────────────────────────────────────────────────
+  static const String adminMasters = '/api/admin/masters/';
+  static const String adminMasterAssign = '/api/admin/masters/assign/';
+  static String adminMasterRemove(int id) => '/api/admin/masters/$id/remove/';
+  static const String adminMasterDiscount = '/api/admin/masters/discount/';
+
   // ─── Admin: Sozlamalar (Settings) ───────────────────────────────────────────
   static const String adminExchangeRate = '/api/admin/exchange-rate/';
   static const String adminShopInfo = '/api/admin/shop-info/';
