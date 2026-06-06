@@ -84,6 +84,11 @@ class ApiConstants {
   static const String adminReport = '/api/orders/admin/report/';
   static const String adminReportOrders = '/api/orders/admin/report/orders/';
   
+  // ─── Admin: Xodimlar (Staff) ─────────────────────────────────────────────────
+  static const String adminStaff = '/api/admin/staff/';
+  static const String adminStaffAssignRole = '/api/admin/staff/assign-role/';
+  static String adminStaffFire(int id) => '/api/admin/staff/$id/fire/';
+
   // ─── Admin: Sozlamalar (Settings) ───────────────────────────────────────────
   static const String adminExchangeRate = '/api/admin/exchange-rate/';
   static const String adminShopInfo = '/api/admin/shop-info/';

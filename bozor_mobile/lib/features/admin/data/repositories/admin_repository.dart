@@ -4,6 +4,7 @@ import '../../../../core/network/api_constants.dart';
 import '../models/admin_product_model.dart';
 import '../models/admin_dashboard_model.dart';
 import '../models/admin_order_model.dart';
+import '../models/admin_staff_model.dart';
 import '../models/pos_model.dart';
 import '../models/admin_kassa_model.dart';
 import '../models/admin_report_model.dart';
@@ -330,6 +331,38 @@ class AdminRepository {
       final items = list.map((j) => ReportOrder.fromJson(j as Map<String, dynamic>)).toList();
       return (orders: items, hasReachedMax: true);
     }
+  }
+
+  // ─── Xodimlar (Staff) ────────────────────────────────────────────────────
+
+  /// Barcha xodimlarni oladi. Ixtiyoriy `q` parametri bilan telefon qidirish.
+  Future<List<StaffMember>> getStaff({String? q}) async {
+    final response = await apiClient.dio.get(
+      ApiConstants.adminStaff,
+      queryParameters: q != null && q.isNotEmpty ? {'q': q} : null,
+    );
+    final list = response.data as List? ?? [];
+    return list
+        .map((j) => StaffMember.fromJson(j as Map<String, dynamic>))
+        .toList();
+  }
+
+  /// Foydalanuvchiga rol tayinlaydi yoki o'zgartiradi.
+  /// [role] bo'sh string bo'lsa — rolni olib tashlaydi.
+  Future<AssignRoleResult> assignRole({
+    required String phone,
+    required String role,
+  }) async {
+    final response = await apiClient.dio.post(
+      ApiConstants.adminStaffAssignRole,
+      data: {'phone': phone, 'role': role},
+    );
+    return AssignRoleResult.fromJson(response.data as Map<String, dynamic>);
+  }
+
+  /// Xodimni ishdan bo'shatadi (rolini olib tashlaydi).
+  Future<void> fireStaff(int id) async {
+    await apiClient.dio.delete(ApiConstants.adminStaffFire(id));
   }
 
   // ─── Sozlamalar (Settings) ────────────────────────────────────────────────

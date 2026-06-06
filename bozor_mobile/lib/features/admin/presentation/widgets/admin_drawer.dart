@@ -30,7 +30,8 @@ class AdminDrawer extends StatelessWidget {
       _NavItem('Kategoriyalar', Icons.category_rounded, '/admin/categories'),
       _NavItem('Bannerlar', Icons.view_carousel_rounded, '/admin/banners'),
     ]),
-    _NavGroup('BOSHQA', [
+    _NavGroup('TIZIM', [
+      _NavItem('Xodimlar', Icons.manage_accounts_rounded, '/admin/staff'),
       _NavItem('Sozlamalar', Icons.settings_rounded, '/admin/settings'),
     ]),
   ];
