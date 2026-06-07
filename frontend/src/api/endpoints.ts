@@ -23,27 +23,38 @@ export const updateProfile = (data: FormData | object) => apiClient.patch('/prof
 export const getMasterStatus = () => apiClient.get('/master/status/');
 
 // PRODUCTS
-export const getProducts = (params?: object) => apiClient.get('/products/', { params });
+//
+// `expand_variants: true` — variantli mahsulotlarni har variant uchun
+// alohida karta sifatida qaytaradi (Amazon/Wildberries uslubi). Foydalanuvchi
+// "Savatga qo'shish" tugmasini bossa, AYNAN ko'rib turgan variant savatga
+// tushadi. Variantsiz mahsulotlar bitta karta bo'lib qoladi.
+const EXPAND = { expand_variants: true } as const;
+
+export const getProducts = (params?: object) =>
+  apiClient.get('/products/', { params: { ...EXPAND, ...(params || {}) } });
 export const getProductDetail = (id: number | string) => apiClient.get(`/products/${id}/`);
-export const getSimilarProducts = (id: number | string) => apiClient.get(`/products/${id}/similar/`);
+export const getSimilarProducts = (id: number | string) =>
+  apiClient.get(`/products/${id}/similar/`, { params: EXPAND });
 export const searchProducts = (q: string, track = false) =>
   apiClient.get('/search/products/', { params: { q, track } });
 export const getDiscountProducts = (params?: { page?: number; page_size?: number }) =>
-  apiClient.get('/products/discounts/', { params });
+  apiClient.get('/products/discounts/', { params: { ...EXPAND, ...(params || {}) } });
 export const getNewProducts = (params?: { page?: number; page_size?: number }) =>
-  apiClient.get('/products/new/', { params });
+  apiClient.get('/products/new/', { params: { ...EXPAND, ...(params || {}) } });
 export const getPopularProducts = (params?: { page?: number; page_size?: number }) =>
-  apiClient.get('/products/popular/', { params });
-export const getRecommendedProducts = () => apiClient.get('/products/recommended/');
-export const getMainPage = () => apiClient.get('/main/');
+  apiClient.get('/products/popular/', { params: { ...EXPAND, ...(params || {}) } });
+export const getRecommendedProducts = () =>
+  apiClient.get('/products/recommended/', { params: EXPAND });
+export const getMainPage = () => apiClient.get('/main/', { params: EXPAND });
 export const getHomeBanners = () => apiClient.get('/banners/');
 export const getRecentlyViewed = (params?: { exclude?: number }) =>
-  apiClient.get('/recently-viewed/', { params });
+  apiClient.get('/recently-viewed/', { params: { ...EXPAND, ...(params || {}) } });
 export const clearRecentlyViewed = () => apiClient.delete('/recently-viewed/');
 
 // CATEGORIES
 export const getCategories = () => apiClient.get('/categories/');
-export const getCategoryProducts = (id: number | string) => apiClient.get(`/categories/${id}/products/`);
+export const getCategoryProducts = (id: number | string) =>
+  apiClient.get(`/categories/${id}/products/`, { params: EXPAND });
 
 // CART
 export const getCart = () => apiClient.get('/cart/');

@@ -20,6 +20,19 @@ export interface Product {
   is_new?: boolean;
   is_popular?: boolean;
   stock?: number;
+
+  // ─── Variant-expanded card maydonlari (Amazon/Wildberries uslubi) ───────────
+  // Backend `?expand_variants=true` bilan qaytaradi.
+  // Variantsiz mahsulot uchun bu maydonlar mavjud emas / null.
+  card_id?: string;                  // unikal React key (variantli: "1-3", oddiy: "1")
+  variant_id?: number | null;        // null = base product (variantsiz)
+  variant?: {
+    color?: string | null;
+    color_hex?: string | null;
+    quality?: string | null;
+    model?: string | null;
+    size?: string | null;
+  } | null;
 }
 
 interface ProductCardProps {
@@ -40,9 +53,24 @@ const ProductCard = ({ product, onToggleFavorite, isFavorite: propIsFavorite, la
   const imageUrl = product.main_image || product.image || null;
   const { t } = useTranslation();
   const isMaster = useAuthStore(s => s.user?.is_master ?? false);
+
+  // Variant-aware: bu karta variantli bo'lsa, savatda o'sha variantni qidiramiz.
+  // Variantsiz karta (variant_id=null) → eski xulq (variantsiz cart item).
+  const cardVariantId = product.variant_id ?? null;
   const cartItem = useCartStore((state) =>
-    state.cart?.items.find((item) => item.product === Number(product.id) && item.variant === null) || null
+    state.cart?.items.find(
+      (item) =>
+        item.product === Number(product.id) &&
+        (item.variant ?? null) === cardVariantId
+    ) || null
   );
+
+  // Mahsulot batafsil sahifasiga URL — agar variant bo'lsa ?variant=ID qo'shamiz.
+  // Buning sababi: ProductDetail sahifasi bu parametrni o'qib, aynan shu variantni
+  // oldindan tanlangan holatda ko'rsatadi (foydalanuvchi qaysi variantni bosgan bo'lsa).
+  const productLink = cardVariantId
+    ? `/products/${product.id}?variant=${cardVariantId}`
+    : `/products/${product.id}`;
   
   // Connect to favorites store
   const { toggleFavorite, isFavorite: checkFavorite } = useFavoritesStore();
@@ -81,6 +109,11 @@ const ProductCard = ({ product, onToggleFavorite, isFavorite: propIsFavorite, la
   };
 
   const { addItem, updateItem, removeItem, addingId, updatingItemIds } = useCartStore();
+  // Eslatma: addingId faqat product_id ni ushlaydi (variant'ga moslashtirilmagan).
+  // Bu — har variant kartasi alohida bo'lsa ham — bitta mahsulotning HAR variantida
+  // "yuklanmoqda" holati ko'rinadi. Bu juda kichik UX kompromiss (1-2 soniya).
+  // To'liq alohida holat uchun cartStore'da addingKey: `${productId}-${variantId}`
+  // kerak bo'lardi, lekin bu hozircha qabul qilinarli.
   const isAdding = addingId === Number(product.id);
   const quantity = cartItem?.quantity || 0;
   const stockLimitRaw = product.stock ?? cartItem?.product_details?.stock;
@@ -91,6 +124,10 @@ const ProductCard = ({ product, onToggleFavorite, isFavorite: propIsFavorite, la
   const isUpdating = Boolean(cartItem && updatingItemIds[String(cartItem.id)]);
   const addPayload = {
     productId: Number(product.id),
+    // Variant ID — agar bu variant kartasi bo'lsa, savatga aynan shu variant qo'shiladi.
+    // Bu Amazon/Wildberries uslubidagi yondashuv: foydalanuvchi qaysi variantni
+    // ko'rib turibdi, savatga ham SHU variant tushadi (aralashtirish yo'q).
+    variantId: cardVariantId ?? undefined,
     productDetails: {
       id: Number(product.id),
       name: product.name,
@@ -209,7 +246,7 @@ const ProductCard = ({ product, onToggleFavorite, isFavorite: propIsFavorite, la
           )}
         </div>
         <div className="flex-grow">
-          <Link to={`/products/${product.id}`} className="text-body-sm font-body-sm text-on-surface line-clamp-2 mb-1 hover:text-primary transition-colors block">
+          <Link to={productLink} className="text-body-sm font-body-sm text-on-surface line-clamp-2 mb-1 hover:text-primary transition-colors block">
             {product.name}
           </Link>
           {isMaster && product.master_price ? (
@@ -237,7 +274,7 @@ const ProductCard = ({ product, onToggleFavorite, isFavorite: propIsFavorite, la
   // Default Grid Layout
   return (
     <article className="bg-surface-container-lowest rounded-xl border border-outline-variant overflow-hidden flex flex-col shadow-sm hover:-translate-y-1 hover:border-primary/45 hover:bg-primary-container/5 hover:shadow-[0_10px_26px_rgba(30,41,59,0.14)] dark:hover:border-outline dark:hover:bg-surface-container-high dark:hover:shadow-[0_14px_34px_rgba(0,0,0,0.34)] transition-all duration-300 group">
-      <Link to={`/products/${product.id}`} className="relative aspect-square bg-surface-bright block overflow-hidden">
+      <Link to={productLink} className="relative aspect-square bg-surface-bright block overflow-hidden">
         <div className="w-full h-full p-4 flex items-center justify-center">
           {imageUrl ? (
             <img
@@ -283,7 +320,7 @@ const ProductCard = ({ product, onToggleFavorite, isFavorite: propIsFavorite, la
       </Link>
 
       <div className="p-md flex flex-col flex-grow">
-        <Link to={`/products/${product.id}`}>
+        <Link to={productLink}>
           <h3 className="text-body-sm font-body-sm text-on-surface line-clamp-2 mb-xs min-h-[40px] hover:text-primary transition-colors">
             {product.name}
           </h3>

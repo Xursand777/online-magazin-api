@@ -1,5 +1,5 @@
 import { useEffect, useState, useMemo, useCallback } from 'react';
-import { Link, useParams, useNavigate } from 'react-router-dom';
+import { Link, useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { getProductDetail, getSimilarProducts } from '../api/endpoints';
 import { useCartStore } from '../store/cartStore';
@@ -218,6 +218,9 @@ const uniqueBy = <T,>(items: T[], keyGetter: (item: T) => string) => {
 const ProductDetail = () => {
   const { id } = useParams();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  // `?variant=ID` — home/listing kartalardan kelganda aynan shu variantni tanlab ko'rsatamiz
+  const variantIdFromUrl = searchParams.get('variant');
   const { t, language } = useTranslation();
   const isMaster = useAuthStore(s => s.user?.is_master ?? false);
   const [activeImg, setActiveImg] = useState(0);
@@ -327,12 +330,31 @@ const ProductDetail = () => {
       return;
     }
 
+    // ── URL'dan kelgan variantni topib oldindan tanlaymiz ────────────────────
+    // Foydalanuvchi home sahifadagi "Smartfon Samsung Galaxy A56 • Vetnam • 128/8 • Olive"
+    // kartasini bossa, URL `?variant=42` bo'ladi. Bu yerda biz o'sha variantni
+    // mahsulot variantlari ichidan topib, color/quality/size/model'ni oldindan
+    // tanlaymiz. Variant topilmasa → birinchi variant (eski xulq).
+    let preselected = null;
+    if (variantIdFromUrl) {
+      const vid = Number(variantIdFromUrl);
+      preselected = product.variants.find((v) => v.id === vid) || null;
+    }
+
+    if (preselected) {
+      setSelectedColor(preselected.color || '');
+      setSelectedQuality(preselected.quality || '');
+      setSelectedSize(preselected.size || preselected.model || '');
+      return;
+    }
+
+    // Fallback — eski xulq (birinchi variantni tanlash)
     const firstColor = product.variants.find((variant) => variant.color)?.color || '';
     const firstVariant = product.variants[0];
     setSelectedColor(firstColor || '');
     setSelectedQuality(firstVariant?.quality || '');
     setSelectedSize(firstVariant?.size || firstVariant?.model || '');
-  }, [product?.id, product?.variants]);
+  }, [product?.id, product?.variants, variantIdFromUrl]);
 
   const displayTitle = useMemo(() => {
     if (!product) return '';
@@ -837,7 +859,7 @@ const ProductDetail = () => {
           ) : (
             <div className="grid grid-cols-2 gap-md md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
               {similarProducts.slice(0, 10).map((item) => (
-                <ProductCard key={item.id} product={item} />
+                <ProductCard key={item.card_id ?? item.id} product={item} />
               ))}
             </div>
           )}

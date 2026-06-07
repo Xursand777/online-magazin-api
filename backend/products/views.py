@@ -22,7 +22,54 @@ from .serializers import (
     AdminCategorySerializer, AdminHomeBannerSerializer, AdminProductSerializer, HomeBannerSerializer,
     PhoneBrandSerializer,
     CompatibilityWriteSerializer, CompatibilityBulkSeriesSerializer, ProductCompatibilityReadSerializer,
+    ProductCardSerializer, expand_products_to_cards,
 )
+
+
+def _should_expand_variants(request) -> bool:
+    """
+    `?expand_variants=true` parametrini tekshiradi.
+
+    Default — False (orqaga moslik). Web frontend bu parametrni yuboradi va
+    har variant alohida karta sifatida ko'rinadi (Amazon/Wildberries uslubi).
+    Mobil ilova hozircha yubormaydi → eski xulq saqlanadi.
+    """
+    val = request.query_params.get('expand_variants', '').lower()
+    return val in ('1', 'true', 'yes')
+
+
+class VariantExpandMixin:
+    """
+    ListAPIView'lar uchun mixin: `?expand_variants=true` parametri kelganida
+    har variantni alohida karta sifatida qaytaradi.
+
+    Pagination ham ishlaydi:
+      1. Sahifalash QuerySet (Product) darajasida bo'ladi.
+      2. Sahifaga tushgan mahsulotlar variantlarga "kengaytiriladi".
+      3. Bitta sahifada N mahsulot → 1.5N–10N karta (variant soniga qarab).
+
+    Foyda: SQL LIMIT/OFFSET o'zgarmaydi, lekin foydalanuvchi har bir variantni
+    alohida karta sifatida ko'radi.
+    """
+    def list(self, request, *args, **kwargs):
+        if not _should_expand_variants(request):
+            return super().list(request, *args, **kwargs)
+
+        queryset = self.filter_queryset(self.get_queryset())
+        # Variantlarni yuklab olish — N+1 oldini olish
+        queryset = queryset.prefetch_related('variants', 'variants__images', 'images')
+
+        page = self.paginate_queryset(queryset)
+        ctx = self.get_serializer_context()
+
+        if page is not None:
+            cards = expand_products_to_cards(page, request)
+            serializer = ProductCardSerializer(cards, many=True, context=ctx)
+            return self.get_paginated_response(serializer.data)
+
+        cards = expand_products_to_cards(queryset, request)
+        serializer = ProductCardSerializer(cards, many=True, context=ctx)
+        return Response(serializer.data)
 from .services import build_similar_products
 from recommendations.models import RecommendationEvent
 from .models import (
@@ -161,7 +208,7 @@ class CategoryListView(generics.ListAPIView):
     serializer_class = CategorySerializer
     permission_classes = (AllowAny,)
 
-class ProductListView(generics.ListAPIView):
+class ProductListView(VariantExpandMixin, generics.ListAPIView):
     serializer_class = ProductListSerializer
     permission_classes = (AllowAny,)
 
@@ -353,12 +400,16 @@ class RecentlyViewedView(views.APIView):
             Product.objects
             .filter(id__in=ordered_ids, is_active=True)
             .select_related('category')
-            .prefetch_related('images')
+            .prefetch_related('images', 'variants', 'variants__images')
         )
         by_id = {p.id: p for p in products}
         ordered = [by_id[pid] for pid in ordered_ids if pid in by_id]
 
-        data = ProductListSerializer(ordered, many=True, context={'request': request}).data
+        if _should_expand_variants(request):
+            cards = expand_products_to_cards(ordered, request)
+            data = ProductCardSerializer(cards, many=True, context={'request': request}).data
+        else:
+            data = ProductListSerializer(ordered, many=True, context={'request': request}).data
         return Response(data)
 
     def delete(self, request):
@@ -368,7 +419,7 @@ class RecentlyViewedView(views.APIView):
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
-class ProductSimilarListView(generics.ListAPIView):
+class ProductSimilarListView(VariantExpandMixin, generics.ListAPIView):
     serializer_class = ProductListSerializer
     permission_classes = (AllowAny,)
     pagination_class = None
@@ -386,19 +437,33 @@ class MainPageView(views.APIView):
     permission_classes = (AllowAny,)
 
     def get(self, request, *args, **kwargs):
-        discount_products = Product.objects.filter(is_active=True, is_discount=True).order_by('-updated_at', '-id')[:10]
-        new_products = Product.objects.filter(is_active=True, is_new=True).order_by('-created_at', '-id')[:10]
-        popular_products = Product.objects.filter(is_active=True, is_popular=True).order_by('-updated_at', '-id')[:10]
+        # Variantlar ham bo'lsa, prefetch_related orqali N+1 oldini olamiz
+        base_qs = Product.objects.filter(is_active=True).prefetch_related(
+            'images', 'variants', 'variants__images'
+        )
+        discount_products = base_qs.filter(is_discount=True).order_by('-updated_at', '-id')[:10]
+        new_products = base_qs.filter(is_new=True).order_by('-created_at', '-id')[:10]
+        popular_products = base_qs.filter(is_popular=True).order_by('-updated_at', '-id')[:10]
         recommendation_payload = build_personalized_recommendations(request, limit=10)
         recommended_products = recommendation_payload['products']
 
+        expand = _should_expand_variants(request)
+        ctx = {'request': request}
+
+        def _serialize(qs):
+            """Variantlarga ajratilgan yoki oddiy ro'yxat — `expand` ga qarab."""
+            if expand:
+                cards = expand_products_to_cards(qs, request)
+                return ProductCardSerializer(cards, many=True, context=ctx).data
+            return ProductListSerializer(qs, many=True, context=ctx).data
+
         return Response({
-            "banners": HomeBannerSerializer(active_home_banners(), many=True, context={'request': request}).data,
-            "discount_products": ProductListSerializer(discount_products, many=True, context={'request': request}).data,
-            "new_products": ProductListSerializer(new_products, many=True, context={'request': request}).data,
-            "popular_products": ProductListSerializer(popular_products, many=True, context={'request': request}).data,
-            "recommended_products": ProductListSerializer(recommended_products, many=True, context={'request': request}).data,
-            "recommended_title": recommendation_payload['title'],
+            "banners": HomeBannerSerializer(active_home_banners(), many=True, context=ctx).data,
+            "discount_products":    _serialize(discount_products),
+            "new_products":         _serialize(new_products),
+            "popular_products":     _serialize(popular_products),
+            "recommended_products": _serialize(recommended_products),
+            "recommended_title":       recommendation_payload['title'],
             "recommended_description": recommendation_payload['description'],
         })
 
@@ -411,21 +476,21 @@ class HomeBannerListView(generics.ListAPIView):
     def get_queryset(self):
         return active_home_banners()
 
-class ProductDiscountListView(generics.ListAPIView):
+class ProductDiscountListView(VariantExpandMixin, generics.ListAPIView):
     serializer_class = ProductListSerializer
     permission_classes = (AllowAny,)
     pagination_class = SectionPagination
     def get_queryset(self):
         return Product.objects.filter(is_active=True, is_discount=True).order_by('-updated_at')
 
-class ProductNewListView(generics.ListAPIView):
+class ProductNewListView(VariantExpandMixin, generics.ListAPIView):
     serializer_class = ProductListSerializer
     permission_classes = (AllowAny,)
     pagination_class = SectionPagination
     def get_queryset(self):
         return Product.objects.filter(is_active=True, is_new=True).order_by('-created_at')
 
-class ProductPopularListView(generics.ListAPIView):
+class ProductPopularListView(VariantExpandMixin, generics.ListAPIView):
     serializer_class = ProductListSerializer
     permission_classes = (AllowAny,)
     pagination_class = SectionPagination
@@ -583,7 +648,7 @@ def _get_recommended_pool() -> list:
     return pool
 
 
-class ProductRecommendedListView(generics.ListAPIView):
+class ProductRecommendedListView(VariantExpandMixin, generics.ListAPIView):
     """
     GET /api/products/recommended/
     8 ta tavsiya qilingan mahsulot. Kesh issiq bo'lsa: 1 ta DB so'rov.
@@ -606,7 +671,7 @@ class ProductRecommendedListView(generics.ListAPIView):
             .prefetch_related('images')
         )
 
-class CategoryProductListView(generics.ListAPIView):
+class CategoryProductListView(VariantExpandMixin, generics.ListAPIView):
     """
     Kategoriya mahsulotlari ro'yxati.
 

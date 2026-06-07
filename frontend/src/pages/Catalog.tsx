@@ -173,7 +173,7 @@ const CatalogIndex = ({
             </p>
             <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-lg">
               {(compatibleProducts as any[]).map((p) => (
-                <ProductCard key={p.id} product={p} />
+                <ProductCard key={p.card_id ?? p.id} product={p} />
               ))}
             </div>
           </div>
@@ -210,7 +210,7 @@ const CatalogIndex = ({
         ) : searchResults.length > 0 ? (
           <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-lg">
             {searchResults.map((product: any) => (
-              <ProductCard key={product.id} product={product} />
+              <ProductCard key={product.card_id ?? product.id} product={product} />
             ))}
           </div>
         ) : (
@@ -343,7 +343,7 @@ const CategoryDetail = ({ categories }: { categories: Category[] }) => {
         ) : products.length > 0 ? (
           <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-lg">
             {products.map((p: any) => (
-              <ProductCard key={p.id} product={p} />
+              <ProductCard key={p.card_id ?? p.id} product={p} />
             ))}
           </div>
         ) : (

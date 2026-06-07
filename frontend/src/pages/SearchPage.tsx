@@ -223,7 +223,7 @@ const SearchPage = () => {
                 </h3>
                 <div className="grid grid-cols-2 gap-3">
                   {results.slice(5, 15).map((p: any) => (
-                    <ProductCard key={p.id} product={p} />
+                    <ProductCard key={p.card_id ?? p.id} product={p} />
                   ))}
                 </div>
                 {results.length > 15 && (

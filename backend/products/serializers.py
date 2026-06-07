@@ -171,6 +171,208 @@ class ProductListSerializer(serializers.ModelSerializer):
         img = obj.images.filter(is_main=True).first() or obj.images.first()
         return absolute_media_url(self.context.get('request'), img.image, width=800) if img else None
 
+# ═══════════════════════════════════════════════════════════════════════════════
+# VARIANT-EXPANDED CARDS — Amazon/Wildberries uslubi
+#
+# Muammo: variantli mahsulot uchun bitta karta ko'rsatilsa, foydalanuvchi
+# "Savatga qo'shish" tugmasini bossa qaysi variant qo'shilayotganini bilmaydi.
+#
+# Yechim: har bir variant alohida karta sifatida ko'rsatiladi. Karta nomi
+# variant atributlari bilan to'ldiriladi:
+#   "Smartfon Samsung Galaxy A56 • Vetnam • 128/8 • Olive"
+#
+# Variantsiz mahsulotlar bitta karta sifatida qoladi.
+#
+# Bosh sahifa va listing endpointlari `?expand_variants=true` parametri bilan
+# ushbu rejimga o'tishadi. Default — eski xulq (orqaga moslik uchun, mobil
+# ilova yangilanguncha).
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+def _build_variant_card_name(product_name: str, variant) -> str:
+    """
+    Variant kartasi uchun to'liq nom yaratadi.
+    Tartib: product.name • model • size • quality • color
+    None / bo'sh atributlar tushib qoladi.
+
+    Misol:
+      product_name = "Smartfon Samsung Galaxy A56"
+      variant.model = "Vetnam"
+      variant.size  = "128/8"
+      variant.color = "Olive"
+      → "Smartfon Samsung Galaxy A56 • Vetnam • 128/8 • Olive"
+    """
+    parts = [product_name]
+    for attr in ('model', 'size', 'quality', 'color'):
+        value = getattr(variant, attr, None)
+        if value and str(value).strip():
+            parts.append(str(value).strip())
+    return ' • '.join(parts)
+
+
+def _variant_card_image(request, product, variant):
+    """
+    Variant kartasi uchun rasm.
+    Birinchi navbatda variant gallery (ProductVariantImage), keyin variant.image,
+    oxirida product.images (mahsulotning asosiy rasmi).
+    """
+    if variant is not None:
+        first_gallery = variant.images.first()
+        if first_gallery and first_gallery.image:
+            return absolute_media_url(request, first_gallery.image, width=800)
+        if variant.image:
+            return absolute_media_url(request, variant.image, width=800)
+    img = product_main_image(product)
+    return absolute_media_url(request, img.image, width=800) if img else None
+
+
+def _variant_card_price(product, variant):
+    """Variant narxi mavjud bo'lsa, undan foydalanadi; aks holda mahsulot narxi."""
+    if variant is not None and variant.price is not None:
+        return variant.price
+    return product.price
+
+
+def _variant_card_discount_price(product, variant):
+    """
+    Chegirma narxi:
+    - Variant o'z discount_price ga ega → undan foydalanadi
+    - Variant price o'rnatilgan, lekin discount yo'q → null (variant chegirmasiz)
+    - Variant narxlari NULL → mahsulot discount_price (agar is_discount=True)
+    """
+    if variant is not None:
+        if variant.discount_price is not None:
+            return variant.discount_price
+        if variant.price is not None:
+            return None  # variant o'z narxi bor, lekin chegirma yo'q
+    return product.discount_price if product.is_discount else None
+
+
+def _variant_card_stock(product, variant):
+    """Variant o'z stock'iga ega, aks holda mahsulot stock'i."""
+    if variant is not None:
+        return variant.stock
+    return product.stock
+
+
+def _variant_card_is_discount(product, variant) -> bool:
+    """Bu karta chegirmadami? Variant darajasida hisoblanadi."""
+    price = _variant_card_price(product, variant)
+    discount = _variant_card_discount_price(product, variant)
+    if price is None or discount is None:
+        return False
+    try:
+        return Decimal(str(discount)) < Decimal(str(price))
+    except (ValueError, TypeError):
+        return False
+
+
+def expand_products_to_cards(products, request) -> list[dict]:
+    """
+    Mahsulotlar ro'yxatini variantlarga ajratilgan kartalar ro'yxatiga aylantiradi.
+
+    Har bir mahsulot uchun:
+      - variantlari bor bo'lsa  → har bir active variant uchun alohida karta
+      - variantsiz bo'lsa       → mahsulotning o'zi bitta karta
+
+    Kartalar ProductCardSerializer uchun dict format'ida qaytariladi.
+    """
+    lang = get_lang({'request': request})
+    cards: list[dict] = []
+    for product in products:
+        product_name = localized(product, 'name', lang)
+        active_variants = [v for v in product.variants.all() if v.is_active]
+        # Variantsiz mahsulot — bitta karta (variant=None)
+        if not active_variants:
+            cards.append(_build_card_dict(product, None, product_name, request))
+            continue
+        # Variantli mahsulot — har biri uchun alohida karta
+        for variant in active_variants:
+            cards.append(_build_card_dict(product, variant, product_name, request))
+    return cards
+
+
+def _build_card_dict(product, variant, product_name: str, request) -> dict:
+    """Bitta karta dict'ini yasaydi (ProductCardSerializer uchun)."""
+    card_id = f"{product.id}-{variant.id}" if variant else str(product.id)
+    name = _build_variant_card_name(product_name, variant) if variant else product_name
+    return {
+        'card_id':        card_id,
+        'id':             product.id,         # product_id (navigatsiya uchun)
+        'variant_id':     variant.id if variant else None,
+        'name':           name,
+        'slug':           product.slug,
+        'price':          _variant_card_price(product, variant),
+        'discount_price': _variant_card_discount_price(product, variant),
+        'stock':          _variant_card_stock(product, variant),
+        'is_discount':    _variant_card_is_discount(product, variant),
+        'is_new':         product.is_new,
+        'is_popular':     product.is_popular,
+        'main_image':     _variant_card_image(request, product, variant),
+        '_product_obj':   product,  # master_price hisoblash uchun (serializer tashlaydi)
+        '_variant_obj':   variant,
+        'variant': None if variant is None else {
+            'color':     variant.color,
+            'color_hex': variant.color_hex,
+            'quality':   variant.quality,
+            'model':     variant.model,
+            'size':      variant.size,
+        },
+    }
+
+
+class ProductCardSerializer(serializers.Serializer):
+    """
+    Variant kartasi serializeri.
+
+    Dict input qabul qiladi (expand_products_to_cards natijasi).
+    Mahsulot + variant ma'lumotlarini birlashtirib bitta karta sifatida qaytaradi.
+    """
+    card_id        = serializers.CharField()
+    id             = serializers.IntegerField()
+    variant_id     = serializers.IntegerField(allow_null=True)
+    name           = serializers.CharField()
+    slug           = serializers.CharField(allow_null=True, required=False)
+    price          = serializers.DecimalField(max_digits=12, decimal_places=2, allow_null=True)
+    discount_price = serializers.DecimalField(max_digits=12, decimal_places=2, allow_null=True)
+    stock          = serializers.IntegerField(allow_null=True)
+    is_discount    = serializers.BooleanField()
+    is_new         = serializers.BooleanField()
+    is_popular     = serializers.BooleanField()
+    main_image     = serializers.CharField(allow_null=True)
+    variant        = serializers.DictField(allow_null=True, required=False)
+    master_price   = serializers.SerializerMethodField()
+
+    def get_master_price(self, obj):
+        """
+        Usta narxi — variantning o'z amaldagi narxidan (discount yoki price)
+        usta foizini chegiradi. Variantsiz kartalar uchun mahsulot narxi.
+        """
+        request = self.context.get('request')
+        if not request:
+            return None
+        user = getattr(request, 'user', None)
+        if not user or not user.is_authenticated or not getattr(user, 'is_master', False):
+            return None
+        pct = _master_effective_percent(self.context)
+        if pct <= 0:
+            return None  # sust usta — oddiy narx
+        effective_raw = obj.get('discount_price') if obj.get('is_discount') else obj.get('price')
+        if effective_raw is None:
+            return None
+        try:
+            effective = Decimal(str(effective_raw))
+        except (ValueError, TypeError):
+            return None
+        master = (effective * (Decimal('100') - pct) / Decimal('100')).quantize(Decimal('1'))
+        return str(master)
+
+    def to_representation(self, instance):
+        # Privat field'larni (_product_obj, _variant_obj) javobga chiqarmaymiz
+        data = super().to_representation(instance)
+        return data
+
+
 class ProductSearchSerializer(serializers.ModelSerializer):
     main_image = serializers.SerializerMethodField()
     category_name = serializers.SerializerMethodField()

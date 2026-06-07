@@ -514,7 +514,7 @@ const Home = () => {
 
           <div className="grid grid-cols-2 gap-3 px-4 py-4 md:grid-cols-3 md:px-5 lg:grid-cols-4 xl:grid-cols-5">
             {recommendedProducts.slice(0, 5).map((product) => (
-              <ProductCard key={product.id} product={product} />
+              <ProductCard key={product.card_id ?? product.id} product={product} />
             ))}
           </div>
         </section>
@@ -536,7 +536,7 @@ const Home = () => {
         ) : discountProducts.length > 0 ? (
           <div className="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
             {discountProducts.slice(0, 10).map(p => (
-              <ProductCard key={p.id} product={p} />
+              <ProductCard key={p.card_id ?? p.id} product={p} />
             ))}
           </div>
         ) : (
@@ -563,7 +563,7 @@ const Home = () => {
         ) : newProducts.length > 0 ? (
           <div className="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
             {newProducts.slice(0, 10).map(p => (
-              <ProductCard key={p.id} product={p} />
+              <ProductCard key={p.card_id ?? p.id} product={p} />
             ))}
           </div>
         ) : (
@@ -590,7 +590,7 @@ const Home = () => {
         ) : popularProducts.length > 0 ? (
           <div className="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
             {popularProducts.slice(0, 10).map(p => (
-              <ProductCard key={p.id} product={p} />
+              <ProductCard key={p.card_id ?? p.id} product={p} />
             ))}
           </div>
         ) : (
