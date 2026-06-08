@@ -435,15 +435,20 @@ class _ProductDetailView extends StatelessWidget {
     );
   }
 
+  /// O'xshash mahsulotlar listi — sayt va home grid bilan bir xil o'lcham.
+  ///
+  /// Home GridView'da `mainAxisExtent: 320` (kvadrat rasmlar + matn maydon).
+  /// Bu yerda ham bir xil 320×170 o'lcham — barcha kartochkalar **uniform**.
+  /// Avval 280×160 edi → 14px overflow (button kesilar edi). Tuzatildi.
   Widget _buildSimilarProducts(List<ProductModel> products) {
     return SizedBox(
-      height: 280,
+      height: 320, // ✅ Home grid bilan bir xil; overflow yo'q
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
         itemCount: products.length,
         separatorBuilder: (_, __) => const SizedBox(width: 12),
         itemBuilder: (_, i) => SizedBox(
-          width: 160,
+          width: 170, // ✅ Bir oz kengroq — matn yaxshiroq sig'adi
           child: ProductCard(product: products[i]),
         ),
       ),

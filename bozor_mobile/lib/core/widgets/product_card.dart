@@ -93,54 +93,65 @@ class ProductCard extends StatelessWidget {
                 ],
               ),
             ),
+            // ── Matn maydoni — har bir komponent FIXED HEIGHT ────────────────
+            // Bu kafolatlaydi: kartochkaning balandligi har doim bir xil bo'ladi
+            // (matn 1 yoki 2 satr bo'lishidan qat'i nazar). Avval `Expanded` +
+            // `spaceBetween` ishlatilardi, bu bo'sh joyni har xil tarqatib,
+            // kartochkalar turli ko'rinishga ega bo'lardi.
             Expanded(
               child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                padding: const EdgeInsets.fromLTRB(10, 8, 10, 8),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Text(
-                      product.name,
-                      style: theme.textTheme.bodyMedium?.copyWith(
-                        fontWeight: FontWeight.w600,
-                        height: 1.2,
-                        fontSize: 13,
-                      ),
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    const SizedBox(height: 8),
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        if (product.oldPrice != null)
-                          Text(
-                            "${NumberFormat('#,###', 'uz_UZ').format(product.oldPrice).replaceAll(',', ' ')} so'm",
-                            style: theme.textTheme.labelSmall?.copyWith(
-                              color: theme.colorScheme.outline,
-                              decoration: TextDecoration.lineThrough,
-                              fontSize: 10,
-                            ),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          )
-                        else
-                          const SizedBox(height: 12), // Joy saqlash uchun
-                        Text(
-                          "${NumberFormat('#,###', 'uz_UZ').format(product.price).replaceAll(',', ' ')} so'm",
-                          style: theme.textTheme.titleSmall?.copyWith(
-                            color: theme.colorScheme.onSurface,
-                            fontWeight: FontWeight.w800,
-                            fontSize: 14,
-                          ),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
+                    // Nom — DOIM 2 satr balandligida (1 satrlik ham 2 satr joy egallaydi)
+                    SizedBox(
+                      height: 36, // ~13fontSize × 1.2 lineHeight × 2 satr + padding
+                      child: Text(
+                        product.name,
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          fontWeight: FontWeight.w600,
+                          height: 1.2,
+                          fontSize: 13,
                         ),
-                        const SizedBox(height: 6),
-                        CartActionButton(product: product),
-                      ],
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
                     ),
+                    const SizedBox(height: 6),
+                    // Eski narx — har doim 14px joy (bo'sh bo'lsa ham)
+                    SizedBox(
+                      height: 14,
+                      child: product.oldPrice != null
+                          ? Text(
+                              "${NumberFormat('#,###', 'uz_UZ').format(product.oldPrice).replaceAll(',', ' ')} so'm",
+                              style: theme.textTheme.labelSmall?.copyWith(
+                                color: theme.colorScheme.outline,
+                                decoration: TextDecoration.lineThrough,
+                                fontSize: 10,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            )
+                          : null, // bo'sh, lekin joy band
+                    ),
+                    // Joriy narx — fixed height
+                    SizedBox(
+                      height: 22,
+                      child: Text(
+                        "${NumberFormat('#,###', 'uz_UZ').format(product.price).replaceAll(',', ' ')} so'm",
+                        style: theme.textTheme.titleSmall?.copyWith(
+                          color: theme.colorScheme.onSurface,
+                          fontWeight: FontWeight.w800,
+                          fontSize: 14,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    // Cart tugma — joyni o'zi to'ldiradi (Expanded yo'q)
+                    CartActionButton(product: product),
                   ],
                 ),
               ),
