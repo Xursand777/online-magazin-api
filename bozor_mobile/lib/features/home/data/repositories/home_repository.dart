@@ -121,9 +121,20 @@ class HomeRepository {
     }
   }
 
+  // ── Variant-aware product endpointlari ───────────────────────────────────
+  // `expand_variants=true` — har variant alohida karta (Amazon/Wildberries uslubi).
+  // Backend tugab qolgan mahsulotlarni avtomatik yashiradi va variantlarni
+  // round-robin tartibida aralashtiradi (bir mahsulot variantlari ketma-ket emas).
+  static const Map<String, dynamic> _expandParams = {
+    'expand_variants': 'true',
+  };
+
   Future<List<ProductModel>> getRecommendedProducts() async {
     try {
-      final response = await apiClient.dio.get(ApiConstants.products);
+      final response = await apiClient.dio.get(
+        ApiConstants.products,
+        queryParameters: _expandParams,
+      );
       return ApiResponse.listFrom(
         response.data,
       ).map((json) => ProductModel.fromJson(json)).toList();
@@ -134,7 +145,10 @@ class HomeRepository {
 
   Future<List<ProductModel>> getDiscountedProducts() async {
     try {
-      final response = await apiClient.dio.get(ApiConstants.discounts);
+      final response = await apiClient.dio.get(
+        ApiConstants.discounts,
+        queryParameters: _expandParams,
+      );
       return ApiResponse.listFrom(
         response.data,
       ).map((json) => ProductModel.fromJson(json)).toList();
@@ -145,7 +159,10 @@ class HomeRepository {
 
   Future<List<ProductModel>> getNewProducts() async {
     try {
-      final response = await apiClient.dio.get(ApiConstants.newProducts);
+      final response = await apiClient.dio.get(
+        ApiConstants.newProducts,
+        queryParameters: _expandParams,
+      );
       return ApiResponse.listFrom(
         response.data,
       ).map((json) => ProductModel.fromJson(json)).toList();
@@ -156,7 +173,10 @@ class HomeRepository {
 
   Future<List<ProductModel>> getPopularProducts() async {
     try {
-      final response = await apiClient.dio.get(ApiConstants.popularProducts);
+      final response = await apiClient.dio.get(
+        ApiConstants.popularProducts,
+        queryParameters: _expandParams,
+      );
       return ApiResponse.listFrom(
         response.data,
       ).map((json) => ProductModel.fromJson(json)).toList();

@@ -13,6 +13,8 @@ import '../../features/catalog/data/repositories/catalog_repository.dart';
 import '../../features/catalog/presentation/bloc/catalog_bloc.dart';
 import '../../features/cart/data/repositories/cart_repository.dart';
 import '../../features/cart/presentation/bloc/cart_bloc.dart';
+import '../../features/product_detail/data/repositories/product_detail_repository.dart';
+import '../../features/product_detail/presentation/bloc/product_detail_bloc.dart';
 import '../../features/admin/data/repositories/admin_repository.dart';
 import '../../features/admin/presentation/bloc/admin_bloc.dart';
 import '../../features/admin/presentation/bloc/admin_dashboard_bloc.dart';
@@ -65,6 +67,9 @@ Future<void> init() async {
   sl.registerLazySingleton<CartRepository>(
     () => CartRepository(apiClient: sl()),
   );
+  sl.registerLazySingleton<ProductDetailRepository>(
+    () => ProductDetailRepository(apiClient: sl()),
+  );
   sl.registerLazySingleton<AdminRepository>(
     () => AdminRepository(apiClient: sl()),
   );
@@ -98,6 +103,9 @@ Future<void> init() async {
   // Qolgan BLoC'lar factory (har sahifa uchun yangi instance)
   sl.registerFactory<HomeBloc>(    () => HomeBloc(repository:    sl()));
   sl.registerFactory<CatalogBloc>( () => CatalogBloc(repository: sl()));
+  sl.registerFactory<ProductDetailBloc>(
+    () => ProductDetailBloc(repository: sl()),
+  );
 
   // AdminBloc — SINGLETON: katalog (mahsulot/kategoriya/banner) sahifalari
   // navigatsiya orasida bitta holatni baham ko'radi.

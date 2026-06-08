@@ -57,6 +57,9 @@ class CartRepository {
         data: {
           'product_id': product.id,
           'quantity': quantity,
+          // Variantli karta bo'lsa, variant ID ham yuboriladi —
+          // backend aynan shu variantni savatga qo'shadi.
+          if (product.variantId != null) 'variant_id': product.variantId,
         },
       );
       _parseAndSaveCart(response.data);
@@ -129,6 +132,8 @@ class CartRepository {
       final itemsData = localItems.map((i) => {
         'product_id': i.product.id,
         'quantity': i.quantity,
+        // Variant ID ham yuboriladi (variantli kartalar uchun)
+        if (i.product.variantId != null) 'variant_id': i.product.variantId,
       }).toList();
 
       final response = await apiClient.dio.post(

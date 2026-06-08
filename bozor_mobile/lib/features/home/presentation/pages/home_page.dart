@@ -57,7 +57,7 @@ class HomeView extends StatelessWidget {
                   _buildOfflineBanner(context, state, theme),
                 _buildAdvertisementBanner(context, state, theme),
                 const SizedBox(height: 24),
-                _buildCategoryChips(state, theme),
+                _buildCategoryChips(context, state, theme),
                 const SizedBox(height: 24),
                 if (state.recommended.isNotEmpty) ...[
                   _buildSectionHeader(context, 'Tavsiya qilamiz', theme),
@@ -275,7 +275,7 @@ class HomeView extends StatelessWidget {
     );
   }
 
-  Widget _buildCategoryChips(HomeState state, ThemeData theme) {
+  Widget _buildCategoryChips(BuildContext context, HomeState state, ThemeData theme) {
     if (state.categories.isEmpty) return const SizedBox.shrink();
     return SingleChildScrollView(
       scrollDirection: Axis.horizontal,
@@ -285,7 +285,12 @@ class HomeView extends StatelessWidget {
             padding: const EdgeInsets.only(right: 8),
             child: ActionChip(
               label: Text(category.name),
-              onPressed: () {},
+              // ─── Kategoriya bosilganda mahsulotlar sahifasiga o'tamiz ───
+              // Sayt bilan bir xil — categoryId + name CategoryProductsPage'ga
+              // uzatiladi va u backend'dan filtrlanan mahsulotlarni oladi.
+              onPressed: () {
+                context.push('/category/${category.id}', extra: category.name);
+              },
               backgroundColor: theme.colorScheme.surfaceContainer,
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(24),

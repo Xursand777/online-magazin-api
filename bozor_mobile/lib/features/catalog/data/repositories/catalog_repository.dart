@@ -31,6 +31,8 @@ class CatalogRepository {
           : ApiConstants.products;
       final queryParameters = <String, Object?>{
         if (query != null && query.isNotEmpty) 'q': query,
+        // Variant expansion — har variant alohida karta (sayt bilan bir xil)
+        'expand_variants': 'true',
       };
       if (categoryId != null) {
         queryParameters['category'] = categoryId;
