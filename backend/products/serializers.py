@@ -267,13 +267,18 @@ def _variant_card_is_discount(product, variant) -> bool:
         return False
 
 
-def expand_products_to_cards(products, request) -> list[dict]:
+def expand_products_to_cards(products, request, *, in_stock_only: bool = False) -> list[dict]:
     """
     Mahsulotlar ro'yxatini variantlarga ajratilgan kartalar ro'yxatiga aylantiradi.
 
     Har bir mahsulot uchun:
       - variantlari bor bo'lsa  → har bir active variant uchun alohida karta
       - variantsiz bo'lsa       → mahsulotning o'zi bitta karta
+
+    Args:
+        in_stock_only: True bo'lsa, stock <= 0 variantlar/mahsulotlar o'tib yuboriladi.
+                       Amazon/Wildberries/Ozon'da home sahifada doim True — sotuvda
+                       yo'q mahsulotlar ko'rinmaydi.
 
     Kartalar ProductCardSerializer uchun dict format'ida qaytariladi.
     """
@@ -284,12 +289,81 @@ def expand_products_to_cards(products, request) -> list[dict]:
         active_variants = [v for v in product.variants.all() if v.is_active]
         # Variantsiz mahsulot — bitta karta (variant=None)
         if not active_variants:
+            if in_stock_only and (product.stock or 0) <= 0:
+                continue
             cards.append(_build_card_dict(product, None, product_name, request))
             continue
         # Variantli mahsulot — har biri uchun alohida karta
         for variant in active_variants:
+            if in_stock_only and (variant.stock or 0) <= 0:
+                continue
             cards.append(_build_card_dict(product, variant, product_name, request))
     return cards
+
+
+def interleave_cards_by_product(cards: list[dict]) -> list[dict]:
+    """
+    Bir mahsulot variantlarini ketma-ket chiqarmaslik uchun **round-robin** tartiblash.
+
+    Bu Wildberries / Ozon / eBay yondashuvi — listingda diversity beradi.
+    Foydalanuvchi 5 ta Samsung Galaxy A56 varianti ketma-ket emas, har xil
+    mahsulotlar orasiga taqsimlanganini ko'radi.
+
+    Algoritm (O(n)):
+      1. Kartalarni product_id bo'yicha guruhlaymiz (kirish tartibini saqlab).
+      2. Round-robin: i=0,1,2,... pog'onalarda har mahsulotdan i-variantni olamiz.
+      3. Mahsulotda i-variant yo'q bo'lsa, o'tkazib yuboramiz.
+
+    Misol:
+      Kirish:  [A1, A2, A3, B1, C1, C2]
+               (A da 3 variant, B da 1, C da 2)
+      Chiqish: [A1, B1, C1, A2, C2, A3]
+               (hech qachon bir mahsulot ketma-ket emas)
+
+    Stable: bitta mahsulot ichida variantlar asl tartibida qoladi (position, id).
+    """
+    if len(cards) <= 1:
+        return list(cards)
+
+    from collections import defaultdict
+    groups: dict = defaultdict(list)
+    product_order: list = []          # mahsulot ID lari kirish tartibida
+    seen: set = set()
+    for card in cards:
+        pid = card['id']
+        if pid not in seen:
+            product_order.append(pid)
+            seen.add(pid)
+        groups[pid].append(card)
+
+    max_variants = max(len(g) for g in groups.values())
+    result: list[dict] = []
+    for i in range(max_variants):
+        for pid in product_order:
+            if i < len(groups[pid]):
+                result.append(groups[pid][i])
+    return result
+
+
+def in_stock_product_filter():
+    """
+    Q object: mahsulot **sotuvda mavjud** ekanligini tekshiradi.
+
+    Mantiq:
+      - Variantsiz mahsulot:  product.stock > 0
+      - Variantli mahsulot:   kamida BITTA active variantda stock > 0
+
+    Bu Amazon "currently in stock", Wildberries "naличие" yondashuvi.
+    Home sahifada va listing'da ishlatiladi — tugab qolgan mahsulot ko'rinmaydi.
+
+    Foydalanish:
+      Product.objects.filter(is_active=True).filter(in_stock_product_filter()).distinct()
+    """
+    from django.db.models import Q
+    return (
+        Q(stock__gt=0)
+        | Q(variants__is_active=True, variants__stock__gt=0)
+    )
 
 
 def _build_card_dict(product, variant, product_name: str, request) -> dict:

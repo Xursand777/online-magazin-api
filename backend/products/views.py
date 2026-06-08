@@ -23,6 +23,7 @@ from .serializers import (
     PhoneBrandSerializer,
     CompatibilityWriteSerializer, CompatibilityBulkSeriesSerializer, ProductCompatibilityReadSerializer,
     ProductCardSerializer, expand_products_to_cards,
+    interleave_cards_by_product, in_stock_product_filter,
 )
 
 
@@ -57,26 +58,43 @@ class VariantExpandMixin:
 
         queryset = self.filter_queryset(self.get_queryset())
 
-        # ── QuerySet uchun prefetch_related, list uchun shart emas ──────────
+        # ── 1. Stock filter (Amazon/Wildberries uslubi) ─────────────────────
+        # Default: tugab qolgan mahsulotlarni ko'rsatmaymiz.
+        # Opt-out: ?include_out_of_stock=true (kerak bo'lsa, masalan, qidiruv).
+        include_oos = request.query_params.get('include_out_of_stock', '').lower() in ('1', 'true', 'yes')
+        in_stock_only = not include_oos
+
+        # ── 2. QuerySet uchun prefetch_related, list uchun shart emas ──────────
         # Ba'zi view'lar (masalan ProductSimilarListView) get_queryset() dan
         # oddiy Python LIST qaytaradi (build_similar_products natijasi).
         # Bunday holatda prefetch_related() chaqirib bo'lmaydi — AttributeError.
-        # QuerySet bo'lsa, N+1 oldini olish uchun prefetch qilamiz.
+        # QuerySet bo'lsa, N+1 oldini olish uchun prefetch + DB darajada stock filter.
         from django.db.models import QuerySet
         if isinstance(queryset, QuerySet):
             queryset = queryset.prefetch_related(
                 'variants', 'variants__images', 'images',
             )
+            if in_stock_only:
+                # DB darajasida filter — pagination to'g'ri ishlashi uchun
+                queryset = queryset.filter(in_stock_product_filter()).distinct()
 
         page = self.paginate_queryset(queryset)
         ctx = self.get_serializer_context()
 
+        # ── 3. Expand + interleave (round-robin) ─────────────────────────────
+        # Round-robin: bir mahsulot variantlari ketma-ket emas, balki
+        # boshqa mahsulotlar bilan aralashtirilib chiqariladi.
+        def _process(items):
+            cards = expand_products_to_cards(items, request, in_stock_only=in_stock_only)
+            cards = interleave_cards_by_product(cards)
+            return cards
+
         if page is not None:
-            cards = expand_products_to_cards(page, request)
+            cards = _process(page)
             serializer = ProductCardSerializer(cards, many=True, context=ctx)
             return self.get_paginated_response(serializer.data)
 
-        cards = expand_products_to_cards(queryset, request)
+        cards = _process(queryset)
         serializer = ProductCardSerializer(cards, many=True, context=ctx)
         return Response(serializer.data)
 from .services import build_similar_products
@@ -415,7 +433,9 @@ class RecentlyViewedView(views.APIView):
         ordered = [by_id[pid] for pid in ordered_ids if pid in by_id]
 
         if _should_expand_variants(request):
-            cards = expand_products_to_cards(ordered, request)
+            # Recently viewed: tugab qolgan variantlarni yashirib, interleave qilamiz
+            cards = expand_products_to_cards(ordered, request, in_stock_only=True)
+            cards = interleave_cards_by_product(cards)
             data = ProductCardSerializer(cards, many=True, context={'request': request}).data
         else:
             data = ProductListSerializer(ordered, many=True, context={'request': request}).data
@@ -443,31 +463,62 @@ class ProductSimilarListView(VariantExpandMixin, generics.ListAPIView):
         return build_similar_products(source_product, limit=10)
 
 class MainPageView(views.APIView):
+    """
+    Bosh sahifa — Amazon/Wildberries/Ozon yondashuvlari bilan:
+
+    1. **Stock filter**: tugab qolgan mahsulotlar (product.stock=0 va barcha
+       variantlari ham stock=0) butunlay yashiriladi. Foydalanuvchi sotib
+       ololmaydigan mahsulotni ko'rmaydi.
+
+    2. **Variant interleaving**: bir mahsulotning 5 ta varianti ketma-ket
+       chiqib qolmaydi — round-robin orqali turli mahsulotlar bilan
+       aralashtiriladi. Foydalanuvchi diversity ko'radi.
+
+    3. **Limitni oshirish**: stock filter sababli ba'zi mahsulotlar tushib
+       qoladi → 15 ta olamiz (10 ta ko'rsatamiz uchun zaxira). Variant
+       expansion bilan kartalar soni baribir 10+ bo'ladi.
+    """
     permission_classes = (AllowAny,)
 
     def get(self, request, *args, **kwargs):
-        # Variantlar ham bo'lsa, prefetch_related orqali N+1 oldini olamiz
-        base_qs = Product.objects.filter(is_active=True).prefetch_related(
-            'images', 'variants', 'variants__images'
+        # Sotuvda mavjud mahsulotlar uchun base queryset
+        base_qs = (
+            Product.objects.filter(is_active=True)
+            .filter(in_stock_product_filter())
+            .distinct()
+            .prefetch_related('images', 'variants', 'variants__images')
         )
-        discount_products = base_qs.filter(is_discount=True).order_by('-updated_at', '-id')[:10]
-        new_products = base_qs.filter(is_new=True).order_by('-created_at', '-id')[:10]
-        popular_products = base_qs.filter(is_popular=True).order_by('-updated_at', '-id')[:10]
-        recommendation_payload = build_personalized_recommendations(request, limit=10)
-        recommended_products = recommendation_payload['products']
+        # 15 ta olamiz — filter+interleave keyin 10 ko'rsatish uchun yetarli
+        discount_products = base_qs.filter(is_discount=True).order_by('-updated_at', '-id')[:15]
+        new_products      = base_qs.filter(is_new=True).order_by('-created_at', '-id')[:15]
+        popular_products  = base_qs.filter(is_popular=True).order_by('-updated_at', '-id')[:15]
+
+        # Tavsiyalar — alohida service, lekin bu yerda ham in_stock tekshirish
+        recommendation_payload = build_personalized_recommendations(request, limit=15)
+        # Tavsiya'lar ham stock filter'dan o'tsin
+        recommended_products = [
+            p for p in recommendation_payload['products']
+            if (p.stock or 0) > 0 or any(
+                v.is_active and (v.stock or 0) > 0 for v in p.variants.all()
+            )
+        ]
 
         expand = _should_expand_variants(request)
         ctx = {'request': request}
 
         def _serialize(qs):
-            """Variantlarga ajratilgan yoki oddiy ro'yxat — `expand` ga qarab."""
+            """
+            Variantlarga ajratilgan yoki oddiy ro'yxat — `expand` ga qarab.
+            Expand rejimida: stock filter + round-robin interleave.
+            """
             if expand:
-                cards = expand_products_to_cards(qs, request)
+                cards = expand_products_to_cards(qs, request, in_stock_only=True)
+                cards = interleave_cards_by_product(cards)
                 return ProductCardSerializer(cards, many=True, context=ctx).data
             return ProductListSerializer(qs, many=True, context=ctx).data
 
         return Response({
-            "banners": HomeBannerSerializer(active_home_banners(), many=True, context=ctx).data,
+            "banners":              HomeBannerSerializer(active_home_banners(), many=True, context=ctx).data,
             "discount_products":    _serialize(discount_products),
             "new_products":         _serialize(new_products),
             "popular_products":     _serialize(popular_products),
