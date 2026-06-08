@@ -390,6 +390,38 @@ def interleave_cards_by_product(cards: list[dict]) -> list[dict]:
     return result
 
 
+def deduplicate_cards_by_product(cards: list[dict]) -> list[dict]:
+    """
+    Bir mahsulot uchun **faqat bitta karta** qoldiradi (birinchisi).
+
+    Bu — "Yaqinda ko'rilgan" va "O'xshash mahsulotlar" sections uchun.
+    Amazon, Wildberries, eBay shu yondashuvni ishlatadi:
+      - "Recently Viewed" → har bir ko'rilgan mahsulot uchun 1 ta karta
+      - "Similar Products" → har bir o'xshash mahsulot uchun 1 ta karta
+
+    Nima uchun bu kerak:
+      Variantli mahsulot (masalan, Samsung A56 — 5 variant) home discount
+      yoki listing sahifasida 5 ta karta sifatida chiqishi MA'QUL (diversity).
+      Lekin "Yaqinda ko'rilgan" sectionda — foydalanuvchi mahsulotni 1 marta
+      ko'rgan, 5 ta karta ko'rinishi xato. Bir mahsulot — bir karta.
+
+    Foydalanuvchi kartochkani bossa:
+      ProductDetail ochiladi va u yerda boshqa variantlarni tanlay oladi.
+      Karta ustida ko'rinadigan variant — eng past position'li (default).
+
+    Algoritm O(n): bir martalik o'tib chiqish, set bilan duplicate aniqlash.
+    """
+    seen: set = set()
+    result: list[dict] = []
+    for card in cards:
+        pid = card['id']
+        if pid in seen:
+            continue
+        seen.add(pid)
+        result.append(card)
+    return result
+
+
 def in_stock_product_filter():
     """
     Q object: mahsulot **sotuvda mavjud** ekanligini tekshiradi.

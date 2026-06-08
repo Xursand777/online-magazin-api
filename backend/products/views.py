@@ -24,6 +24,7 @@ from .serializers import (
     CompatibilityWriteSerializer, CompatibilityBulkSeriesSerializer, ProductCompatibilityReadSerializer,
     ProductCardSerializer, expand_products_to_cards,
     interleave_cards_by_product, in_stock_product_filter,
+    deduplicate_cards_by_product,
 )
 
 
@@ -49,9 +50,19 @@ class VariantExpandMixin:
       2. Sahifaga tushgan mahsulotlar variantlarga "kengaytiriladi".
       3. Bitta sahifada N mahsulot → 1.5N–10N karta (variant soniga qarab).
 
-    Foyda: SQL LIMIT/OFFSET o'zgarmaydi, lekin foydalanuvchi har bir variantni
-    alohida karta sifatida ko'radi.
+    ── Ikki rejim ──────────────────────────────────────────────────────────
+    `dedup_by_product = False` (default):
+        Round-robin INTERLEAVE — bir mahsulot variantlari boshqa mahsulotlar
+        bilan aralashtiriladi. Diversity uchun.
+        Joylar: discount, new, popular, category listing — Amazon "deals"
+                bo'limlari kabi.
+
+    `dedup_by_product = True`:
+        DEDUP — bir mahsulot uchun faqat bitta karta (birinchi variant).
+        Joylar: similar products, recently viewed — bir mahsulot 5 marta
+                takrorlanmaydi.
     """
+    dedup_by_product: bool = False
     def list(self, request, *args, **kwargs):
         if not _should_expand_variants(request):
             return super().list(request, *args, **kwargs)
@@ -81,12 +92,15 @@ class VariantExpandMixin:
         page = self.paginate_queryset(queryset)
         ctx = self.get_serializer_context()
 
-        # ── 3. Expand + interleave (round-robin) ─────────────────────────────
-        # Round-robin: bir mahsulot variantlari ketma-ket emas, balki
-        # boshqa mahsulotlar bilan aralashtirilib chiqariladi.
+        # ── 3. Expand + (interleave yoki dedup) ──────────────────────────────
+        # `dedup_by_product=True` bo'lsa: bir mahsulot → bir karta (similar, recent)
+        # `dedup_by_product=False` bo'lsa: round-robin interleave (discount, new, popular)
         def _process(items):
             cards = expand_products_to_cards(items, request, in_stock_only=in_stock_only)
-            cards = interleave_cards_by_product(cards)
+            if self.dedup_by_product:
+                cards = deduplicate_cards_by_product(cards)
+            else:
+                cards = interleave_cards_by_product(cards)
             return cards
 
         if page is not None:
@@ -433,9 +447,12 @@ class RecentlyViewedView(views.APIView):
         ordered = [by_id[pid] for pid in ordered_ids if pid in by_id]
 
         if _should_expand_variants(request):
-            # Recently viewed: tugab qolgan variantlarni yashirib, interleave qilamiz
+            # ── Recently viewed = DEDUP rejimi ──────────────────────────────
+            # Foydalanuvchi mahsulotni 1 marta ko'rgan — 5 ta variant karta
+            # bo'lib ko'rinishi xato. Bir mahsulot — bir karta (Amazon usuli).
+            # Variantning ko'rsatilishi: eng birinchi (default) variant.
             cards = expand_products_to_cards(ordered, request, in_stock_only=True)
-            cards = interleave_cards_by_product(cards)
+            cards = deduplicate_cards_by_product(cards)
             data = ProductCardSerializer(cards, many=True, context={'request': request}).data
         else:
             data = ProductListSerializer(ordered, many=True, context={'request': request}).data
@@ -449,9 +466,20 @@ class RecentlyViewedView(views.APIView):
 
 
 class ProductSimilarListView(VariantExpandMixin, generics.ListAPIView):
+    """
+    O'xshash mahsulotlar (ProductDetail sahifasida pastdan).
+
+    DEDUP rejimi yoqilgan: bir mahsulot uchun bir karta.
+    Variantli mahsulot (masalan, Xiaomi Redmi note 15 — 5 variant) bu yerda
+    bir marta ko'rinadi — foydalanuvchi kartochkani bossa, ProductDetail'da
+    boshqa variantlarni tanlay oladi.
+
+    Bu Amazon "Customers also viewed", Wildberries "Похожие товары" yondashuvi.
+    """
     serializer_class = ProductListSerializer
     permission_classes = (AllowAny,)
     pagination_class = None
+    dedup_by_product = True  # ⬅ Bir mahsulot — bir karta
 
     def get_queryset(self):
         source_product = generics.get_object_or_404(

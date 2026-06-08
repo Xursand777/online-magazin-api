@@ -135,7 +135,9 @@ const RecentlyViewedSection = () => {
         <div className="flex gap-4 overflow-x-auto pb-3 snap-x snap-mandatory scrollbar-hide -mx-4 px-4 md:mx-0 md:px-0 md:grid md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 md:overflow-visible md:pb-0">
           {products.slice(0, 12).map((product) => (
             <div
-              key={product.id}
+              // Variantli kartalarda bir xil id bo'lishi mumkin — card_id ishlatamiz
+              // (lekin recently-viewed dedup qiladi, shu sababli odatda card_id = id)
+              key={product.card_id ?? product.id}
               className="flex-shrink-0 w-44 snap-start md:w-auto md:flex-shrink md:min-w-0"
             >
               <ProductCard product={product} />
