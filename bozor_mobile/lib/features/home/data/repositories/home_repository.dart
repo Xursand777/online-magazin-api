@@ -67,34 +67,102 @@ class HomeRepository {
 
   /// Tarmoq'dan fresh home page payload oladi + cache'ga saqlaydi.
   ///
-  /// Bu metod parallel ravishda 6 ta API chaqiradi (banners + categories +
-  /// 4 ta mahsulot bo'limi). Birortasi xato bo'lsa, bo'sh ro'yxat qaytaradi
-  /// (mavjud xulq-atvor saqlanadi).
+  /// ═════════════════════════════════════════════════════════════════════════
+  /// PROFESSIONAL ARXITEKTURA — sayt bilan to'liq sinxron
+  /// ═════════════════════════════════════════════════════════════════════════
+  ///
+  /// Avval 6 ta alohida API chaqirilar edi (banners, categories, recommended,
+  /// discount, new, popular). Bu juda samarasiz edi:
+  ///   • 6 ta TCP roundtrip (sekin tarmoqda 2-6 sekund)
+  ///   • Recommended uchun `/api/products/` ishlatilar edi — PERSONALIZED EMAS
+  ///     (faqat `updated_at` bo'yicha — sayt'ga qaraganda noprofessional)
+  ///   • Server-side aggregation imkoniyatlari ishlatilmas edi
+  ///
+  /// ENDI: `/api/main/` aggregated endpoint — sayt bilan AYNI:
+  ///   • 1 ta HTTP so'rov → 1 ta TCP roundtrip
+  ///   • Banners + categories + 4 ta tavsiya section bir javobda
+  ///   • Recommended → `build_personalized_recommendations()`:
+  ///     - Foydalanuvchi profilidan: keyword_scores, category_scores,
+  ///       product_scores, price_bucket_scores ishlatadi
+  ///     - Profile yo'q (guest) → ommabop + yangi + updated_at
+  ///   • Variant expansion, stock filter, interleave — backend tarafda
+  ///   • Limit: server-controlled (15 ta per section, 10 ko'rsatish uchun)
+  ///
+  /// Mahsulotlar ko'payganda ham professional ishlaydi:
+  ///   • 1 million mahsulot → server 10-15 ta personalized variant qaytaradi
+  ///   • Random Pivot Sampling: O(log n + k) — 1M mahsulot uchun ~100ms
+  ///   • Redis kesh: 5 daqiqalik TTL — server resurslarini tejaydi
+  ///
+  /// Categories `/api/categories/` orqali alohida olinadi (boshqa kerakli joylar
+  /// ham ishlatadi — kataloq sahifa va h.k.).
   Future<CachedHomeData> fetchHomePageFresh() async {
-    // Parallel fetch
+    // Asosiy ma'lumotlar /api/main/ dan, kategoriyalar alohida
     final results = await Future.wait([
-      getBanners(),
-      getPopularCategories(),
-      getRecommendedProducts(),
-      getDiscountedProducts(),
-      getNewProducts(),
-      getPopularProducts(),
+      _fetchMainPage(),         // banners + 4 ta section bir javobda
+      getPopularCategories(),   // kategoriyalar alohida endpoint
     ]);
 
+    final main = results[0] as _MainPagePayload;
+    final categories = results[1] as List<CategoryModel>;
+
     final fresh = CachedHomeData(
-      banners: results[0] as List<BannerModel>,
-      categories: results[1] as List<CategoryModel>,
-      recommended: results[2] as List<ProductModel>,
-      discounted: results[3] as List<ProductModel>,
-      newProducts: results[4] as List<ProductModel>,
-      popularProducts: results[5] as List<ProductModel>,
-      cachedAt: DateTime.now(),
+      banners:         main.banners,
+      categories:      categories,
+      recommended:     main.recommended,
+      discounted:      main.discounted,
+      newProducts:     main.newProducts,
+      popularProducts: main.popularProducts,
+      cachedAt:        DateTime.now(),
     );
 
     // Cache'ga saqlash (fire-and-forget — UI ni bloklamasin)
     cache.save(CacheKeys.homePage, fresh.toJson());
 
     return fresh;
+  }
+
+  /// `/api/main/` — sayt'ning asosiy aggregated endpointi.
+  ///
+  /// Server bizga TAYYOR section'larni qaytaradi:
+  ///   • banners              — HomeBanner ro'yxati
+  ///   • discount_products    — chegirmadagi (15 ta, stock filter+interleave)
+  ///   • new_products         — yangi (15 ta)
+  ///   • popular_products     — ommabop (15 ta)
+  ///   • recommended_products — PERSONALIZED tavsiya (15 ta)
+  ///
+  /// Hammasi `?expand_variants=true` rejimida — har variant alohida karta.
+  Future<_MainPagePayload> _fetchMainPage() async {
+    try {
+      final response = await apiClient.dio.get(
+        ApiConstants.main,
+        queryParameters: _expandParams,
+      );
+      final data = response.data as Map<String, dynamic>;
+
+      List<ProductModel> parseList(String key) {
+        final raw = data[key] as List? ?? [];
+        return raw
+            .map((j) => ProductModel.fromJson(j as Map<String, dynamic>))
+            .toList();
+      }
+
+      List<BannerModel> parseBanners() {
+        final raw = data['banners'] as List? ?? [];
+        return raw
+            .map((j) => BannerModel.fromJson(j as Map<String, dynamic>))
+            .toList();
+      }
+
+      return _MainPagePayload(
+        banners:         parseBanners(),
+        recommended:     parseList('recommended_products'),
+        discounted:      parseList('discount_products'),
+        newProducts:     parseList('new_products'),
+        popularProducts: parseList('popular_products'),
+      );
+    } catch (_) {
+      return _MainPagePayload.empty();
+    }
   }
 
   // ── Individual fetcher'lar (avvalgi xulq-atvor) ──────────────────────────
@@ -129,10 +197,20 @@ class HomeRepository {
     'expand_variants': 'true',
   };
 
+  /// PROFESSIONAL recommended endpoint — `/api/products/recommended/`.
+  ///
+  /// Backend Random Pivot Sampling + 5 daqiqalik Redis kesh ishlatadi:
+  ///   • Pool hajmi: 10,000 ID (Redis 80 KB — katalog hajmidan mustaqil)
+  ///   • Pool tarkibi: 40% popular + 30% new + 30% diverse sample
+  ///   • Algoritm: ORDER BY RANDOM() emas (O(n log n) — sekin),
+  ///                Random Pivot — O(log n + k) — 1M mahsulot uchun ~100ms
+  ///
+  /// "Barchasini ko'rish" tugmasi recommended bo'lsa shu chaqiriladi.
+  /// Asosiy home sahifa esa /api/main/ orqali aggregated data oladi.
   Future<List<ProductModel>> getRecommendedProducts() async {
     try {
       final response = await apiClient.dio.get(
-        ApiConstants.products,
+        '/api/products/recommended/',
         queryParameters: _expandParams,
       );
       return ApiResponse.listFrom(
@@ -193,6 +271,31 @@ class HomeRepository {
       _ => getRecommendedProducts(),
     };
   }
+}
+
+/// Internal — `/api/main/` javobini parse qilingan ko'rinishda saqlaydi.
+class _MainPagePayload {
+  final List<BannerModel> banners;
+  final List<ProductModel> recommended;
+  final List<ProductModel> discounted;
+  final List<ProductModel> newProducts;
+  final List<ProductModel> popularProducts;
+
+  const _MainPagePayload({
+    required this.banners,
+    required this.recommended,
+    required this.discounted,
+    required this.newProducts,
+    required this.popularProducts,
+  });
+
+  factory _MainPagePayload.empty() => const _MainPagePayload(
+        banners: [],
+        recommended: [],
+        discounted: [],
+        newProducts: [],
+        popularProducts: [],
+      );
 }
 
 /// Home page uchun keshlangan ma'lumot konteyneri.
