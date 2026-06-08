@@ -221,7 +221,7 @@ def build_similar_products(source_product, limit=10):
         Product.objects.filter(is_active=True, stock__gt=0)
         .exclude(pk=source_product.pk)
         .select_related("category", "category__parent")
-        .prefetch_related("images", "variants")
+        .prefetch_related("images", "variants", "variants__images")
     )
     if has_candidate_filter:
         queryset = queryset.filter(candidate_filter).distinct()
@@ -248,7 +248,7 @@ def build_similar_products(source_product, limit=10):
             .exclude(pk=source_product.pk)
             .exclude(pk__in=seen_ids)
             .select_related("category", "category__parent")
-            .prefetch_related("images", "variants")
+            .prefetch_related("images", "variants", "variants__images")
             .order_by("-is_popular", "-is_new", "-updated_at")[: limit * 3]
         )
         for candidate in fallback_queryset:

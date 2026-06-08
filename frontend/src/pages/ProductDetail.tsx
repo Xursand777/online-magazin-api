@@ -225,9 +225,11 @@ const ProductDetail = () => {
   const isMaster = useAuthStore(s => s.user?.is_master ?? false);
   const [activeImg, setActiveImg] = useState(0);
   const [galleryIdx, setGalleryIdx] = useState(0);
-  const [selectedColor, setSelectedColor] = useState('');
-  const [selectedQuality, setSelectedQuality] = useState('');
-  const [selectedSize, setSelectedSize] = useState('');
+  // ── Single source of truth: variant ID ──────────────────────────────────
+  // Amazon/Wildberries/eBay yondashuvi — color/quality/size alohida state
+  // emas, balki bitta selectedVariantId. Bu race condition'larni butunlay
+  // bartaraf etadi va URL ?variant=ID parametri bilan to'g'ridan-to'g'ri ishlaydi.
+  const [selectedVariantId, setSelectedVariantId] = useState<number | null>(null);
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const [lightboxStartIdx, setLightboxStartIdx] = useState(0);
 
@@ -278,23 +280,87 @@ const ProductDetail = () => {
 
   const images = product?.images || [];
   const variants = product?.variants || [];
-  const colorOptions = uniqueBy(variants.filter((variant) => variant.color), (variant) => variant.color);
-  const selectedColorVariant = colorOptions.find((variant) => variant.color === selectedColor) || colorOptions[0] || null;
-  const filteredByColor = selectedColor ? variants.filter((variant) => variant.color === selectedColor) : variants;
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // VARIANT DERIVATION — selectedVariantId asosida hammasi hisoblanadi.
+  // Cascade race conditionlar yo'q. Bitta state — bitta haqiqat.
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  // 1. Joriy variant — ID bo'yicha topiladi. Topilmasa, birinchi variant.
+  const currentVariant: ProductVariant | null =
+    variants.find((v) => v.id === selectedVariantId) || variants[0] || null;
+
+  // 2. Tanlangan atributlar — currentVariant'dan derive qilamiz.
+  const selectedColor   = currentVariant?.color || '';
+  const selectedQuality = currentVariant?.quality || '';
+  const selectedSize    = currentVariant?.size || currentVariant?.model || '';
+
+  // 3. Pill ro'yxatlari — barcha variantlar bo'yicha (cascade emas).
+  //    Foydalanuvchi har qanday colorni ko'rishi kerak, hatto boshqa qualityda ham.
+  //    Bu Amazon uslubi: barcha opsiyalar ko'rinadi, lekin ba'zilari "no stock" bo'lishi mumkin.
+  const colorOptions = uniqueBy(variants.filter((v) => v.color), (v) => v.color);
+  const selectedColorVariant =
+    colorOptions.find((v) => v.color === selectedColor) || colorOptions[0] || null;
+
+  // Quality opsiyalari — joriy ranggа mos variantlar (cascade UX uchun)
+  const filteredByColor = selectedColor
+    ? variants.filter((v) => v.color === selectedColor)
+    : variants;
   const qualityOptions = uniqueBy(
-    filteredByColor.filter((variant) => variant.quality),
-    (variant) => variant.quality || ''
+    filteredByColor.filter((v) => v.quality),
+    (v) => v.quality || ''
   );
+
+  // Size opsiyalari — joriy rang + qualityga mos variantlar
   const filteredVariants = selectedQuality
-    ? filteredByColor.filter((variant) => (variant.quality || '') === selectedQuality)
+    ? filteredByColor.filter((v) => (v.quality || '') === selectedQuality)
     : filteredByColor;
   const sizeOptions = uniqueBy(
-    filteredVariants.filter((variant) => variant.size || variant.model),
-    (variant) => variant.size || variant.model
+    filteredVariants.filter((v) => v.size || v.model),
+    (v) => v.size || v.model
   );
-  const currentVariant = filteredVariants.find(
-    (variant) => (selectedSize ? (variant.size || variant.model) === selectedSize : true)
-  ) || filteredVariants[0] || null;
+
+  // ── Variant tanlash logikasi ─────────────────────────────────────────────
+  // Foydalanuvchi color/quality/size pill'ini bosganda — eng yaxshi mos
+  // variantni topadi (cascade fallback):
+  //   1. (color, quality, size) — uchchasi ham mos
+  //   2. (color, quality)        — size'ni tashlaymiz
+  //   3. (color, size)           — quality'ni tashlaymiz
+  //   4. (color)                 — faqat color
+  //   5. Birinchi variant        — fallback
+  //
+  // Bu Amazon/Wildberries usuli — foydalanuvchi tanlovini iloji boricha saqlaydi.
+  const findBestVariant = (
+    pref: { color?: string; quality?: string; size?: string }
+  ): ProductVariant | null => {
+    const match = (v: ProductVariant, p: typeof pref) =>
+      (p.color === undefined   || v.color === p.color) &&
+      (p.quality === undefined || (v.quality || '') === p.quality) &&
+      (p.size === undefined    || (v.size || v.model) === p.size);
+
+    // 4 darajali cascade — eng aniq → eng kengroq
+    return (
+      variants.find((v) => match(v, pref)) ||
+      variants.find((v) => match(v, { ...pref, size: undefined })) ||
+      variants.find((v) => match(v, { ...pref, quality: undefined })) ||
+      variants.find((v) => v.color === pref.color) ||
+      variants[0] ||
+      null
+    );
+  };
+
+  const handleSelectColor = (color: string) => {
+    const next = findBestVariant({ color, quality: selectedQuality, size: selectedSize });
+    if (next) setSelectedVariantId(next.id);
+  };
+  const handleSelectQuality = (quality: string) => {
+    const next = findBestVariant({ color: selectedColor, quality, size: selectedSize });
+    if (next) setSelectedVariantId(next.id);
+  };
+  const handleSelectSize = (size: string) => {
+    const next = findBestVariant({ color: selectedColor, quality: selectedQuality, size });
+    if (next) setSelectedVariantId(next.id);
+  };
   const cartItem = cart?.items.find(
     (item) =>
       item.product === Number(id) &&
@@ -322,38 +388,25 @@ const ProductDetail = () => {
           ? Number(product.discount_price)
           : null;
 
+  // ── Variant ID'ni initialize qilish ──────────────────────────────────────
+  // Mahsulot yuklangach yoki URL'dagi ?variant= o'zgargach, selectedVariantId
+  // yangilanadi. Endi cascade useEffectlar YO'Q — race condition yo'q.
   useEffect(() => {
     if (!product?.variants?.length) {
-      setSelectedColor('');
-      setSelectedQuality('');
-      setSelectedSize('');
+      setSelectedVariantId(null);
       return;
     }
-
-    // ── URL'dan kelgan variantni topib oldindan tanlaymiz ────────────────────
-    // Foydalanuvchi home sahifadagi "Smartfon Samsung Galaxy A56 • Vetnam • 128/8 • Olive"
-    // kartasini bossa, URL `?variant=42` bo'ladi. Bu yerda biz o'sha variantni
-    // mahsulot variantlari ichidan topib, color/quality/size/model'ni oldindan
-    // tanlaymiz. Variant topilmasa → birinchi variant (eski xulq).
-    let preselected = null;
+    // 1. URL'dan variant ID bor va u haqiqatan ham mahsulot variantlari orasida
     if (variantIdFromUrl) {
       const vid = Number(variantIdFromUrl);
-      preselected = product.variants.find((v) => v.id === vid) || null;
+      const found = product.variants.find((v) => v.id === vid);
+      if (found) {
+        setSelectedVariantId(found.id);
+        return;
+      }
     }
-
-    if (preselected) {
-      setSelectedColor(preselected.color || '');
-      setSelectedQuality(preselected.quality || '');
-      setSelectedSize(preselected.size || preselected.model || '');
-      return;
-    }
-
-    // Fallback — eski xulq (birinchi variantni tanlash)
-    const firstColor = product.variants.find((variant) => variant.color)?.color || '';
-    const firstVariant = product.variants[0];
-    setSelectedColor(firstColor || '');
-    setSelectedQuality(firstVariant?.quality || '');
-    setSelectedSize(firstVariant?.size || firstVariant?.model || '');
+    // 2. URL'siz yoki noto'g'ri ID → birinchi variant (default UX)
+    setSelectedVariantId(product.variants[0].id);
   }, [product?.id, product?.variants, variantIdFromUrl]);
 
   const displayTitle = useMemo(() => {
@@ -383,33 +436,20 @@ const ProductDetail = () => {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [product?.id]);
 
-  useEffect(() => {
-    if (!variants.length || !colorOptions.length) return;
-    if (!selectedColor || !colorOptions.some((variant) => variant.color === selectedColor)) {
-      setSelectedColor(colorOptions[0]?.color || '');
-    }
-  }, [variants, colorOptions, selectedColor]);
-
-  useEffect(() => {
-    if (!filteredByColor.length) return;
-    if (qualityOptions.length === 0) {
-      if (selectedQuality) setSelectedQuality('');
-      return;
-    }
-    if (!selectedQuality || !qualityOptions.some((variant) => variant.quality === selectedQuality)) {
-      setSelectedQuality(qualityOptions[0]?.quality || '');
-    }
-  }, [filteredByColor, qualityOptions, selectedQuality]);
-
-  useEffect(() => {
-    if (sizeOptions.length === 0) {
-      if (selectedSize) setSelectedSize('');
-      return;
-    }
-    if (!selectedSize || !sizeOptions.some((variant) => (variant.size || variant.model) === selectedSize)) {
-      setSelectedSize((sizeOptions[0]?.size || sizeOptions[0]?.model) || '');
-    }
-  }, [sizeOptions, selectedSize]);
+  // ── ESKI CASCADE useEffects O'CHIRILDI ──────────────────────────────────
+  // Avval 3 ta useEffect color/quality/size'ni "auto-fix" qilar edi:
+  //   color watcher → selectedColor != options[0] bo'lsa → reset
+  //   quality watcher → selectedQuality != options[0] bo'lsa → reset
+  //   size watcher → selectedSize != options[0] bo'lsa → reset
+  //
+  // Muammo: bu useEffectlar URL preselect bilan RACE CONDITION qilar edi —
+  // declaration order bo'yicha LAST useEffect yutardi, va URL preselect
+  // override bo'lardi. Foydalanuvchi "256/12 • India" tanlasa ham, sahifa
+  // "128/8 • Vetnam" ni ko'rsatardi.
+  //
+  // Yangi yondashuv: selectedVariantId single source of truth →
+  //   color/quality/size hammasi currentVariant'dan derive bo'ladi →
+  //   cascade auto-fix kerak emas.
 
   useEffect(() => { setGalleryIdx(0); }, [currentVariant?.id]);
 
@@ -665,7 +705,7 @@ const ProductDetail = () => {
                         key={variant.color}
                         type="button"
                         disabled={disabled}
-                        onClick={() => setSelectedColor(variant.color)}
+                        onClick={() => handleSelectColor(variant.color)}
                         title={variant.color}
                         className={`relative flex h-12 w-12 items-center justify-center rounded-full border-2 bg-surface-container-lowest transition-all ${
                           active ? 'border-primary shadow-[0_0_0_3px_rgb(var(--color-primary)/0.18)]' : 'border-outline hover:border-primary/70'
@@ -699,7 +739,7 @@ const ProductDetail = () => {
                         key={label}
                         type="button"
                         disabled={disabled}
-                        onClick={() => setSelectedQuality(label)}
+                        onClick={() => handleSelectQuality(label)}
                         className={`flex flex-col items-start gap-0.5 rounded-lg border px-3 py-2 transition-all text-sm ${
                           active
                             ? 'border-primary bg-primary-container/15 text-primary shadow-sm'
@@ -733,7 +773,7 @@ const ProductDetail = () => {
                       key={label}
                       type="button"
                       disabled={disabled}
-                      onClick={() => setSelectedSize(label)}
+                      onClick={() => handleSelectSize(label)}
                       className={`px-4 py-2 rounded-md border transition-colors font-label-md text-label-md text-sm ${
                         active
                           ? 'border-primary bg-primary-container/15 text-primary'

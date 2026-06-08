@@ -56,8 +56,17 @@ class VariantExpandMixin:
             return super().list(request, *args, **kwargs)
 
         queryset = self.filter_queryset(self.get_queryset())
-        # Variantlarni yuklab olish — N+1 oldini olish
-        queryset = queryset.prefetch_related('variants', 'variants__images', 'images')
+
+        # ── QuerySet uchun prefetch_related, list uchun shart emas ──────────
+        # Ba'zi view'lar (masalan ProductSimilarListView) get_queryset() dan
+        # oddiy Python LIST qaytaradi (build_similar_products natijasi).
+        # Bunday holatda prefetch_related() chaqirib bo'lmaydi — AttributeError.
+        # QuerySet bo'lsa, N+1 oldini olish uchun prefetch qilamiz.
+        from django.db.models import QuerySet
+        if isinstance(queryset, QuerySet):
+            queryset = queryset.prefetch_related(
+                'variants', 'variants__images', 'images',
+            )
 
         page = self.paginate_queryset(queryset)
         ctx = self.get_serializer_context()
