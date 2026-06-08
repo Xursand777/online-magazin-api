@@ -192,18 +192,26 @@ class ProductListSerializer(serializers.ModelSerializer):
 def _build_variant_card_name(product_name: str, variant) -> str:
     """
     Variant kartasi uchun to'liq nom yaratadi.
-    Tartib: product.name • model • size • quality • color
+
+    Tartib (foydalanuvchi o'qish mantig'i — sifat → xotira → rang):
+      product.name • model • quality • size • color
+
     None / bo'sh atributlar tushib qoladi.
 
     Misol:
       product_name = "Smartfon Samsung Galaxy A56"
-      variant.model = "Vetnam"
-      variant.size  = "128/8"
-      variant.color = "Olive"
+      variant.quality = "Vetnam"       (sifat — qayerda ishlab chiqarilgan)
+      variant.size    = "128/8"        (xotira — storage/RAM)
+      variant.color   = "Olive"        (rang)
       → "Smartfon Samsung Galaxy A56 • Vetnam • 128/8 • Olive"
+
+    Eslatma: model odatda null — agar bor bo'lsa, brand-suffix sifatida
+    (masalan "Pro") quality dan oldin keladi.
     """
     parts = [product_name]
-    for attr in ('model', 'size', 'quality', 'color'):
+    # Yangi tartib: model → quality → size → color
+    # (foydalanuvchi tabiiy o'qish — sifat, keyin xotira, keyin rang)
+    for attr in ('model', 'quality', 'size', 'color'):
         value = getattr(variant, attr, None)
         if value and str(value).strip():
             parts.append(str(value).strip())
@@ -212,16 +220,53 @@ def _build_variant_card_name(product_name: str, variant) -> str:
 
 def _variant_card_image(request, product, variant):
     """
-    Variant kartasi uchun rasm.
-    Birinchi navbatda variant gallery (ProductVariantImage), keyin variant.image,
-    oxirida product.images (mahsulotning asosiy rasmi).
+    Variant kartasi uchun rasm — **color-grouped fallback** (Wildberries usuli).
+
+    Mantiq (4 darajali):
+      1. Variantning o'z gallery rasmi (ProductVariantImage)
+      2. Variantning o'z thumbnail rasmi (variant.image)
+      3. **Bir xil RANGdagi boshqa variantdan** rasm
+         (admin har variantga rasm yuklamaganda — bir rang uchun bitta rasm yetadi)
+      4. Mahsulotning asosiy rasmi (eng oxirgi fallback)
+
+    Bu nima uchun muhim:
+      Variant tablitsa odatda 5-20 satr (color × size × quality kombinatsiyalari).
+      Admin har biri uchun alohida rasm yuklash o'rniga, faqat HAR RANG uchun
+      bitta rasm yuklaydi. Frontend kartasida foydalanuvchi to'g'ri rangni
+      ko'rishi uchun, "bir xil rang" qoidasi bilan rasmni topamiz.
+
+    Misol holat:
+      v9 = Kulrang + 128/8: rasm BOR
+      v10 = Kulrang + 256/12: rasm YO'Q → v9'dan oladi (ikkalasi ham Kulrang)
+      v11 = Kulrang + 512/12: rasm YO'Q → v9'dan oladi (ikkalasi ham Kulrang)
+
+      Avval (color-grouped yo'q): v10 va v11 olive product image ko'rsatardi (xato)
+      Endi (color-grouped bor):   v10 va v11 to'g'ri Kulrang rasm ko'rsatadi ✓
     """
     if variant is not None:
+        # 1. Variantning o'z gallery rasmi
         first_gallery = variant.images.first()
         if first_gallery and first_gallery.image:
             return absolute_media_url(request, first_gallery.image, width=800)
+        # 2. Variantning o'z thumbnail rasmi
         if variant.image:
             return absolute_media_url(request, variant.image, width=800)
+        # 3. Color-grouped fallback — bir xil rangdagi boshqa variantdan
+        if variant.color:
+            target_color = variant.color.strip().lower()
+            for other in product.variants.all():
+                if other.id == variant.id or not other.is_active:
+                    continue
+                other_color = (other.color or '').strip().lower()
+                if other_color != target_color:
+                    continue
+                # Bir xil rangdagi variant — uning rasmini olamiz
+                other_gallery = other.images.first()
+                if other_gallery and other_gallery.image:
+                    return absolute_media_url(request, other_gallery.image, width=800)
+                if other.image:
+                    return absolute_media_url(request, other.image, width=800)
+    # 4. Mahsulotning asosiy rasmi (oxirgi fallback)
     img = product_main_image(product)
     return absolute_media_url(request, img.image, width=800) if img else None
 
