@@ -12,6 +12,7 @@ import '../../features/catalog/presentation/pages/category_products_page.dart';
 import '../../features/product_detail/presentation/pages/product_detail_page.dart';
 import '../../features/home/presentation/pages/see_all_products_page.dart';
 import '../../features/checkout/presentation/pages/checkout_page.dart';
+import '../../features/search/presentation/pages/search_page.dart';
 import '../../features/admin/presentation/pages/admin_shell.dart';
 import '../../features/admin/presentation/pages/admin_dashboard_page.dart';
 import '../../features/admin/presentation/pages/admin_orders_page.dart';
@@ -223,6 +224,12 @@ class AppRouter {
               ),
             ),
           ],
+        ),
+
+        // ── Qidiruv sahifa — Amazon/Wildberries uslubi ───────────────────────
+        GoRoute(
+          path: '/search',
+          builder: (_, __) => const SearchPage(),
         ),
 
         // ── Detail sahifalar ──────────────────────────────────────────────────

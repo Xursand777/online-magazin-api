@@ -15,6 +15,9 @@ import '../../features/cart/data/repositories/cart_repository.dart';
 import '../../features/cart/presentation/bloc/cart_bloc.dart';
 import '../../features/product_detail/data/repositories/product_detail_repository.dart';
 import '../../features/product_detail/presentation/bloc/product_detail_bloc.dart';
+import '../../features/search/data/repositories/search_repository.dart';
+import '../../features/search/data/services/recent_searches_service.dart';
+import '../../features/search/presentation/bloc/search_bloc.dart';
 import '../../features/admin/data/repositories/admin_repository.dart';
 import '../../features/admin/presentation/bloc/admin_bloc.dart';
 import '../../features/admin/presentation/bloc/admin_dashboard_bloc.dart';
@@ -70,6 +73,12 @@ Future<void> init() async {
   sl.registerLazySingleton<ProductDetailRepository>(
     () => ProductDetailRepository(apiClient: sl()),
   );
+  sl.registerLazySingleton<SearchRepository>(
+    () => SearchRepository(apiClient: sl()),
+  );
+  sl.registerLazySingleton<RecentSearchesService>(
+    () => RecentSearchesService(),
+  );
   sl.registerLazySingleton<AdminRepository>(
     () => AdminRepository(apiClient: sl()),
   );
@@ -105,6 +114,9 @@ Future<void> init() async {
   sl.registerFactory<CatalogBloc>( () => CatalogBloc(repository: sl()));
   sl.registerFactory<ProductDetailBloc>(
     () => ProductDetailBloc(repository: sl()),
+  );
+  sl.registerFactory<SearchBloc>(
+    () => SearchBloc(repository: sl(), recentService: sl()),
   );
 
   // AdminBloc — SINGLETON: katalog (mahsulot/kategoriya/banner) sahifalari

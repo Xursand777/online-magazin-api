@@ -107,32 +107,10 @@ class HomeView extends StatelessWidget {
         preferredSize: const Size.fromHeight(60),
         child: Padding(
           padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-          child: Container(
-            height: 48,
-            decoration: BoxDecoration(
-              color: theme.colorScheme.surfaceContainerLow,
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: theme.colorScheme.outlineVariant),
-            ),
-            child: Row(
-              children: [
-                const SizedBox(width: 12),
-                Icon(Icons.search, color: theme.colorScheme.outline),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: TextField(
-                    decoration: InputDecoration(
-                      hintText: 'Qidirish...',
-                      border: InputBorder.none,
-                      hintStyle: theme.textTheme.bodyMedium?.copyWith(
-                        color: theme.colorScheme.outline,
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
+          // Tapping the search bar opens the dedicated /search page.
+          // Amazon/Wildberries: search bar is a tappable "stub" that opens
+          // a fullscreen search experience with live suggestions.
+          child: _SearchBarStub(theme: theme),
         ),
       ),
     );
@@ -769,5 +747,50 @@ class _BannerCard extends StatelessWidget {
 
   String _fmt(double v) {
     return '${NumberFormat('#,###').format(v).replaceAll(',', ' ')} so\'m';
+  }
+}
+
+/// Tap-to-open search bar — Amazon/Wildberries uslubi.
+///
+/// Bu real TextField emas — bu shunchaki ko'rinish (stub). Bosilganda
+/// `/search` sahifaga o'tadi, u yerda haqiqiy live qidiruv mavjud.
+/// Bunday yondashuv:
+///   • Sahifalar orasida bir xil search UX (Home, Catalog hamma joyda)
+///   • Klaviatura faqat search sahifasida chiqadi (Home aralashmaydi)
+///   • Search history + suggestions alohida sahifada to'liq UX bilan
+class _SearchBarStub extends StatelessWidget {
+  final ThemeData theme;
+  const _SearchBarStub({required this.theme});
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      borderRadius: BorderRadius.circular(12),
+      onTap: () => context.push('/search'),
+      child: Container(
+        height: 48,
+        decoration: BoxDecoration(
+          color: theme.colorScheme.surfaceContainerLow,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: theme.colorScheme.outlineVariant),
+        ),
+        child: Row(
+          children: [
+            const SizedBox(width: 12),
+            Icon(Icons.search_rounded, color: theme.colorScheme.outline),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                'Mahsulot, brend yoki kategoriya...',
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: theme.colorScheme.outline,
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+          ],
+        ),
+      ),
+    );
   }
 }

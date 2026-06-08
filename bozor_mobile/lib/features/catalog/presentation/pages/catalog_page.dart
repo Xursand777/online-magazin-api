@@ -68,37 +68,36 @@ class CatalogView extends StatelessWidget {
       surfaceTintColor: Colors.transparent,
       elevation: 0,
       titleSpacing: 16,
-      title: Container(
-        height: 48,
-        decoration: BoxDecoration(
-          color: theme.colorScheme.surface,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: theme.colorScheme.outlineVariant),
-        ),
-        child: Row(
-          children: [
-            const SizedBox(width: 12),
-            Icon(Icons.search, color: theme.colorScheme.onSurfaceVariant),
-            const SizedBox(width: 8),
-            Expanded(
-              child: TextField(
-                onSubmitted: (value) {
-                  // TODO: Global mahsulot qidirish logikasi
-                },
-                style: theme.textTheme.bodyLarge?.copyWith(
-                  color: theme.colorScheme.onSurface,
-                ),
-                decoration: InputDecoration(
-                  hintText: 'Qidirish...',
-                  border: InputBorder.none,
-                  hintStyle: TextStyle(
+      // Tap-to-open: search bar bosilganda /search sahifa ochiladi
+      // (Home va Catalog uchun bir xil UX — sayt bilan to'liq sinxron).
+      title: InkWell(
+        borderRadius: BorderRadius.circular(12),
+        onTap: () => context.push('/search'),
+        child: Container(
+          height: 48,
+          decoration: BoxDecoration(
+            color: theme.colorScheme.surface,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: theme.colorScheme.outlineVariant),
+          ),
+          child: Row(
+            children: [
+              const SizedBox(width: 12),
+              Icon(Icons.search_rounded,
+                  color: theme.colorScheme.onSurfaceVariant),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'Mahsulot, brend yoki kategoriya...',
+                  style: TextStyle(
                     color: theme.colorScheme.onSurfaceVariant,
                     fontSize: 15,
                   ),
                 ),
               ),
-            ),
-          ],
+              const SizedBox(width: 12),
+            ],
+          ),
         ),
       ),
     );
