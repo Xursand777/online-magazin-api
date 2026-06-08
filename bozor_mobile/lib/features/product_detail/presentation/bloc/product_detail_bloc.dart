@@ -176,15 +176,44 @@ class ProductDetailLoaded extends ProductDetailState {
     return product.stock;
   }
 
-  /// Hozirgi rasm — variant gallery yoki variant thumbnail yoki product main.
+  /// Hozirgi rasm — **color-grouped fallback** (Wildberries/Amazon usuli).
+  ///
+  /// Algoritm — sayt va backend bilan bir xil:
+  ///   1. Tanlangan variantning O'Z rasmi (gallery yoki thumbnail)
+  ///   2. AYNI RANG bo'lgan boshqa variantdan rasm (color-grouped)
+  ///      Sabab: foydalanuvchi sifat almashganda variant o'zgaradi, lekin
+  ///      ko'p hollarda variant o'z rasmiga ega bo'lmaydi. Bunda BIR XIL
+  ///      RANG bo'lgan boshqa variant rasmini ishlatib, foydalanuvchi RANGI
+  ///      o'zgarmagandek ko'radi.
+  ///   3. Mahsulotning asosiy rasmi (oxirgi fallback)
   String? get currentImage {
     final v = selectedVariant;
     if (v != null) {
+      // 1. Variantning o'z rasmi
       final vImg = v.displayImage;
       if (vImg != null && vImg.isNotEmpty) return vImg;
+
+      // 2. AYNI RANG bo'lgan boshqa variantdan rasm
+      // Masalan: foydalanuvchi Kulrang-India varianitida turibdi, lekin
+      // bu variantda rasm yo'q. Kulrang-Vetnam variantida rasm bor →
+      // o'sha kulrang rasmni ko'rsatamiz (foydalanuvchi rangni saqlangan deb biladi).
+      final color = v.color;
+      if (color != null && color.isNotEmpty) {
+        for (final other in product.variants) {
+          if (other.id == v.id) continue;
+          if (other.color != color) continue;
+          final oImg = other.displayImage;
+          if (oImg != null && oImg.isNotEmpty) return oImg;
+        }
+      }
     }
-    final mainImg = product.images.where((i) => i.isMain).cast<ProductImage?>().firstOrNull
-        ?? product.images.cast<ProductImage?>().firstOrNull;
+
+    // 3. Mahsulotning asosiy rasmi
+    final mainImg = product.images
+            .where((i) => i.isMain)
+            .cast<ProductImage?>()
+            .firstOrNull ??
+        product.images.cast<ProductImage?>().firstOrNull;
     return mainImg?.url;
   }
 
@@ -268,74 +297,114 @@ class ProductDetailBloc extends Bloc<ProductDetailEvent, ProductDetailState> {
     emit(s.copyWith(selectedVariantId: event.variantId));
   }
 
-  /// Rang bosilganda eng mos variantni topadi.
-  /// Birinchi navbatda joriy sifat+o'lcham'ni saqlashga harakat qiladi.
+  /// Rang bosilganda — RANG priority, sifat va o'lcham preference.
   void _onSelectByColor(SelectByColor event, Emitter<ProductDetailState> emit) {
     final s = state;
     if (s is! ProductDetailLoaded) return;
-    final next = _findBestVariant(
-      s.product.variants,
-      color: event.color,
-      quality: s.selectedVariant?.quality,
-      size: s.selectedVariant?.size ?? s.selectedVariant?.model,
+    final next = _findByPriority(
+      variants: s.product.variants,
+      priority: _Dim.color,
+      priorityValue: event.color,
+      preferColor: event.color,
+      preferQuality: s.selectedVariant?.quality,
+      preferSize: s.selectedVariant?.size ?? s.selectedVariant?.model,
     );
     if (next != null) emit(s.copyWith(selectedVariantId: next.id));
   }
 
+  /// Sifat bosilganda — SIFAT priority, rang va o'lcham preference.
   void _onSelectByQuality(SelectByQuality event, Emitter<ProductDetailState> emit) {
     final s = state;
     if (s is! ProductDetailLoaded) return;
-    final next = _findBestVariant(
-      s.product.variants,
-      color: s.selectedVariant?.color,
-      quality: event.quality,
-      size: s.selectedVariant?.size ?? s.selectedVariant?.model,
+    final next = _findByPriority(
+      variants: s.product.variants,
+      priority: _Dim.quality,
+      priorityValue: event.quality,
+      preferColor: s.selectedVariant?.color,
+      preferQuality: event.quality,
+      preferSize: s.selectedVariant?.size ?? s.selectedVariant?.model,
     );
     if (next != null) emit(s.copyWith(selectedVariantId: next.id));
   }
 
+  /// O'lcham/xotira bosilganda — SIZE priority, rang va sifat preference.
   void _onSelectBySize(SelectBySize event, Emitter<ProductDetailState> emit) {
     final s = state;
     if (s is! ProductDetailLoaded) return;
-    final next = _findBestVariant(
-      s.product.variants,
-      color: s.selectedVariant?.color,
-      quality: s.selectedVariant?.quality,
-      size: event.size,
+    final next = _findByPriority(
+      variants: s.product.variants,
+      priority: _Dim.size,
+      priorityValue: event.size,
+      preferColor: s.selectedVariant?.color,
+      preferQuality: s.selectedVariant?.quality,
+      preferSize: event.size,
     );
     if (next != null) emit(s.copyWith(selectedVariantId: next.id));
   }
 
-  /// Eng mos variantni topadi — barcha 3 atributga mos kelsa shu, aks holda
-  /// asta-sekin constraintlarni tushiradi (size → quality → color).
-  /// Bu — Amazon/Wildberries'ning "best match" algoritmi.
-  ProductVariant? _findBestVariant(
-    List<ProductVariant> variants, {
-    String? color,
-    String? quality,
-    String? size,
+  /// **Priority-based variant matching** (Amazon/Wildberries professional usuli).
+  ///
+  /// Foydalanuvchi qaysi dimension'ni bosgan bo'lsa — u PRIORITY (majburiy mos
+  /// kelishi kerak). Boshqalari — preference (saqlanishga harakat qilinadi,
+  /// lekin mos variant topilmasa o'zgaradi).
+  ///
+  /// MISOL:
+  ///   Variantlar: (Olive/Vetnam/128), (Olive/India/256), (Kulrang/USA/512)
+  ///   Foydalanuvchi Olive/Vetnam/128 da turibdi.
+  ///   "USA" sifatini bosadi.
+  ///   PRIORITY: quality=USA — MAJBURIY.
+  ///   Olive+USA mavjud emas → boshqa rangda izlaymiz.
+  ///   Kulrang+USA → MOS. → Tanlanadi (rang ham avtomatik Kulrangga o'tdi).
+  ///
+  /// Bu — sayt va katta saytlarning professional yondashuvi.
+  ProductVariant? _findByPriority({
+    required List<ProductVariant> variants,
+    required _Dim priority,
+    required String priorityValue,
+    String? preferColor,
+    String? preferQuality,
+    String? preferSize,
   }) {
-    bool matchColor(ProductVariant v) => color == null || v.color == color;
-    bool matchQuality(ProductVariant v) => quality == null || quality.isEmpty || v.quality == quality;
-    bool matchSize(ProductVariant v) => size == null || size.isEmpty || (v.size ?? v.model) == size;
+    if (variants.isEmpty) return null;
 
-    // 1. Barchasi mos kelsa
-    final allMatch = variants
-        .where((v) => matchColor(v) && matchQuality(v) && matchSize(v))
-        .toList();
-    if (allMatch.isNotEmpty) return allMatch.first;
+    // 1. PRIORITY mos kelgan variantlarni filtr qilamiz (MAJBURIY)
+    final candidates = variants.where((v) {
+      switch (priority) {
+        case _Dim.color:
+          return (v.color ?? '') == priorityValue;
+        case _Dim.quality:
+          return (v.quality ?? '') == priorityValue;
+        case _Dim.size:
+          return (v.size ?? v.model ?? '') == priorityValue;
+      }
+    }).toList();
 
-    // 2. Size'ni tashlaymiz (color+quality)
-    final colorQuality = variants
-        .where((v) => matchColor(v) && matchQuality(v))
-        .toList();
-    if (colorQuality.isNotEmpty) return colorQuality.first;
+    if (candidates.isEmpty) {
+      // Priority mos kelgan variant umuman yo'q — fallback (kamdan-kam holat)
+      return variants.first;
+    }
 
-    // 3. Quality'ni tashlaymiz (color)
-    final colorOnly = variants.where(matchColor).toList();
-    if (colorOnly.isNotEmpty) return colorOnly.first;
+    // 2. Candidates orasidan eng yaxshi mos keladiganini "score" bo'yicha tanlaymiz
+    //    Score: har dimension bo'yicha mos kelishga ball.
+    //    Stock > 0 ham qo'shimcha ball — tugab qolgan variantni tanlamaymiz.
+    int score(ProductVariant v) {
+      var s = 0;
+      if (preferColor != null && v.color == preferColor) s += 100;
+      if (preferQuality != null &&
+          preferQuality.isNotEmpty &&
+          v.quality == preferQuality) s += 10;
+      if (preferSize != null &&
+          preferSize.isNotEmpty &&
+          (v.size ?? v.model) == preferSize) s += 1;
+      // Stock — agar mavjud bo'lsa katta bonus (foydalanuvchi sotib ola olishi uchun)
+      if (v.stock > 0) s += 1000;
+      return s;
+    }
 
-    // 4. Hech narsa mos kelmasa — birinchi
-    return variants.isNotEmpty ? variants.first : null;
+    candidates.sort((a, b) => score(b).compareTo(score(a)));
+    return candidates.first;
   }
 }
+
+/// Variant dimension'lari — priority belgilash uchun.
+enum _Dim { color, quality, size }
