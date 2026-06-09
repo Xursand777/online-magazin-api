@@ -9,6 +9,9 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:go_router/go_router.dart';
 import '../../../../core/models/product_model.dart';
 import '../../../../core/models/banner_model.dart';
+import '../../../search/presentation/bloc/search_bloc.dart';
+import '../../../search/presentation/widgets/search_input_bar.dart';
+import '../../../search/presentation/widgets/search_overlay.dart';
 
 
 class HomePage extends StatelessWidget {
@@ -16,15 +19,35 @@ class HomePage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return BlocProvider(
-      create: (context) => sl<HomeBloc>()..add(LoadHomeData()),
+    // 2 ta bloc nested: HomeBloc (asosiy) + SearchBloc (qidiruv dropdown)
+    return MultiBlocProvider(
+      providers: [
+        BlocProvider(create: (_) => sl<HomeBloc>()..add(LoadHomeData())),
+        BlocProvider(create: (_) => sl<SearchBloc>()..add(const LoadRecentSearches())),
+      ],
       child: const HomeView(),
     );
   }
 }
 
-class HomeView extends StatelessWidget {
+class HomeView extends StatefulWidget {
   const HomeView({super.key});
+
+  @override
+  State<HomeView> createState() => _HomeViewState();
+}
+
+class _HomeViewState extends State<HomeView> {
+  // Search bar va overlay bir-biriga shu controller+focusNode orqali bog'lanadi
+  final TextEditingController _searchController = TextEditingController();
+  final FocusNode _searchFocus = FocusNode();
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    _searchFocus.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -32,8 +55,23 @@ class HomeView extends StatelessWidget {
 
     return Scaffold(
       appBar: _buildAppBar(theme),
-      body: BlocBuilder<HomeBloc, HomeState>(
+      body: Stack(
+        children: [
+          _buildMainContent(),
+          // Search overlay — focusNode.hasFocus bo'lganda ko'rinadi
+          SearchOverlay(
+            focusNode: _searchFocus,
+            controller: _searchController,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMainContent() {
+    return BlocBuilder<HomeBloc, HomeState>(
         builder: (context, state) {
+          final theme = Theme.of(context);
           // Phase 1.5: isLoading faqat birinchi marta (cache yo'q) ko'rinadi.
           // Keshlangan ma'lumot bor bo'lsa — darhol UI, isStale=true banner.
           if (state.isLoading) {
@@ -87,8 +125,7 @@ class HomeView extends StatelessWidget {
             ),
           );
         },
-      ),
-    );
+      );
   }
 
   PreferredSizeWidget _buildAppBar(ThemeData theme) {
@@ -107,10 +144,12 @@ class HomeView extends StatelessWidget {
         preferredSize: const Size.fromHeight(60),
         child: Padding(
           padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-          // Tapping the search bar opens the dedicated /search page.
-          // Amazon/Wildberries: search bar is a tappable "stub" that opens
-          // a fullscreen search experience with live suggestions.
-          child: _SearchBarStub(theme: theme),
+          // Live search bar — saytdagi kabi inline dropdown bilan.
+          // Dropdown alohida widget (SearchOverlay) — body Stack ichida.
+          child: SearchInputBar(
+            controller: _searchController,
+            focusNode: _searchFocus,
+          ),
         ),
       ),
     );
@@ -750,47 +789,5 @@ class _BannerCard extends StatelessWidget {
   }
 }
 
-/// Tap-to-open search bar — Amazon/Wildberries uslubi.
-///
-/// Bu real TextField emas — bu shunchaki ko'rinish (stub). Bosilganda
-/// `/search` sahifaga o'tadi, u yerda haqiqiy live qidiruv mavjud.
-/// Bunday yondashuv:
-///   • Sahifalar orasida bir xil search UX (Home, Catalog hamma joyda)
-///   • Klaviatura faqat search sahifasida chiqadi (Home aralashmaydi)
-///   • Search history + suggestions alohida sahifada to'liq UX bilan
-class _SearchBarStub extends StatelessWidget {
-  final ThemeData theme;
-  const _SearchBarStub({required this.theme});
-
-  @override
-  Widget build(BuildContext context) {
-    return InkWell(
-      borderRadius: BorderRadius.circular(12),
-      onTap: () => context.push('/search'),
-      child: Container(
-        height: 48,
-        decoration: BoxDecoration(
-          color: theme.colorScheme.surfaceContainerLow,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: theme.colorScheme.outlineVariant),
-        ),
-        child: Row(
-          children: [
-            const SizedBox(width: 12),
-            Icon(Icons.search_rounded, color: theme.colorScheme.outline),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Text(
-                'Mahsulot, brend yoki kategoriya...',
-                style: theme.textTheme.bodyMedium?.copyWith(
-                  color: theme.colorScheme.outline,
-                ),
-              ),
-            ),
-            const SizedBox(width: 8),
-          ],
-        ),
-      ),
-    );
-  }
-}
+// _SearchBarStub olib tashlandi — endi SearchInputBar + SearchOverlay
+// ishlatiladi (alohida search sahifasi emas, inline dropdown).

@@ -5,21 +5,43 @@ import 'package:cached_network_image/cached_network_image.dart';
 import '../../../../core/di/injection_container.dart';
 import '../bloc/catalog_bloc.dart';
 import '../../../../core/models/category_model.dart';
+import '../../../search/presentation/bloc/search_bloc.dart';
+import '../../../search/presentation/widgets/search_input_bar.dart';
+import '../../../search/presentation/widgets/search_overlay.dart';
 
 class CatalogPage extends StatelessWidget {
   const CatalogPage({super.key});
 
   @override
   Widget build(BuildContext context) {
-    return BlocProvider(
-      create: (context) => sl<CatalogBloc>()..add(LoadCatalogData()),
+    // 2 ta bloc: CatalogBloc (asosiy) + SearchBloc (qidiruv overlay)
+    return MultiBlocProvider(
+      providers: [
+        BlocProvider(create: (_) => sl<CatalogBloc>()..add(LoadCatalogData())),
+        BlocProvider(create: (_) => sl<SearchBloc>()..add(const LoadRecentSearches())),
+      ],
       child: const CatalogView(),
     );
   }
 }
 
-class CatalogView extends StatelessWidget {
+class CatalogView extends StatefulWidget {
   const CatalogView({super.key});
+
+  @override
+  State<CatalogView> createState() => _CatalogViewState();
+}
+
+class _CatalogViewState extends State<CatalogView> {
+  final TextEditingController _searchController = TextEditingController();
+  final FocusNode _searchFocus = FocusNode();
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    _searchFocus.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -27,79 +49,63 @@ class CatalogView extends StatelessWidget {
 
     return Scaffold(
       backgroundColor: theme.scaffoldBackgroundColor,
-      appBar: _buildSearchBar(context, theme),
-      body: BlocBuilder<CatalogBloc, CatalogState>(
-        builder: (context, state) {
-          if (state.isLoading && state.categories.isEmpty) {
-            return const Center(child: CircularProgressIndicator());
-          }
-          if (state.error != null && state.categories.isEmpty) {
-            return Center(child: Text('Xatolik: ${state.error}'));
-          }
-          if (state.categories.isEmpty) {
-            return const Center(child: Text('Kataloglar topilmadi.'));
-          }
-
-          // API dan kelayotgan asosiy ro'yxat ota-kataloglardan iborat
-          final parentCategories = state.categories;
-          
-          return ListView.builder(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-            itemCount: parentCategories.length,
-            itemBuilder: (context, index) {
-              final catalog = parentCategories[index];
-              // Kichik kategoriyalar (nested listdan olinadi)
-              final childCategories = catalog.children ?? [];
-
-              return _CatalogAccordionItem(
-                catalog: catalog,
-                childCategories: childCategories,
-              );
-            },
-          );
-        },
+      appBar: _buildAppBar(theme),
+      body: Stack(
+        children: [
+          _buildMainContent(),
+          // Search dropdown overlay — focusNode.hasFocus bo'lganda ko'rinadi
+          SearchOverlay(
+            focusNode: _searchFocus,
+            controller: _searchController,
+          ),
+        ],
       ),
     );
   }
 
-  PreferredSizeWidget _buildSearchBar(BuildContext context, ThemeData theme) {
+  PreferredSizeWidget _buildAppBar(ThemeData theme) {
     return AppBar(
       backgroundColor: theme.scaffoldBackgroundColor,
       surfaceTintColor: Colors.transparent,
       elevation: 0,
       titleSpacing: 16,
-      // Tap-to-open: search bar bosilganda /search sahifa ochiladi
-      // (Home va Catalog uchun bir xil UX — sayt bilan to'liq sinxron).
-      title: InkWell(
-        borderRadius: BorderRadius.circular(12),
-        onTap: () => context.push('/search'),
-        child: Container(
-          height: 48,
-          decoration: BoxDecoration(
-            color: theme.colorScheme.surface,
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: theme.colorScheme.outlineVariant),
-          ),
-          child: Row(
-            children: [
-              const SizedBox(width: 12),
-              Icon(Icons.search_rounded,
-                  color: theme.colorScheme.onSurfaceVariant),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  'Mahsulot, brend yoki kategoriya...',
-                  style: TextStyle(
-                    color: theme.colorScheme.onSurfaceVariant,
-                    fontSize: 15,
-                  ),
-                ),
-              ),
-              const SizedBox(width: 12),
-            ],
-          ),
-        ),
+      // Live search bar — saytdagi kabi inline dropdown (Home bilan bir xil UX)
+      title: SearchInputBar(
+        controller: _searchController,
+        focusNode: _searchFocus,
       ),
+    );
+  }
+
+  Widget _buildMainContent() {
+    return BlocBuilder<CatalogBloc, CatalogState>(
+      builder: (context, state) {
+        if (state.isLoading && state.categories.isEmpty) {
+          return const Center(child: CircularProgressIndicator());
+        }
+        if (state.error != null && state.categories.isEmpty) {
+          return Center(child: Text('Xatolik: ${state.error}'));
+        }
+        if (state.categories.isEmpty) {
+          return const Center(child: Text('Kataloglar topilmadi.'));
+        }
+
+        // API dan kelayotgan asosiy ro'yxat ota-kataloglardan iborat
+        final parentCategories = state.categories;
+
+        return ListView.builder(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+          itemCount: parentCategories.length,
+          itemBuilder: (context, index) {
+            final catalog = parentCategories[index];
+            final childCategories = catalog.children ?? [];
+            return _CatalogAccordionItem(
+              catalog: catalog,
+              childCategories: childCategories,
+            );
+          },
+        );
+      },
     );
   }
 }

@@ -13,6 +13,7 @@ import '../../features/product_detail/presentation/pages/product_detail_page.dar
 import '../../features/home/presentation/pages/see_all_products_page.dart';
 import '../../features/checkout/presentation/pages/checkout_page.dart';
 import '../../features/search/presentation/pages/search_page.dart';
+import '../../features/search/presentation/pages/search_results_page.dart';
 import '../../features/admin/presentation/pages/admin_shell.dart';
 import '../../features/admin/presentation/pages/admin_dashboard_page.dart';
 import '../../features/admin/presentation/pages/admin_orders_page.dart';
@@ -226,10 +227,19 @@ class AppRouter {
           ],
         ),
 
-        // ── Qidiruv sahifa — Amazon/Wildberries uslubi ───────────────────────
+        // ── Qidiruv sahifalari ───────────────────────────────────────────────
+        // /search — full-page (eski fallback, hozir ishlatilmaydi).
+        // /search-results — "Barchasini ko'rish" tugmasidan keladi, paginated.
         GoRoute(
           path: '/search',
           builder: (_, __) => const SearchPage(),
+        ),
+        GoRoute(
+          path: '/search-results',
+          builder: (_, state) {
+            final query = state.uri.queryParameters['q'] ?? '';
+            return SearchResultsPage(query: query);
+          },
         ),
 
         // ── Detail sahifalar ──────────────────────────────────────────────────
