@@ -7,20 +7,26 @@ import 'package:intl/intl.dart';
 import '../../../../core/di/injection_container.dart';
 import '../../../../core/models/product_model.dart';
 import '../bloc/search_bloc.dart';
+import '../widgets/search_bar_stub.dart';
 
-/// Professional qidiruv sahifasi — Amazon, Wildberries, Google'dagi kabi.
+/// Professional search page — Home/Catalog tap'idan ochiladi.
 ///
-/// Asosiy UX printsiplari:
-///   1. **Autofocus** — sahifa ochilganda klaviatura darhol chiqadi
-///   2. **Live suggestions** — har 300ms debounce bilan natijalar yangilanadi
-///   3. **Recent searches** — bo'sh inputda yaqinda qidirilganlar
-///   4. **Highlighted matches** — natija nomida qidirilgan so'z BOLD ko'rsatiladi
-///   5. **Loading state** — skeleton/spinner foydalanuvchiga feedback beradi
-///   6. **Empty state** — chiroyli "topilmadi" xabari
-///   7. **Tap result** → ProductDetail (recent'ga saqlaydi)
-///   8. **Keyboard submit** → recent'ga saqlaydi, sahifada qoladi
+/// UX printsiplari (Amazon, Wildberries, Yandex Market, Google):
+///   1. **Hero animatsiya** — search bar stub'idan input'gacha silliq morph
+///   2. **Autofocus** — sahifa ochilganda klaviatura darhol chiqadi
+///   3. **Live results 10 ta** — debounce 300ms, har keyboard hit'da emas
+///   4. **"Barchasini ko'rish" sticky button** — pastda 10+ natija bo'lsa
+///   5. **Recent searches** — bo'sh inputda yaqindagi qidiruvlar
+///   6. **Highlighted matches** — RichText bilan BOLD primary color
+///   7. **Haptic feedback** — natija tanlanganda kichik vibratsiya
+///   8. **Smooth dividers** — alpha bilan kontent ajratish
 class SearchPage extends StatelessWidget {
   const SearchPage({super.key});
+
+  /// Inline natijalar maksimal soni — 10 ta. Backend 50 gacha qaytaradi,
+  /// lekin biz dropdown-tarzdagi listda faqat 10 ko'rsatamiz.
+  /// Qolganlarini "Barchasini ko'rish" tugma orqali olinadi (paginated).
+  static const int maxInlineResults = 10;
 
   @override
   Widget build(BuildContext context) {
@@ -45,7 +51,7 @@ class _SearchViewState extends State<_SearchView> {
   @override
   void initState() {
     super.initState();
-    // Sahifa ochilganda klaviatura darhol chiqsin (UX qulayligi)
+    // Sahifa ochilganda klaviatura darhol chiqsin (Amazon/Wildberries UX)
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _focusNode.requestFocus();
     });
@@ -61,6 +67,7 @@ class _SearchViewState extends State<_SearchView> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+
     return Scaffold(
       backgroundColor: theme.colorScheme.surface,
       appBar: _buildAppBar(context, theme),
@@ -70,7 +77,7 @@ class _SearchViewState extends State<_SearchView> {
             return _buildRecentSearches(context, state, theme);
           }
           if (state.isLoading && state.results.isEmpty) {
-            return _buildLoadingState(theme);
+            return _buildLoadingSkeleton(theme);
           }
           if (state.isEmpty) {
             return _buildEmptyState(theme, state.query);
@@ -81,36 +88,75 @@ class _SearchViewState extends State<_SearchView> {
     );
   }
 
-  // ── AppBar — qidiruv input bilan ────────────────────────────────────────
+  // ═══════════════════════════════════════════════════════════════════════════
+  // AppBar — Hero TextField (Home/Catalog stub'idan morph)
+  // ═══════════════════════════════════════════════════════════════════════════
 
   PreferredSizeWidget _buildAppBar(BuildContext context, ThemeData theme) {
     return AppBar(
       backgroundColor: theme.colorScheme.surface,
       surfaceTintColor: Colors.transparent,
       elevation: 0,
+      scrolledUnderElevation: 0,
       titleSpacing: 0,
       leading: IconButton(
         icon: const Icon(Icons.arrow_back_rounded),
         onPressed: () => context.pop(),
       ),
-      title: BlocBuilder<SearchBloc, SearchState>(
-        buildWhen: (a, b) => a.query != b.query,
-        builder: (context, state) {
-          return Container(
-            height: 42,
-            decoration: BoxDecoration(
-              color: theme.colorScheme.surfaceContainerLow,
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: theme.colorScheme.outlineVariant),
-            ),
-            child: Row(
-              children: [
-                const SizedBox(width: 12),
-                Icon(Icons.search_rounded,
-                    size: 20, color: theme.colorScheme.onSurfaceVariant),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: TextField(
+      title: Padding(
+        padding: const EdgeInsets.only(right: 12),
+        // ⭐ Hero — Home/Catalog SearchBarStub bilan AYNI tag → silliq morph
+        child: Hero(
+          tag: SearchBarStub.heroTag,
+          flightShuttleBuilder:
+              (flightContext, animation, direction, fromContext, toContext) {
+            return Material(
+              color: Colors.transparent,
+              child: _buildInputContainer(theme, isStub: true),
+            );
+          },
+          child: Material(
+            color: Colors.transparent,
+            child: _buildInputContainer(theme, isStub: false),
+          ),
+        ),
+      ),
+      bottom: PreferredSize(
+        preferredSize: const Size.fromHeight(1),
+        child: Divider(
+          height: 1,
+          thickness: 1,
+          color: theme.colorScheme.outlineVariant.withValues(alpha: 0.5),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildInputContainer(ThemeData theme, {required bool isStub}) {
+    return Container(
+      height: 48,
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surfaceContainerLow,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: theme.colorScheme.outlineVariant),
+      ),
+      child: Row(
+        children: [
+          const SizedBox(width: 14),
+          Icon(Icons.search_rounded,
+              size: 20, color: theme.colorScheme.onSurfaceVariant),
+          const SizedBox(width: 10),
+          Expanded(
+            child: isStub
+                ? Text(
+                    'Mahsulot, brend yoki kategoriya...',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                  )
+                : TextField(
                     controller: _controller,
                     focusNode: _focusNode,
                     autofocus: true,
@@ -119,9 +165,10 @@ class _SearchViewState extends State<_SearchView> {
                         context.read<SearchBloc>().add(QueryChanged(v)),
                     onSubmitted: (v) {
                       final q = v.trim();
-                      if (q.isNotEmpty) {
-                        context.read<SearchBloc>().add(CommitSearch(q));
-                      }
+                      if (q.isEmpty) return;
+                      context.read<SearchBloc>().add(CommitSearch(q));
+                      // Enter bosilsa → to'liq natijalar sahifasiga o'tamiz
+                      _openFullResults(q);
                     },
                     style: theme.textTheme.bodyMedium,
                     decoration: InputDecoration(
@@ -134,27 +181,35 @@ class _SearchViewState extends State<_SearchView> {
                       contentPadding: EdgeInsets.zero,
                     ),
                   ),
-                ),
-                if (state.query.isNotEmpty)
-                  IconButton(
-                    icon: const Icon(Icons.close_rounded, size: 20),
-                    onPressed: () {
-                      _controller.clear();
-                      context.read<SearchBloc>().add(const ClearQuery());
-                      _focusNode.requestFocus();
-                    },
-                    color: theme.colorScheme.onSurfaceVariant,
-                    visualDensity: VisualDensity.compact,
-                  ),
-              ],
-            ),
-          );
-        },
+          ),
+          if (!isStub)
+            BlocBuilder<SearchBloc, SearchState>(
+              buildWhen: (a, b) => a.query.isEmpty != b.query.isEmpty,
+              builder: (context, state) {
+                if (state.query.isEmpty) return const SizedBox(width: 12);
+                return IconButton(
+                  icon: const Icon(Icons.close_rounded, size: 18),
+                  onPressed: () {
+                    _controller.clear();
+                    context.read<SearchBloc>().add(const ClearQuery());
+                    _focusNode.requestFocus();
+                  },
+                  color: theme.colorScheme.onSurfaceVariant,
+                  visualDensity: VisualDensity.compact,
+                  splashRadius: 18,
+                );
+              },
+            )
+          else
+            const SizedBox(width: 14),
+        ],
       ),
     );
   }
 
-  // ── Yaqinda qidirilganlar ───────────────────────────────────────────────
+  // ═══════════════════════════════════════════════════════════════════════════
+  // STATE: Recent searches
+  // ═══════════════════════════════════════════════════════════════════════════
 
   Widget _buildRecentSearches(
       BuildContext context, SearchState state, ThemeData theme) {
@@ -165,7 +220,7 @@ class _SearchViewState extends State<_SearchView> {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Padding(
-          padding: const EdgeInsets.fromLTRB(16, 16, 8, 8),
+          padding: const EdgeInsets.fromLTRB(16, 20, 8, 8),
           child: Row(
             children: [
               Icon(Icons.history_rounded,
@@ -174,8 +229,8 @@ class _SearchViewState extends State<_SearchView> {
               Text(
                 'Yaqinda qidirilgan',
                 style: theme.textTheme.titleSmall?.copyWith(
-                  color: theme.colorScheme.onSurfaceVariant,
-                  fontWeight: FontWeight.w600,
+                  color: theme.colorScheme.onSurface,
+                  fontWeight: FontWeight.w700,
                 ),
               ),
               const Spacer(),
@@ -200,13 +255,14 @@ class _SearchViewState extends State<_SearchView> {
             itemCount: state.recentSearches.length,
             separatorBuilder: (_, __) => Divider(
               height: 1,
-              indent: 56,
+              indent: 60,
               endIndent: 16,
               color: theme.colorScheme.outlineVariant.withValues(alpha: 0.4),
             ),
             itemBuilder: (_, i) {
               final query = state.recentSearches[i];
               return ListTile(
+                dense: true,
                 leading: Container(
                   width: 36,
                   height: 36,
@@ -219,11 +275,12 @@ class _SearchViewState extends State<_SearchView> {
                 ),
                 title: Text(query, style: theme.textTheme.bodyMedium),
                 trailing: IconButton(
-                  icon: const Icon(Icons.close_rounded, size: 18),
+                  icon: const Icon(Icons.close_rounded, size: 16),
                   onPressed: () =>
                       context.read<SearchBloc>().add(RemoveRecent(query)),
                   color: theme.colorScheme.outline,
                   visualDensity: VisualDensity.compact,
+                  splashRadius: 16,
                 ),
                 onTap: () {
                   _controller.text = query;
@@ -240,7 +297,9 @@ class _SearchViewState extends State<_SearchView> {
     );
   }
 
-  // ── Initial empty (recent searches yo'q) ────────────────────────────────
+  // ═══════════════════════════════════════════════════════════════════════════
+  // STATE: Initial empty (recent yo'q)
+  // ═══════════════════════════════════════════════════════════════════════════
 
   Widget _buildInitialEmptyState(ThemeData theme) {
     return Center(
@@ -249,21 +308,32 @@ class _SearchViewState extends State<_SearchView> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.search_rounded,
-                size: 64, color: theme.colorScheme.outline),
-            const SizedBox(height: 16),
+            Container(
+              padding: const EdgeInsets.all(20),
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: theme.colorScheme.primaryContainer.withValues(alpha: 0.3),
+              ),
+              child: Icon(
+                Icons.search_rounded,
+                size: 48,
+                color: theme.colorScheme.primary,
+              ),
+            ),
+            const SizedBox(height: 20),
             Text(
               "Qidirishni boshlang",
               style: theme.textTheme.titleMedium?.copyWith(
-                color: theme.colorScheme.onSurface,
+                fontWeight: FontWeight.w700,
               ),
             ),
             const SizedBox(height: 8),
             Text(
-              "Mahsulot nomi, brend yoki kategoriya bo'yicha qidiring",
+              "Mahsulot nomi, brend yoki\nkategoriya bo'yicha qidiring",
               textAlign: TextAlign.center,
-              style: theme.textTheme.bodySmall?.copyWith(
+              style: theme.textTheme.bodyMedium?.copyWith(
                 color: theme.colorScheme.onSurfaceVariant,
+                height: 1.4,
               ),
             ),
           ],
@@ -272,9 +342,11 @@ class _SearchViewState extends State<_SearchView> {
     );
   }
 
-  // ── Loading state — skeleton ────────────────────────────────────────────
+  // ═══════════════════════════════════════════════════════════════════════════
+  // STATE: Loading skeleton (shimmer animation)
+  // ═══════════════════════════════════════════════════════════════════════════
 
-  Widget _buildLoadingState(ThemeData theme) {
+  Widget _buildLoadingSkeleton(ThemeData theme) {
     return ListView.separated(
       keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
       padding: const EdgeInsets.symmetric(vertical: 8),
@@ -284,7 +356,9 @@ class _SearchViewState extends State<_SearchView> {
     );
   }
 
-  // ── Empty state — natija yo'q ───────────────────────────────────────────
+  // ═══════════════════════════════════════════════════════════════════════════
+  // STATE: Empty (natija topilmadi)
+  // ═══════════════════════════════════════════════════════════════════════════
 
   Widget _buildEmptyState(ThemeData theme, String query) {
     return Center(
@@ -293,20 +367,33 @@ class _SearchViewState extends State<_SearchView> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.search_off_rounded,
-                size: 64, color: theme.colorScheme.outline),
-            const SizedBox(height: 16),
+            Container(
+              padding: const EdgeInsets.all(20),
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: theme.colorScheme.errorContainer.withValues(alpha: 0.3),
+              ),
+              child: Icon(
+                Icons.search_off_rounded,
+                size: 48,
+                color: theme.colorScheme.error,
+              ),
+            ),
+            const SizedBox(height: 20),
             Text(
               "Hech narsa topilmadi",
-              style: theme.textTheme.titleMedium,
+              style: theme.textTheme.titleMedium?.copyWith(
+                fontWeight: FontWeight.w700,
+              ),
             ),
             const SizedBox(height: 8),
             Text(
               "\"$query\" bo'yicha mahsulot topilmadi.\n"
               "Boshqa so'z bilan qidirib ko'ring.",
               textAlign: TextAlign.center,
-              style: theme.textTheme.bodySmall?.copyWith(
+              style: theme.textTheme.bodyMedium?.copyWith(
                 color: theme.colorScheme.onSurfaceVariant,
+                height: 1.4,
               ),
             ),
           ],
@@ -315,28 +402,45 @@ class _SearchViewState extends State<_SearchView> {
     );
   }
 
-  // ── Natijalar ───────────────────────────────────────────────────────────
+  // ═══════════════════════════════════════════════════════════════════════════
+  // STATE: Results (max 10 + "Barchasini ko'rish")
+  // ═══════════════════════════════════════════════════════════════════════════
 
   Widget _buildResults(
       BuildContext context, SearchState state, ThemeData theme) {
+    final visible =
+        state.results.take(SearchPage.maxInlineResults).toList();
+    final hasMore = state.results.length > SearchPage.maxInlineResults;
+
     return Column(
       children: [
         // Header — natija soni
         Container(
           width: double.infinity,
-          padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
-          child: Text(
-            '${state.results.length} ta natija topildi',
-            style: theme.textTheme.bodySmall?.copyWith(
-              color: theme.colorScheme.onSurfaceVariant,
-            ),
+          padding: const EdgeInsets.fromLTRB(20, 14, 20, 8),
+          child: Row(
+            children: [
+              Icon(Icons.check_circle_outline_rounded,
+                  size: 16, color: theme.colorScheme.primary),
+              const SizedBox(width: 8),
+              Text(
+                hasMore
+                    ? '${state.results.length}+ ta natija'
+                    : '${state.results.length} ta natija',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.onSurface,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
           ),
         ),
+        // Natijalar listi
         Expanded(
           child: ListView.separated(
             keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
             padding: const EdgeInsets.symmetric(vertical: 4),
-            itemCount: state.results.length,
+            itemCount: visible.length,
             separatorBuilder: (_, __) => Divider(
               height: 1,
               indent: 88,
@@ -344,26 +448,132 @@ class _SearchViewState extends State<_SearchView> {
               color: theme.colorScheme.outlineVariant.withValues(alpha: 0.4),
             ),
             itemBuilder: (_, i) => _ResultTile(
-              product: state.results[i],
+              product: visible[i],
               query: state.query,
-              onTap: () => _openProduct(context, state.results[i], state.query),
+              onTap: () => _openProduct(visible[i], state.query),
             ),
           ),
+        ),
+        // "Barchasini ko'rish" sticky button (pastda doim ko'rinadi)
+        _BarchasiniKorishButton(
+          query: state.query,
+          totalCount: state.results.length,
+          hasMore: hasMore,
+          onTap: () => _openFullResults(state.query),
         ),
       ],
     );
   }
 
-  void _openProduct(BuildContext context, ProductModel product, String query) {
-    // Recent searches'ga saqlaymiz
+  // ── Navigation handlers ────────────────────────────────────────────────
+
+  void _openProduct(ProductModel product, String query) {
+    HapticFeedback.lightImpact();
     context.read<SearchBloc>().add(CommitSearch(query));
-    // Mahsulot batafsil sahifaga o'tamiz
+    _focusNode.unfocus();
     context.push('/product', extra: product);
+  }
+
+  void _openFullResults(String query) {
+    if (query.trim().isEmpty) return;
+    HapticFeedback.lightImpact();
+    context.read<SearchBloc>().add(CommitSearch(query));
+    _focusNode.unfocus();
+    context.push('/search-results?q=${Uri.encodeQueryComponent(query)}');
   }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// Result tile — har bir natija kartochkasi
+// "Barchasini ko'rish" sticky button
+// ═══════════════════════════════════════════════════════════════════════════════
+
+class _BarchasiniKorishButton extends StatelessWidget {
+  final String query;
+  final int totalCount;
+  final bool hasMore;
+  final VoidCallback onTap;
+
+  const _BarchasiniKorishButton({
+    required this.query,
+    required this.totalCount,
+    required this.hasMore,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Material(
+      color: theme.colorScheme.primaryContainer.withValues(alpha: 0.25),
+      child: SafeArea(
+        top: false,
+        child: InkWell(
+          onTap: onTap,
+          child: Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+            decoration: BoxDecoration(
+              border: Border(
+                top: BorderSide(
+                  color: theme.colorScheme.outlineVariant,
+                  width: 0.5,
+                ),
+              ),
+            ),
+            child: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: theme.colorScheme.primary.withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Icon(
+                    Icons.grid_view_rounded,
+                    size: 18,
+                    color: theme.colorScheme.primary,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        "Barchasini katalogda ko'rish",
+                        style: theme.textTheme.titleSmall?.copyWith(
+                          color: theme.colorScheme.primary,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        hasMore
+                            ? '$totalCount+ ta natija, scroll bilan ochiladi'
+                            : "Grid ko'rinishida natijalarni ko'ring",
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: theme.colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Icon(
+                  Icons.arrow_forward_rounded,
+                  size: 20,
+                  color: theme.colorScheme.primary,
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Result tile — bir natija kartochkasi (rasm + nom highlight + narx)
 // ═══════════════════════════════════════════════════════════════════════════════
 
 class _ResultTile extends StatelessWidget {
@@ -381,18 +591,14 @@ class _ResultTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return InkWell(
-      onTap: () {
-        HapticFeedback.lightImpact(); // tactile feedback (mashxur ilovalar uslubi)
-        onTap();
-      },
+      onTap: onTap,
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
         child: Row(
-          crossAxisAlignment: CrossAxisAlignment.center,
           children: [
             // Rasm
             ClipRRect(
-              borderRadius: BorderRadius.circular(10),
+              borderRadius: BorderRadius.circular(12),
               child: Container(
                 width: 60,
                 height: 60,
@@ -403,16 +609,17 @@ class _ResultTile extends StatelessWidget {
                         fit: BoxFit.cover,
                         placeholder: (_, __) => const SizedBox.shrink(),
                         errorWidget: (_, __, ___) => Icon(
-                            Icons.image_not_supported_outlined,
-                            color: theme.colorScheme.outline,
-                            size: 24),
+                          Icons.image_not_supported_outlined,
+                          color: theme.colorScheme.outline,
+                          size: 24,
+                        ),
                       )
                     : Icon(Icons.image_outlined,
                         color: theme.colorScheme.outline, size: 24),
               ),
             ),
-            const SizedBox(width: 12),
-            // Matn
+            const SizedBox(width: 14),
+            // Nom + narx
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -422,7 +629,7 @@ class _ResultTile extends StatelessWidget {
                     overflow: TextOverflow.ellipsis,
                     text: _highlightedText(product.name, query, theme),
                   ),
-                  const SizedBox(height: 4),
+                  const SizedBox(height: 6),
                   Row(
                     children: [
                       if (product.oldPrice != null) ...[
@@ -433,7 +640,7 @@ class _ResultTile extends StatelessWidget {
                             decoration: TextDecoration.lineThrough,
                           ),
                         ),
-                        const SizedBox(width: 6),
+                        const SizedBox(width: 8),
                       ],
                       Text(
                         _fmt(product.price),
@@ -456,7 +663,7 @@ class _ResultTile extends StatelessWidget {
     );
   }
 
-  // Qidiruv so'zini matnida BOLD qilib ajratish (Google/Amazon usuli)
+  // Qidiruv so'zini matnida BOLD qilib ajratish (Google search style)
   static TextSpan _highlightedText(String text, String query, ThemeData theme) {
     final baseStyle = theme.textTheme.bodyMedium?.copyWith(
       fontWeight: FontWeight.w500,
@@ -497,7 +704,7 @@ class _ResultTile extends StatelessWidget {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// Shimmer loading item — skeleton uchun
+// Shimmer loading item — animated skeleton
 // ═══════════════════════════════════════════════════════════════════════════════
 
 class _ShimmerListItem extends StatefulWidget {
@@ -537,7 +744,7 @@ class _ShimmerListItemState extends State<_ShimmerListItem>
         final t = _ctrl.value;
         final color = Color.lerp(base, highlight, (1 - (2 * t - 1).abs()))!;
         return Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
           child: Row(
             children: [
               Container(
@@ -545,19 +752,40 @@ class _ShimmerListItemState extends State<_ShimmerListItem>
                 height: 60,
                 decoration: BoxDecoration(
                   color: color,
-                  borderRadius: BorderRadius.circular(10),
+                  borderRadius: BorderRadius.circular(12),
                 ),
               ),
-              const SizedBox(width: 12),
+              const SizedBox(width: 14),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Container(height: 14, color: color, width: double.infinity),
+                    Container(
+                      height: 14,
+                      decoration: BoxDecoration(
+                        color: color,
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      width: double.infinity,
+                    ),
                     const SizedBox(height: 8),
-                    Container(height: 14, color: color, width: 200),
+                    Container(
+                      height: 14,
+                      decoration: BoxDecoration(
+                        color: color,
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      width: 200,
+                    ),
                     const SizedBox(height: 12),
-                    Container(height: 12, color: color, width: 100),
+                    Container(
+                      height: 12,
+                      decoration: BoxDecoration(
+                        color: color,
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      width: 100,
+                    ),
                   ],
                 ),
               ),

@@ -9,9 +9,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:go_router/go_router.dart';
 import '../../../../core/models/product_model.dart';
 import '../../../../core/models/banner_model.dart';
-import '../../../search/presentation/bloc/search_bloc.dart';
-import '../../../search/presentation/widgets/search_input_bar.dart';
-import '../../../search/presentation/widgets/search_overlay.dart';
+import '../../../search/presentation/widgets/search_bar_stub.dart';
 
 
 class HomePage extends StatelessWidget {
@@ -19,35 +17,15 @@ class HomePage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // 2 ta bloc nested: HomeBloc (asosiy) + SearchBloc (qidiruv dropdown)
-    return MultiBlocProvider(
-      providers: [
-        BlocProvider(create: (_) => sl<HomeBloc>()..add(LoadHomeData())),
-        BlocProvider(create: (_) => sl<SearchBloc>()..add(const LoadRecentSearches())),
-      ],
+    return BlocProvider(
+      create: (context) => sl<HomeBloc>()..add(LoadHomeData()),
       child: const HomeView(),
     );
   }
 }
 
-class HomeView extends StatefulWidget {
+class HomeView extends StatelessWidget {
   const HomeView({super.key});
-
-  @override
-  State<HomeView> createState() => _HomeViewState();
-}
-
-class _HomeViewState extends State<HomeView> {
-  // Search bar va overlay bir-biriga shu controller+focusNode orqali bog'lanadi
-  final TextEditingController _searchController = TextEditingController();
-  final FocusNode _searchFocus = FocusNode();
-
-  @override
-  void dispose() {
-    _searchController.dispose();
-    _searchFocus.dispose();
-    super.dispose();
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -55,21 +33,7 @@ class _HomeViewState extends State<HomeView> {
 
     return Scaffold(
       appBar: _buildAppBar(theme),
-      body: Stack(
-        children: [
-          _buildMainContent(),
-          // Search overlay — focusNode.hasFocus bo'lganda ko'rinadi
-          SearchOverlay(
-            focusNode: _searchFocus,
-            controller: _searchController,
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildMainContent() {
-    return BlocBuilder<HomeBloc, HomeState>(
+      body: BlocBuilder<HomeBloc, HomeState>(
         builder: (context, state) {
           final theme = Theme.of(context);
           // Phase 1.5: isLoading faqat birinchi marta (cache yo'q) ko'rinadi.
@@ -125,7 +89,8 @@ class _HomeViewState extends State<HomeView> {
             ),
           );
         },
-      );
+      ),
+    );
   }
 
   PreferredSizeWidget _buildAppBar(ThemeData theme) {
@@ -144,12 +109,9 @@ class _HomeViewState extends State<HomeView> {
         preferredSize: const Size.fromHeight(60),
         child: Padding(
           padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-          // Live search bar — saytdagi kabi inline dropdown bilan.
-          // Dropdown alohida widget (SearchOverlay) — body Stack ichida.
-          child: SearchInputBar(
-            controller: _searchController,
-            focusNode: _searchFocus,
-          ),
+          // Tap-to-open search bar — saytdagi kabi alohida search sahifaga
+          // o'tadi. Hero animatsiyasi orqali silliq o'tish (Amazon uslubi).
+          child: const SearchBarStub(),
         ),
       ),
     );
