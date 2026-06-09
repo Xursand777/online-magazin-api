@@ -147,7 +147,14 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
         isMaster = profile['is_master'] == true;
         canUseCredit = profile['can_use_credit'] == true;
       } catch (_) {}
-      emit(AuthAuthenticated(isAdmin: admin, isMaster: isMaster, canUseCredit: canUseCredit));
+      emit(AuthAuthenticated(
+          isAdmin: admin, isMaster: isMaster, canUseCredit: canUseCredit));
+
+      // ⭐ APP RESTART CART SYNC
+      // Foydalanuvchi sayt'da yoki boshqa qurilmada cart'iga mahsulot
+      // qo'shgan bo'lishi mumkin. App ochilganda fresh server cart fetch
+      // qilamiz — local stale bo'lmasin.
+      _syncCartSafely();
     } else {
       emit(AuthUnauthenticated());
     }
@@ -180,9 +187,37 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
         isMaster = profile['is_master'] == true;
         canUseCredit = profile['can_use_credit'] == true;
       } catch (_) {}
-      emit(AuthAuthenticated(isAdmin: isAdmin, isMaster: isMaster, canUseCredit: canUseCredit));
+      emit(AuthAuthenticated(
+          isAdmin: isAdmin, isMaster: isMaster, canUseCredit: canUseCredit));
+
+      // ⭐ KROSS-PLATFORM CART SINKRONIZATSIYASI
+      //
+      // Foydalanuvchi mehmon sifatida cart'ga mahsulot qo'shgan bo'lishi mumkin.
+      // Login bo'lgandan keyin uni server'dagi USER cart bilan birlashtirish kerak.
+      //
+      // Aks holda:
+      //   • Mobil mehmon → cart guest_session_id ostida saqlanadi
+      //   • Login bo'ldi → JWT yuboriladi, server endi USER cart'iga qaraydi (bo'sh)
+      //   • Sayt'da kirsa USER cart bo'sh ko'rinadi (mobile items orphaned)
+      //
+      // SyncCartWithServer:
+      //   • Local items bo'lsa: POST /api/cart/sync-local/ — merge qilinadi
+      //   • Local bo'sh bo'lsa: GET /api/cart/ — server USER cart fetch
+      //
+      // Natija: mobile + sayt bir xil cart ko'rsatadi.
+      _syncCartSafely();
     } catch (e) {
       emit(AuthFailure(_toUserMessage(e)));
+    }
+  }
+
+  /// Cart sync'ni xavfsiz chaqiradi — try-catch ichida (DI muammosi yoki
+  /// boshqa xato sessiyaga ta'sir qilmasin).
+  void _syncCartSafely() {
+    try {
+      sl<CartBloc>().add(const SyncCartWithServer());
+    } catch (_) {
+      // CartBloc DI'da yo'q yoki boshqa xato — login muvaffaqiyatli bo'ldi
     }
   }
 
