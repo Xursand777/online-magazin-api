@@ -135,14 +135,24 @@ class CartBloc extends Bloc<CartEvent, CartState> {
   }
 
   Future<void> _onAddToCart(AddToCart event, Emitter<CartState> emit) async {
-    // Optimistic update — UI darhol yangilanadi
+    // ⚠ KRITIK: copyWith ishlatamiz — mutation EMAS!
+    //
+    // CartItemModel.quantity FIELD MUTABLE (int quantity, not final).
+    // Agar `currentItems[idx].quantity += 1` qilsak, AYNI obyekt state.items va
+    // currentItems ichida bir vaqtning o'zida o'zgaradi. Natija: buildWhen
+    // `prev != curr` ni aniqlay olmaydi (ikkalasi ham yangi qiymatga ega) →
+    // UI rebuild bo'lmaydi → + tugmasi "ishlamayotgandek" ko'rinadi.
+    //
+    // copyWith bilan yangi CartItemModel obyekti yaratiladi → state.items
+    // eskisini saqlaydi, currentItems yangisi → buildWhen to'g'ri ishlaydi.
     final currentItems = List<CartItemModel>.from(state.items);
-    // Variant-aware index — variantId bo'yicha ham qidiramiz
     final idx = currentItems.indexWhere((i) =>
         i.product.id == event.product.id &&
         i.product.variantId == event.product.variantId);
     if (idx != -1) {
-      currentItems[idx].quantity += 1;
+      currentItems[idx] = currentItems[idx].copyWith(
+        quantity: currentItems[idx].quantity + 1,
+      );
     } else {
       currentItems.add(CartItemModel(product: event.product, quantity: 1));
     }
@@ -180,7 +190,10 @@ class CartBloc extends Bloc<CartEvent, CartState> {
       if (event.quantity <= 0) {
         currentItems.removeAt(idx);
       } else {
-        currentItems[idx].quantity = event.quantity;
+        // ⚠ KRITIK: copyWith (mutation EMAS) — yuqorida tushuntirilgan sabab
+        currentItems[idx] = currentItems[idx].copyWith(
+          quantity: event.quantity,
+        );
       }
     }
     emit(CartState(items: currentItems));

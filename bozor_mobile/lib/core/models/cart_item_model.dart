@@ -7,11 +7,20 @@ part 'cart_item_model.g.dart';
 class CartItemModel {
   final int? id; // Serverdagi CartItem ID'si
   final ProductModel product;
-  int quantity;
 
-  CartItemModel({
+  /// ⚠ MUHIM: final — IMMUTABLE. Mutation qilmang!
+  /// Quantity o'zgartirish uchun `copyWith(quantity: N)` ishlatilsin.
+  ///
+  /// Sabab: avval `int quantity` (mutable) edi → bloc handlerda
+  /// `item.quantity = N` mutation qilinardi → AYNI obyekt state.items va
+  /// currentItems ichida bir vaqtning o'zida o'zgardi → buildWhen
+  /// `prev != curr`ni aniqlay olmadi → UI rebuild bo'lmadi → + tugmasi
+  /// "ishlamayotgan"dek ko'rinardi. Bu real ko'rinadigan bug edi.
+  final int quantity;
+
+  const CartItemModel({
     this.id,
-    required this.product, 
+    required this.product,
     this.quantity = 1,
   });
 

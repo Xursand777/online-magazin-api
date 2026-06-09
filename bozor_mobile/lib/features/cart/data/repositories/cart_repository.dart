@@ -62,7 +62,10 @@ class CartRepository {
     // Variant-aware index: (product_id, variant_id) bo'yicha qidiramiz.
     final idx = _variantIndexOf(tempItems, product.id, product.variantId);
     if (idx != -1) {
-      tempItems[idx].quantity += quantity;
+      // copyWith — mutation EMAS (state sync uchun muhim, bloc handler bilan mos)
+      tempItems[idx] = tempItems[idx].copyWith(
+        quantity: tempItems[idx].quantity + quantity,
+      );
     } else {
       tempItems.add(CartItemModel(product: product, quantity: quantity));
     }
@@ -117,16 +120,18 @@ class CartRepository {
     }
 
     final tempItems = getCartItemsLocal();
-    final itemToUpdate = _findVariant(tempItems, productId, variantId);
-    if (itemToUpdate == null) return;
+    final idx = _variantIndexOf(tempItems, productId, variantId);
+    if (idx == -1) return;
 
-    itemToUpdate.quantity = quantity;
+    // copyWith — mutation EMAS (bloc state sync uchun muhim)
+    final updatedItem = tempItems[idx].copyWith(quantity: quantity);
+    tempItems[idx] = updatedItem;
     await _saveLocalOnly(tempItems);
 
-    if (itemToUpdate.id != null) {
+    if (updatedItem.id != null) {
       try {
         final response = await apiClient.dio.patch(
-          '${ApiConstants.cartItems}${itemToUpdate.id}/',
+          '${ApiConstants.cartItems}${updatedItem.id}/',
           data: {'quantity': quantity},
         );
         _parseAndSaveCart(response.data);
@@ -135,7 +140,7 @@ class CartRepository {
       }
     } else {
       // ID yo'q — yangi qo'shilgan, qayta POST orqali ID olish kerak
-      await addToCart(itemToUpdate.product, quantity: quantity);
+      await addToCart(updatedItem.product, quantity: quantity);
     }
   }
 
