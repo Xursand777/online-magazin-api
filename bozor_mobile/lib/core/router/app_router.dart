@@ -78,18 +78,26 @@ class AppRouter {
       // AuthBloc state o'zgargan har safar redirect qayta ishga tushadi.
       refreshListenable: _notifier,
 
-      // ── Auth Guard (role-based) ───────────────────────────────────────────
+      // ── Auth Guard (Amazon/Wildberries uslubi — guest browsing) ──────────
       //
-      // 5-bosqichli qat'iy routing:
-      //   1. AuthInitial | AuthLoading  → kutamiz (null)
-      //   2. Kirмagan + auth sahifasidan tashqari → /auth
-      //   3. Admin:
-      //        a. /auth sahifasida      → /admin  (login bo'lib keldi)
-      //        b. /admin/* dan tashqari → /admin  (user tab'larini ko'ra olmaydi)
-      //   4. Oddiy foydalanuvchi:
-      //        a. /auth sahifasida  → /      (login bo'lib keldi)
-      //        b. /admin/* sahifada → /      (admin panelga kira olmaydi)
-      //   5. Boshqa holat → null (o'z sahifasida, hamma narsa joyida)
+      // YANGI YONDASHUV: mobile sayt'dagi kabi ishlaydi:
+      //   • Guest — Home, Catalog, Product, Cart, Search hammasini KO'RADI
+      //   • Login faqat aniq joylarda so'raladi:
+      //     - Profile tab → guest UI ko'rinadi (login CTA bilan)
+      //     - Cart "Rasmiylashtirish" → login modal
+      //     - Quick Buy → login modal
+      //     - Admin sahifalar → /auth ga redirect
+      //
+      // Bosqichlar:
+      //   1. AuthInitial | AuthLoading → kutamiz
+      //   2. Login bo'lgan foydalanuvchi:
+      //        a. Admin: hamisha /admin (boshqa sahifaga ruxsat yo'q)
+      //        b. Oddiy:
+      //           - /auth da bo'lsa: ?redirect=/xxx ga yoki home'ga
+      //           - /admin da bo'lsa: home'ga (admin emas)
+      //   3. Mehmon:
+      //        - /admin da bo'lsa: /auth ga (admin yo'q)
+      //        - Boshqa hamma narsa OCHIQ
       redirect: (context, state) {
         final authState = _authBloc.state;
         final loc       = state.matchedLocation;
@@ -101,28 +109,35 @@ class AppRouter {
         final isAuthRoute  = loc == '/auth';
         final isAdminRoute = loc.startsWith('/admin');
 
-        // 2. Kirмagan foydalanuvchi → login
-        if (!isLoggedIn && !isAuthRoute) return '/auth';
-
         if (isLoggedIn) {
           final isAdmin =
               authState is AuthAuthenticated && authState.isAdmin;
 
           if (isAdmin) {
-            // 3a. Admin login qilib keldi → admin panelga
+            // 2a. Admin — hamisha admin panelga
             if (isAuthRoute) return '/admin';
-            // 3b. Admin user tab'larida (Home/Catalog/Cart/Profile) bo'lsa → admin panelga.
-            //     Bu app restart, deep link yoki manual URL navigatsiyasida ham ishlaydi.
             if (!isAdminRoute) return '/admin';
           } else {
-            // 4a. Oddiy foydalanuvchi login qilib keldi → home
-            if (isAuthRoute) return '/';
-            // 4b. Oddiy foydalanuvchi admin sahifasiga kirmoqchi → home
+            // 2b. Oddiy foydalanuvchi
+            if (isAuthRoute) {
+              // ?redirect= bo'lsa o'sha sahifaga; /auth ga emas
+              final redirect = state.uri.queryParameters['redirect'];
+              if (redirect != null &&
+                  redirect.startsWith('/') &&
+                  !redirect.startsWith('/auth')) {
+                return redirect;
+              }
+              return '/';
+            }
+            // Oddiy foydalanuvchi /admin sahifalariga kirolmaydi
             if (isAdminRoute) return '/';
           }
+        } else {
+          // 3. MEHMON — faqat admin sahifa bloklanadi
+          if (isAdminRoute) return '/auth';
+          // Boshqa hammasi (Home, Catalog, Cart, Profile, Product, Search) — OCHIQ
         }
 
-        // 5. Hamma narsa joyida — redirect kerak emas
         return null;
       },
 

@@ -3,6 +3,8 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:intl/intl.dart';
 import 'package:go_router/go_router.dart';
+import '../../../../core/widgets/login_required_sheet.dart';
+import '../../../auth/presentation/bloc/auth_bloc.dart';
 import '../bloc/cart_bloc.dart';
 
 class CartPage extends StatelessWidget {
@@ -231,7 +233,23 @@ class CartPage extends StatelessWidget {
                     ],
                   ),
                   ElevatedButton(
+                    // Auth check — Amazon/Wildberries uslubi:
+                    // Mehmon foydalanuvchi bo'lsa, chiroyli login modal ko'rsatamiz.
+                    // Login bo'lgan foydalanuvchi to'g'ridan-to'g'ri checkout'ga.
                     onPressed: () {
+                      final isLoggedIn = context.read<AuthBloc>().state
+                          is AuthAuthenticated;
+                      if (!isLoggedIn) {
+                        showLoginRequiredSheet(
+                          context,
+                          title: "Buyurtma rasmiylashtirish",
+                          subtitle:
+                              "Savatingizdagi mahsulotlarni xarid qilish "
+                              "uchun tizimga kiring",
+                          redirectTo: '/cart',
+                        );
+                        return;
+                      }
                       context.push('/checkout', extra: {
                         'isQuickBuy': false,
                       });

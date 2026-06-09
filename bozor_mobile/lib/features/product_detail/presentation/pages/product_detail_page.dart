@@ -6,7 +6,9 @@ import 'package:intl/intl.dart';
 import '../../../../core/di/injection_container.dart';
 import '../../../../core/models/product_model.dart';
 import '../../../../core/widgets/cart_action_button.dart';
+import '../../../../core/widgets/login_required_sheet.dart';
 import '../../../../core/widgets/product_card.dart';
+import '../../../auth/presentation/bloc/auth_bloc.dart';
 import '../bloc/product_detail_bloc.dart';
 
 /// Mahsulot batafsil sahifa — variant tanlash bilan (sayt bilan bir xil).
@@ -507,9 +509,22 @@ class _ProductDetailView extends StatelessWidget {
               child: SizedBox(
                 height: 48,
                 child: OutlinedButton.icon(
+                  // Auth check — guest bo'lsa login modal, login bo'lsa checkout
                   onPressed: outOfStock
                       ? null
                       : () {
+                          final isLoggedIn = context.read<AuthBloc>().state
+                              is AuthAuthenticated;
+                          if (!isLoggedIn) {
+                            showLoginRequiredSheet(
+                              context,
+                              title: "Tezkor xarid",
+                              subtitle:
+                                  "Buyurtma berish uchun tizimga kiring.\n"
+                                  "Bir necha soniyada tugaydi.",
+                            );
+                            return;
+                          }
                           context.push('/checkout', extra: {
                             'isQuickBuy': true,
                             'product': cartProduct,
