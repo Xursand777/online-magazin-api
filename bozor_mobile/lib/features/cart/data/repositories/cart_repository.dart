@@ -139,8 +139,55 @@ class CartRepository {
     }
   }
 
-  /// Lokal cart'ni butunlay tozalash.
+  /// Cart'ni butunlay tozalash — **server + lokal**.
+  ///
+  /// ⚠ KRITIK BUG-FIX:
+  ///   Avval faqat lokal Hive box tozalanardi, server cart o'z holicha qolardi.
+  ///   Foydalanuvchi cart'ni "tozalagan" deb o'ylar edi, lekin home'dan
+  ///   yangi mahsulot qo'shganda POST server'ga ketardi va server javobida
+  ///   ESKI itemlar qaytib chiqar edi (chunki server'da hali ham bor edi).
+  ///   Bu "ghost items resurrection" bug edi.
+  ///
+  /// Endi: server cart'ni avval olamiz, har bir item'ni DELETE qilamiz,
+  /// keyin lokal tozalanadi. Server bilan local doim sinxron.
   Future<void> clearCart() async {
+    // Avval server'dan fresh cart olamiz (lokal stale bo'lishi mumkin)
+    List<CartItemModel> serverItems;
+    try {
+      final response = await apiClient.dio.get(ApiConstants.cart);
+      final cartData = response.data as Map<String, dynamic>;
+      final itemsList = cartData['items'] as List<dynamic>? ?? [];
+      serverItems = itemsList
+          .map((rawItem) {
+            final i = rawItem as Map<String, dynamic>;
+            return CartItemModel(
+              id: i['id'] as int?,
+              product: ProductModel.fromJson(
+                Map<String, dynamic>.from(i['product_details'] as Map),
+              ),
+              quantity: 0, // qiymat muhim emas, faqat ID kerak
+            );
+          })
+          .toList();
+    } catch (_) {
+      // Server xato — lokal bilan o'tamiz
+      serverItems = getCartItemsLocal();
+    }
+
+    // Har bir item'ni server'dan DELETE qilamiz (parallel).
+    // Birortasi xato bersa ham boshqalarining muvaffaqiyatiga ta'sir qilmaydi.
+    final deleteFutures = serverItems
+        .where((item) => item.id != null)
+        .map((item) async {
+      try {
+        await apiClient.dio.delete('${ApiConstants.cartItems}${item.id}/');
+      } catch (_) {
+        // Item allaqachon o'chirilgan yoki tarmoq xatosi — silently ignore
+      }
+    });
+    await Future.wait(deleteFutures);
+
+    // Lokal'ni tozalaymiz
     await LocalStorage.cartBox.clear();
   }
 
@@ -232,6 +279,15 @@ class CartRepository {
           productData['discount_price'] = vDiscount;
         } else if (vPrice != null) {
           productData['price'] = vPrice;
+        }
+
+        // ⚠ KRITIK BUG-FIX: variant.stock'ni base mahsulot stock'i ustiga
+        // qo'yamiz. Avval bu yo'q edi → cart item base product stock'i bilan
+        // saqlanardi (odatda 0 yoki 1). Bu CartActionButton "+" tugmasini
+        // qulflar edi va foydalanuvchi miqdorini oshira olmasdi.
+        final vStock = variantDetails['stock'];
+        if (vStock != null) {
+          productData['stock'] = vStock;
         }
 
         // Variant rasmi — variant gallery'dan birinchi yoki variant.image_url

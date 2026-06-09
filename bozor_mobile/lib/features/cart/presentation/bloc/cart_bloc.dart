@@ -194,8 +194,11 @@ class CartBloc extends Bloc<CartEvent, CartState> {
   }
 
   Future<void> _onClearCart(ClearCart event, Emitter<CartState> emit) async {
-    await repository.clearCart();
+    // UI darhol bo'shaydi (optimistic) — repository server + lokal'ni tozalaydi
     emit(const CartState());
+    await repository.clearCart();
+    // Server javobi keldi — endi mantiqan ham, fizikan ham bo'sh
+    emit(CartState(items: repository.getCartItemsLocal()));
   }
 
   Future<void> _onSyncCartWithServer(

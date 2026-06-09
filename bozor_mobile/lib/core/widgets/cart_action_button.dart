@@ -27,6 +27,11 @@ class CartActionButton extends StatelessWidget {
   });
 
   /// Out-of-stock'da disabled bo'ladi.
+  ///
+  /// MUHIM: `stock` faqat aniq belgilangan VA 0 bo'lganidagina out-of-stock
+  /// hisoblaymiz. Agar stock noma'lum (null) bo'lsa, foydalanuvchiga ruxsat
+  /// beramiz — backend baribir tekshiradi. Bu kartochkadan cart item'ga o'tish
+  /// jarayonida stock ma'lumotini yo'qotish muammosini bartaraf etadi.
   bool get _isOutOfStock {
     final s = product.stock;
     if (s == null) return false;

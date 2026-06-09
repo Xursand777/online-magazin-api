@@ -8,6 +8,46 @@ import '../bloc/cart_bloc.dart';
 class CartPage extends StatelessWidget {
   const CartPage({super.key});
 
+  /// Tozalash tasdiqlash dialogi — foydalanuvchi tasodifan bosib qo'ymasligi
+  /// uchun. Tasdiqlanganda ClearCart event yuboriladi — bu server'dagi har bir
+  /// item'ni DELETE qiladi + lokal tozalanadi (ghost items resurrection yo'q).
+  void _confirmClearCart(BuildContext context) {
+    showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        icon: const Icon(Icons.delete_sweep_rounded, size: 32),
+        title: const Text("Savatni tozalashni tasdiqlang"),
+        content: const Text("Savatdagi barcha mahsulotlar o'chiriladi. "
+            "Bu amalni qaytarib bo'lmaydi."),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text("Bekor qilish"),
+          ),
+          FilledButton.tonal(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            style: FilledButton.styleFrom(
+              backgroundColor: Theme.of(ctx).colorScheme.errorContainer,
+              foregroundColor: Theme.of(ctx).colorScheme.onErrorContainer,
+            ),
+            child: const Text("Ha, tozalash"),
+          ),
+        ],
+      ),
+    ).then((confirmed) {
+      if (confirmed == true && context.mounted) {
+        context.read<CartBloc>().add(ClearCart());
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text("Savat tozalandi"),
+            behavior: SnackBarBehavior.floating,
+            duration: Duration(seconds: 2),
+          ),
+        );
+      }
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -21,10 +61,15 @@ class CartPage extends StatelessWidget {
           ),
         ),
         actions: [
-          IconButton(
-            icon: const Icon(Icons.delete_outline),
-            onPressed: () {
-              context.read<CartBloc>().add(ClearCart());
+          BlocBuilder<CartBloc, CartState>(
+            buildWhen: (a, b) => a.items.isEmpty != b.items.isEmpty,
+            builder: (context, state) {
+              if (state.items.isEmpty) return const SizedBox.shrink();
+              return IconButton(
+                icon: const Icon(Icons.delete_sweep_outlined),
+                tooltip: "Savatni tozalash",
+                onPressed: () => _confirmClearCart(context),
+              );
             },
           ),
         ],
@@ -84,29 +129,64 @@ class CartPage extends StatelessWidget {
                       children: [
                         IconButton(
                           icon: const Icon(Icons.add_circle_outline),
+                          tooltip: "Ko'paytirish",
                           // Variant-aware: variant_id ham yuboriladi — boshqa
                           // variantni emas, AYNAN shu line item'ni o'zgartiradi.
-                          onPressed: () => context.read<CartBloc>().add(
-                            UpdateQuantity(
-                              item.product.id,
-                              item.quantity + 1,
-                              variantId: item.product.variantId,
-                            ),
-                          ),
+                          // Stock check: stock'dan oshmaslik kerak (server ham
+                          // tekshiradi, lekin frontend feedback yaxshi UX).
+                          onPressed: () {
+                            final stock = item.product.stock;
+                            if (stock != null && item.quantity >= stock) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text("Omborda $stock ta mavjud"),
+                                  behavior: SnackBarBehavior.floating,
+                                  duration: const Duration(seconds: 2),
+                                ),
+                              );
+                              return;
+                            }
+                            context.read<CartBloc>().add(
+                              UpdateQuantity(
+                                item.product.id,
+                                item.quantity + 1,
+                                variantId: item.product.variantId,
+                              ),
+                            );
+                          },
                         ),
                         Text(
                           '${item.quantity}',
                           style: theme.textTheme.titleMedium,
                         ),
                         IconButton(
-                          icon: const Icon(Icons.remove_circle_outline),
-                          onPressed: () => context.read<CartBloc>().add(
-                            UpdateQuantity(
-                              item.product.id,
-                              item.quantity - 1,
-                              variantId: item.product.variantId,
-                            ),
+                          icon: Icon(
+                            item.quantity > 1
+                                ? Icons.remove_circle_outline
+                                : Icons.delete_outline,
                           ),
+                          tooltip: item.quantity > 1
+                              ? "Kamaytirish"
+                              : "O'chirish",
+                          onPressed: () {
+                            if (item.quantity > 1) {
+                              context.read<CartBloc>().add(
+                                UpdateQuantity(
+                                  item.product.id,
+                                  item.quantity - 1,
+                                  variantId: item.product.variantId,
+                                ),
+                              );
+                            } else {
+                              // qty=1 → delete bossa to'liq o'chiradi
+                              context.read<CartBloc>().add(
+                                RemoveFromCart(
+                                  item.product.id,
+                                  variantId: item.product.variantId,
+                                ),
+                              );
+                            }
+                          },
                         ),
                       ],
                     ),
