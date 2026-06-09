@@ -5,8 +5,8 @@ import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import '../../../../core/di/injection_container.dart';
 import '../../../../core/models/product_model.dart';
+import '../../../../core/widgets/cart_action_button.dart';
 import '../../../../core/widgets/product_card.dart';
-import '../../../cart/presentation/bloc/cart_bloc.dart';
 import '../bloc/product_detail_bloc.dart';
 
 /// Mahsulot batafsil sahifa — variant tanlash bilan (sayt bilan bir xil).
@@ -458,7 +458,9 @@ class _ProductDetailView extends StatelessWidget {
   Widget _buildBottomBar(
       BuildContext context, ProductDetailLoaded state, ThemeData theme) {
     final variant = state.selectedVariant;
-    // Tanlangan variant ma'lumoti bilan ProductModel yasaymiz (cart uchun)
+    // Tanlangan variant ma'lumoti bilan ProductModel yasaymiz — bu obyekt
+    // CartActionButton orqali butun ilova bo'ylab BIR XIL cart key bilan
+    // sinxron ishlaydi (productId + variantId).
     final cartProduct = ProductModel(
       id: state.product.id,
       name: state.displayTitle,
@@ -491,28 +493,13 @@ class _ProductDetailView extends StatelessWidget {
       child: SafeArea(
         child: Row(
           children: [
+            // ─── CartActionButton (variant-aware, "Savatga" ↔ "-1+" stepper) ──
+            // Home, ProductDetail, Cart hammasi shu CartBloc state'ga qaraydi.
+            // Soni qaerda o'zgarsa, hamma joyda darhol sinxron ko'rinadi.
             Expanded(
-              child: SizedBox(
-                height: 48,
-                child: ElevatedButton.icon(
-                  onPressed: outOfStock
-                      ? null
-                      : () {
-                          context.read<CartBloc>().add(AddToCart(cartProduct));
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content: Text('Savatga qo\'shildi'),
-                              behavior: SnackBarBehavior.floating,
-                            ),
-                          );
-                        },
-                  icon: const Icon(Icons.shopping_cart, size: 20),
-                  label: const Text("Savatga"),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: theme.colorScheme.primary,
-                    foregroundColor: theme.colorScheme.onPrimary,
-                  ),
-                ),
+              child: CartActionButton(
+                product: cartProduct,
+                large: true, // 48px height — bottom bar uchun
               ),
             ),
             const SizedBox(width: 12),

@@ -1,49 +1,66 @@
 import 'dart:convert';
-import 'package:dio/dio.dart';
+
 import '../../../../core/models/cart_item_model.dart';
 import '../../../../core/models/product_model.dart';
-import '../../../../core/storage/local_storage.dart';
 import '../../../../core/network/api_client.dart';
 import '../../../../core/network/api_constants.dart';
+import '../../../../core/storage/local_storage.dart';
 
+/// Cart repository — **variant-aware**: bir mahsulotning bir nechta variantlari
+/// alohida cart line item'lari sifatida saqlanadi.
+///
+/// Unique kalit = `(product_id, variant_id)`. Variantsiz mahsulot uchun
+/// variant_id = null. Bu — sayt va backend bilan to'liq mos.
+///
+/// Backend CartItem (cart/models.py):
+///   class Meta: unique_together = ('cart', 'product', 'variant')
+///
+/// Mobile cart bu mantiqni AYNI saqlashi shart. Avval qilingan implementatsiya
+/// faqat product_id ga qaragan edi — 2 variantni aralashtirib yuborar edi.
 class CartRepository {
   final ApiClient apiClient;
 
   CartRepository({required this.apiClient});
 
-  // Local o'qish tez bo'lishi uchun (app ochilganda srazi chiqadi)
+  // ═══════════════════════════════════════════════════════════════════════════
+  // PUBLIC: server bilan ishlash
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /// Lokal Hive'dan o'qish — app ochilganda darhol UI ko'rsatish uchun.
   List<CartItemModel> getCartItemsLocal() {
     final cartBox = LocalStorage.cartBox;
     final List<CartItemModel> items = [];
-
     for (var key in cartBox.keys) {
       final String? jsonString = cartBox.get(key);
       if (jsonString != null) {
         try {
           items.add(CartItemModel.fromJson(jsonDecode(jsonString)));
-        } catch (e) {
-          // parse error
+        } catch (_) {
+          // Buzilgan JSON — o'tib yuboramiz
         }
       }
     }
     return items;
   }
 
-  // Tarmoqdan yangi holatni olib local'ni yangilash
+  /// Server'dan fresh cart oladi va lokalga yozadi.
   Future<List<CartItemModel>> fetchCartFromServer() async {
     try {
       final response = await apiClient.dio.get(ApiConstants.cart);
       return _parseAndSaveCart(response.data);
-    } catch (e) {
-      // Tarmoq xatosi bo'lsa lokalni qaytaramiz
+    } catch (_) {
       return getCartItemsLocal();
     }
   }
 
+  /// Mahsulotni (variant bilan birga) savatga qo'shadi.
+  ///
+  /// Avval lokalga optimistic yozadi (UI darhol yangilanadi),
+  /// keyin serverga POST qiladi va server javobi bilan qayta yozadi.
   Future<void> addToCart(ProductModel product, {int quantity = 1}) async {
-    // Optimistic qo'shish
     final tempItems = getCartItemsLocal();
-    final idx = tempItems.indexWhere((i) => i.product.id == product.id);
+    // Variant-aware index: (product_id, variant_id) bo'yicha qidiramiz.
+    final idx = _variantIndexOf(tempItems, product.id, product.variantId);
     if (idx != -1) {
       tempItems[idx].quantity += quantity;
     } else {
@@ -57,22 +74,22 @@ class CartRepository {
         data: {
           'product_id': product.id,
           'quantity': quantity,
-          // Variantli karta bo'lsa, variant ID ham yuboriladi —
-          // backend aynan shu variantni savatga qo'shadi.
           if (product.variantId != null) 'variant_id': product.variantId,
         },
       );
       _parseAndSaveCart(response.data);
-    } catch (e) {
-      // error handling can be added here
+    } catch (_) {
+      // Tarmoq xatosi — keyingi syncCart vaqtida tuzatiladi
     }
   }
 
-  Future<void> removeFromCart(int productId) async {
-    // Optimistic o'chirish
+  /// Variant-aware o'chirish.
+  Future<void> removeFromCart(int productId, {int? variantId}) async {
     final tempItems = getCartItemsLocal();
-    final itemToRemove = tempItems.where((i) => i.product.id == productId).firstOrNull;
-    tempItems.removeWhere((i) => i.product.id == productId);
+    final itemToRemove = _findVariant(tempItems, productId, variantId);
+    tempItems.removeWhere(
+      (i) => i.product.id == productId && i.product.variantId == variantId,
+    );
     await _saveLocalOnly(tempItems);
 
     if (itemToRemove?.id != null) {
@@ -81,80 +98,160 @@ class CartRepository {
           '${ApiConstants.cartItems}${itemToRemove!.id}/',
         );
         _parseAndSaveCart(response.data);
-      } catch (e) {
-        // tarmoq xatosi
+      } catch (_) {
+        // Tarmoq xatosi
       }
     }
   }
 
-  Future<void> updateQuantity(int productId, int quantity) async {
+  /// Variant-aware quantity yangilash.
+  /// quantity <= 0 → removeFromCart chaqiriladi.
+  Future<void> updateQuantity(
+    int productId,
+    int quantity, {
+    int? variantId,
+  }) async {
     if (quantity <= 0) {
-      await removeFromCart(productId);
+      await removeFromCart(productId, variantId: variantId);
       return;
     }
 
     final tempItems = getCartItemsLocal();
-    final itemToUpdate = tempItems.where((i) => i.product.id == productId).firstOrNull;
-    if (itemToUpdate != null) {
-      itemToUpdate.quantity = quantity;
-      await _saveLocalOnly(tempItems);
-      
-      if (itemToUpdate.id != null) {
-        try {
-          final response = await apiClient.dio.patch(
-            '${ApiConstants.cartItems}${itemToUpdate.id}/',
-            data: {'quantity': quantity},
-          );
-          _parseAndSaveCart(response.data);
-        } catch (e) {
-          // tarmoq xatosi
-        }
-      } else {
-        // Agar hali id yo'q bo'lsa (yangi qo'shilgan), qayta qo'shamiz
-        await addToCart(itemToUpdate.product, quantity: quantity);
+    final itemToUpdate = _findVariant(tempItems, productId, variantId);
+    if (itemToUpdate == null) return;
+
+    itemToUpdate.quantity = quantity;
+    await _saveLocalOnly(tempItems);
+
+    if (itemToUpdate.id != null) {
+      try {
+        final response = await apiClient.dio.patch(
+          '${ApiConstants.cartItems}${itemToUpdate.id}/',
+          data: {'quantity': quantity},
+        );
+        _parseAndSaveCart(response.data);
+      } catch (_) {
+        // Tarmoq xatosi
       }
+    } else {
+      // ID yo'q — yangi qo'shilgan, qayta POST orqali ID olish kerak
+      await addToCart(itemToUpdate.product, quantity: quantity);
     }
   }
 
+  /// Lokal cart'ni butunlay tozalash.
   Future<void> clearCart() async {
     await LocalStorage.cartBox.clear();
-    // Backend API'sida to'liq tozalash uchun alohida endpoint yo'q ekan.
-    // Odatda logout bo'lganda tozalash chaqiriladi. O'chirib turish yetarli.
   }
 
+  /// Login bo'lgandan keyin lokal guest cart'ni server cart'ga merge qiladi.
   Future<List<CartItemModel>> syncLocalCartWithServer() async {
     final localItems = getCartItemsLocal();
-    if (localItems.isEmpty) {
-      return fetchCartFromServer(); // shunchaki yuklab olamiz
-    }
+    if (localItems.isEmpty) return fetchCartFromServer();
 
     try {
-      final itemsData = localItems.map((i) => {
-        'product_id': i.product.id,
-        'quantity': i.quantity,
-        // Variant ID ham yuboriladi (variantli kartalar uchun)
-        if (i.product.variantId != null) 'variant_id': i.product.variantId,
-      }).toList();
+      final itemsData = localItems
+          .map((i) => {
+                'product_id': i.product.id,
+                'quantity': i.quantity,
+                if (i.product.variantId != null)
+                  'variant_id': i.product.variantId,
+              })
+          .toList();
 
       final response = await apiClient.dio.post(
         ApiConstants.syncLocalCart,
         data: {'items': itemsData},
       );
-      return _parseAndSaveCart(response.data['cart']);
-    } catch (e) {
+      final cartData = response.data is Map && (response.data as Map).containsKey('cart')
+          ? response.data['cart'] as Map<String, dynamic>
+          : response.data as Map<String, dynamic>;
+      return _parseAndSaveCart(cartData);
+    } catch (_) {
       return localItems;
     }
   }
 
-  // --- Helpers ---
+  // ═══════════════════════════════════════════════════════════════════════════
+  // PRIVATE: variant-aware helpers
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /// `(productId, variantId)` juftligi bo'yicha index topadi. Yo'q bo'lsa -1.
+  int _variantIndexOf(List<CartItemModel> items, int productId, int? variantId) {
+    return items.indexWhere(
+      (i) => i.product.id == productId && i.product.variantId == variantId,
+    );
+  }
+
+  CartItemModel? _findVariant(
+    List<CartItemModel> items,
+    int productId,
+    int? variantId,
+  ) {
+    final idx = _variantIndexOf(items, productId, variantId);
+    return idx == -1 ? null : items[idx];
+  }
+
+  /// Server cart javobini parse qiladi, variant ma'lumotlarini ProductModel
+  /// ichiga injekt qiladi (variantId + variant atributlari + variant
+  /// narxi + variant rasmi + variant to'liq nomi).
   List<CartItemModel> _parseAndSaveCart(Map<String, dynamic> cartData) {
     final itemsList = cartData['items'] as List<dynamic>? ?? [];
-    final items = itemsList.map((i) {
-      // product detail backend'dan qaytadi (ProductListSerializer)
-      final productData = i['product_details']; 
-      final qty = i['quantity'];
+    final items = itemsList.map((rawItem) {
+      final i = rawItem as Map<String, dynamic>;
       final cartItemId = i['id'];
-      
+      final qty = i['quantity'] is int ? i['quantity'] as int : 1;
+
+      // product_details — ProductListSerializer dan keladi (base mahsulot)
+      final productData = Map<String, dynamic>.from(
+        i['product_details'] as Map,
+      );
+      final baseName = productData['name'] as String? ?? '';
+
+      // variant_details — agar variantli bo'lsa, alohida obyekt
+      final variantId = i['variant'] is int ? i['variant'] as int : null;
+      final variantDetails = i['variant_details'];
+
+      // ─── Variant ma'lumotlarini ProductModel ichiga injekt qilamiz ──────
+      productData['variant_id'] = variantId;
+
+      if (variantDetails is Map<String, dynamic>) {
+        // Variant atributlari — UI variant pickerlari + qidiruv uchun
+        productData['variant'] = {
+          'color': variantDetails['color'],
+          'color_hex': variantDetails['color_hex'],
+          'quality': variantDetails['quality'],
+          'model': variantDetails['model'],
+          'size': variantDetails['size'],
+        };
+
+        // Variant narxi — base price'ni override qiladi
+        final vDiscount = variantDetails['discount_price'];
+        final vPrice = variantDetails['price'];
+        if (vDiscount != null) {
+          productData['discount_price'] = vDiscount;
+        } else if (vPrice != null) {
+          productData['price'] = vPrice;
+        }
+
+        // Variant rasmi — variant gallery'dan birinchi yoki variant.image_url
+        String? variantImage;
+        final variantImages = variantDetails['images'];
+        if (variantImages is List && variantImages.isNotEmpty) {
+          final first = variantImages.first;
+          if (first is Map && first['url'] is String) {
+            variantImage = first['url'] as String;
+          }
+        }
+        variantImage ??= variantDetails['image_url'] as String?;
+        if (variantImage != null && variantImage.isNotEmpty) {
+          productData['image_url'] = variantImage;
+        }
+
+        // To'liq variant nomi: "Base • model • size • quality • color"
+        productData['name'] = _buildVariantName(baseName, variantDetails);
+      }
+
       return CartItemModel(
         id: cartItemId,
         product: ProductModel.fromJson(productData),
@@ -166,11 +263,27 @@ class CartRepository {
     return items;
   }
 
+  /// Variant nomini birlashtirish — backend `_build_variant_card_name` bilan
+  /// MOS tartibda: base • model • size • quality • color.
+  String _buildVariantName(String baseName, Map<String, dynamic> v) {
+    final parts = <String>[baseName];
+    for (final attr in const ['model', 'size', 'quality', 'color']) {
+      final value = v[attr];
+      if (value is String && value.trim().isNotEmpty) {
+        parts.add(value.trim());
+      }
+    }
+    return parts.join(' • ');
+  }
+
+  /// Lokal Hive'ga yozish — kalit `productId-variantId` formati.
+  /// Avval faqat productId edi → 2 variant bir-birini almashtirib yuborardi.
   Future<void> _saveLocalOnly(List<CartItemModel> items) async {
     final cartBox = LocalStorage.cartBox;
     await cartBox.clear();
     for (final item in items) {
-      await cartBox.put(item.product.id.toString(), jsonEncode(item.toJson()));
+      final key = '${item.product.id}-${item.product.variantId ?? 'base'}';
+      await cartBox.put(key, jsonEncode(item.toJson()));
     }
   }
 }

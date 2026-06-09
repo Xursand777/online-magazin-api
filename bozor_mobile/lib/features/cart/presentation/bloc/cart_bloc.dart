@@ -4,7 +4,10 @@ import '../../../../core/models/cart_item_model.dart';
 import '../../../../core/models/product_model.dart';
 import '../../data/repositories/cart_repository.dart';
 
-// --- Events ---
+// ═══════════════════════════════════════════════════════════════════════════════
+// EVENTS — variant-aware (productId + variantId hammasida)
+// ═══════════════════════════════════════════════════════════════════════════════
+
 abstract class CartEvent extends Equatable {
   const CartEvent();
   @override
@@ -13,6 +16,8 @@ abstract class CartEvent extends Equatable {
 
 class LoadCart extends CartEvent {}
 
+/// Mahsulotni savatga qo'shadi. variant_id `ProductModel.variantId` dan olinadi
+/// (variant kartasi bo'lsa). Bu — backend bilan to'liq mos.
 class AddToCart extends CartEvent {
   final ProductModel product;
   const AddToCart(this.product);
@@ -20,43 +25,71 @@ class AddToCart extends CartEvent {
   List<Object?> get props => [product];
 }
 
+/// Variant-aware o'chirish: bir mahsulotning faqat bitta varianti olib
+/// tashlanadi (boshqa variantlari saqlanadi).
 class RemoveFromCart extends CartEvent {
   final int productId;
-  const RemoveFromCart(this.productId);
+  final int? variantId;
+  const RemoveFromCart(this.productId, {this.variantId});
   @override
-  List<Object?> get props => [productId];
+  List<Object?> get props => [productId, variantId];
 }
 
+/// Variant-aware quantity yangilash.
 class UpdateQuantity extends CartEvent {
   final int productId;
+  final int? variantId;
   final int quantity;
-  const UpdateQuantity(this.productId, this.quantity);
+  const UpdateQuantity(this.productId, this.quantity, {this.variantId});
   @override
-  List<Object?> get props => [productId, quantity];
+  List<Object?> get props => [productId, variantId, quantity];
 }
 
 class ClearCart extends CartEvent {}
 
-/// Logout vaqtida butun cart holatini va lokal saqlanmani tozalaydi.
-/// ClearCart dan farqi: foydalanuvchi tugmasi orqali emas, sessiya tugaganda.
 class ResetCart extends CartEvent {
   const ResetCart();
   @override
   List<Object?> get props => [];
 }
 
-/// Tizimga kirgandan so'ng lokal savatchani backend bilan sinxronlash
 class SyncCartWithServer extends CartEvent {
   const SyncCartWithServer();
   @override
   List<Object?> get props => [];
 }
 
-// --- States ---
+// ═══════════════════════════════════════════════════════════════════════════════
+// STATE
+// ═══════════════════════════════════════════════════════════════════════════════
+
 class CartState extends Equatable {
   final List<CartItemModel> items;
 
   const CartState({this.items = const []});
+
+  /// Variant-aware quantity lookup helper.
+  /// CartActionButton va ProductDetail tomonidan ishlatiladi.
+  int quantityFor(int productId, int? variantId) {
+    for (final item in items) {
+      if (item.product.id == productId &&
+          item.product.variantId == variantId) {
+        return item.quantity;
+      }
+    }
+    return 0;
+  }
+
+  /// Variant-aware cart item topish.
+  CartItemModel? findItem(int productId, int? variantId) {
+    for (final item in items) {
+      if (item.product.id == productId &&
+          item.product.variantId == variantId) {
+        return item;
+      }
+    }
+    return null;
+  }
 
   double get totalAmount {
     return items.fold(
@@ -65,11 +98,18 @@ class CartState extends Equatable {
     );
   }
 
+  /// Soni — barcha cart item'lar miqdorlarining yig'indisi.
+  /// Cart badge'da ko'rinadi (savat ikonidagi raqam).
+  int get totalItemCount => items.fold(0, (sum, i) => sum + i.quantity);
+
   @override
   List<Object?> get props => [items];
 }
 
-// --- Bloc ---
+// ═══════════════════════════════════════════════════════════════════════════════
+// BLOC
+// ═══════════════════════════════════════════════════════════════════════════════
+
 class CartBloc extends Bloc<CartEvent, CartState> {
   final CartRepository repository;
 
@@ -84,11 +124,8 @@ class CartBloc extends Bloc<CartEvent, CartState> {
   }
 
   void _onLoadCart(LoadCart event, Emitter<CartState> emit) {
-    // Sinxron tarzda darhol o'qish
     final items = repository.getCartItemsLocal();
     emit(CartState(items: items));
-
-    // Orqa fonda tarmoqdan yuklab olish
     _fetchAndEmit(emit);
   }
 
@@ -98,9 +135,12 @@ class CartBloc extends Bloc<CartEvent, CartState> {
   }
 
   Future<void> _onAddToCart(AddToCart event, Emitter<CartState> emit) async {
-    // Darhol lokal cache dan update qilib UI ni yangilaymiz (optimistic update)
+    // Optimistic update — UI darhol yangilanadi
     final currentItems = List<CartItemModel>.from(state.items);
-    final idx = currentItems.indexWhere((i) => i.product.id == event.product.id);
+    // Variant-aware index — variantId bo'yicha ham qidiramiz
+    final idx = currentItems.indexWhere((i) =>
+        i.product.id == event.product.id &&
+        i.product.variantId == event.product.variantId);
     if (idx != -1) {
       currentItems[idx].quantity += 1;
     } else {
@@ -108,9 +148,9 @@ class CartBloc extends Bloc<CartEvent, CartState> {
     }
     emit(CartState(items: currentItems));
 
-    // Endi serverga yuboramiz
+    // Server'ga POST
     await repository.addToCart(event.product);
-    // Server javobidan so'ng yana bir bor yangilaymiz (ID lar keladi)
+    // Server javobidagi yangi ID lar bilan qayta sinxron
     emit(CartState(items: repository.getCartItemsLocal()));
   }
 
@@ -118,12 +158,13 @@ class CartBloc extends Bloc<CartEvent, CartState> {
     RemoveFromCart event,
     Emitter<CartState> emit,
   ) async {
-    // Optimistic update
     final currentItems = List<CartItemModel>.from(state.items);
-    currentItems.removeWhere((i) => i.product.id == event.productId);
+    currentItems.removeWhere((i) =>
+        i.product.id == event.productId &&
+        i.product.variantId == event.variantId);
     emit(CartState(items: currentItems));
 
-    await repository.removeFromCart(event.productId);
+    await repository.removeFromCart(event.productId, variantId: event.variantId);
     emit(CartState(items: repository.getCartItemsLocal()));
   }
 
@@ -131,9 +172,10 @@ class CartBloc extends Bloc<CartEvent, CartState> {
     UpdateQuantity event,
     Emitter<CartState> emit,
   ) async {
-    // Optimistic update
     final currentItems = List<CartItemModel>.from(state.items);
-    final idx = currentItems.indexWhere((i) => i.product.id == event.productId);
+    final idx = currentItems.indexWhere((i) =>
+        i.product.id == event.productId &&
+        i.product.variantId == event.variantId);
     if (idx != -1) {
       if (event.quantity <= 0) {
         currentItems.removeAt(idx);
@@ -143,7 +185,11 @@ class CartBloc extends Bloc<CartEvent, CartState> {
     }
     emit(CartState(items: currentItems));
 
-    await repository.updateQuantity(event.productId, event.quantity);
+    await repository.updateQuantity(
+      event.productId,
+      event.quantity,
+      variantId: event.variantId,
+    );
     emit(CartState(items: repository.getCartItemsLocal()));
   }
 
@@ -152,13 +198,14 @@ class CartBloc extends Bloc<CartEvent, CartState> {
     emit(const CartState());
   }
 
-  Future<void> _onSyncCartWithServer(SyncCartWithServer event, Emitter<CartState> emit) async {
+  Future<void> _onSyncCartWithServer(
+    SyncCartWithServer event,
+    Emitter<CartState> emit,
+  ) async {
     final syncedItems = await repository.syncLocalCartWithServer();
     emit(CartState(items: syncedItems));
   }
 
-  /// Logout vaqtida cart holatini ham, lokal saqlanmani ham darhol tozalaydi.
-  /// LoadCart chaqirilmaydi — yangi sessiya kelganida o'zi yuklaydi.
   Future<void> _onResetCart(ResetCart event, Emitter<CartState> emit) async {
     await repository.clearCart();
     emit(const CartState());

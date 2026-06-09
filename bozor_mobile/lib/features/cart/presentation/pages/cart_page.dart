@@ -84,8 +84,14 @@ class CartPage extends StatelessWidget {
                       children: [
                         IconButton(
                           icon: const Icon(Icons.add_circle_outline),
+                          // Variant-aware: variant_id ham yuboriladi — boshqa
+                          // variantni emas, AYNAN shu line item'ni o'zgartiradi.
                           onPressed: () => context.read<CartBloc>().add(
-                            UpdateQuantity(item.product.id, item.quantity + 1),
+                            UpdateQuantity(
+                              item.product.id,
+                              item.quantity + 1,
+                              variantId: item.product.variantId,
+                            ),
                           ),
                         ),
                         Text(
@@ -95,7 +101,11 @@ class CartPage extends StatelessWidget {
                         IconButton(
                           icon: const Icon(Icons.remove_circle_outline),
                           onPressed: () => context.read<CartBloc>().add(
-                            UpdateQuantity(item.product.id, item.quantity - 1),
+                            UpdateQuantity(
+                              item.product.id,
+                              item.quantity - 1,
+                              variantId: item.product.variantId,
+                            ),
                           ),
                         ),
                       ],
