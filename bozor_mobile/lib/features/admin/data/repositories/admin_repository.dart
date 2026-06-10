@@ -288,10 +288,27 @@ class AdminRepository {
     return AdminKassaModel.fromJson(response.data as Map<String, dynamic>);
   }
 
-  Future<void> withdrawKassa(double amount, String note) async {
+  /// Kassadan pul yechish.
+  ///
+  /// ⚠ FIELD NAME BUG (tuzatildi): backend `reason` maydonini kutadi
+  /// (orders/views.py:1056 `reason = request.data.get('reason')`).
+  ///
+  /// Avvalgi mobile kod `'note'` yuborardi → backend `reason=None` oldi →
+  /// `if not reason: raise "Maqsad/izoh kiritilishi shart"` xatosi (false positive).
+  /// Foydalanuvchi izoh kiritgan bo'lsa-da, backend uni ko'ra olmas edi.
+  ///
+  /// Endi `'reason'` yuboramiz — sayt (Checkout.tsx) bilan izchil
+  /// (frontend/src/api/endpoints.ts ham `reason` ishlatadi).
+  ///
+  /// Bonus: eski APK ishlatuvchilar uchun backend `reason or note` qabul
+  /// qiluvchi qatlam ham qo'shildi (alohida commit'da backend o'zgarishi).
+  Future<void> withdrawKassa(double amount, String reason) async {
     await apiClient.dio.post(
       ApiConstants.adminWithdrawKassa,
-      data: {'amount': amount, 'note': note},
+      data: {
+        'amount': amount,
+        'reason': reason, // ✓ to'g'ri maydon (avval 'note' edi — bug)
+      },
     );
   }
 

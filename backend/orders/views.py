@@ -1053,7 +1053,18 @@ class KassaWithdrawView(views.APIView):
         # float(1_234_567.89) → 1234567.8900000001  (moliyaviy xato!)
         # Decimal(str('1234567.89')) → 1234567.89   (aniq!)
         amount_raw = request.data.get('amount')
-        reason     = request.data.get('reason')
+        # ⚠ BACKWARD COMPAT: eski mobile APK 'note' yuborardi (bug fix-dan
+        # oldin). Yangi clientlar 'reason' yuboradi (sayt + yangi mobile).
+        # Ikkalasini ham qabul qilamiz — eski APK ishlatuvchilar darhol
+        # yana ishlay boshlaydi (App Store update kutmasdan).
+        # Tartib: reason birinchi, bo'sh bo'lsa note ga fallback.
+        reason = (
+            request.data.get('reason')
+            or request.data.get('note')
+            or ''
+        )
+        if isinstance(reason, str):
+            reason = reason.strip()
 
         try:
             amount = Decimal(str(amount_raw)).quantize(Decimal('0.01'))
