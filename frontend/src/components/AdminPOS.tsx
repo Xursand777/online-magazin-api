@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   adminGetProducts,
   adminSearchUser,
@@ -357,58 +357,103 @@ const AdminPOS = () => {
 
   const [lastOrderDetails, setLastOrderDetails] = useState<any>(null);
 
-  const { data: productsData, isLoading: loadingProducts } = useQuery({
-    queryKey: ['admin-products'],
-    queryFn: () => adminGetProducts({ limit: 1000 }).then((r) => r.data),
-  });
-  const products = productsData?.results || [];
+  const [debouncedSearchQuery, setDebouncedSearchQuery] = useState('');
 
-  const filteredItems = useMemo(() => {
-    const q = searchQuery.toLowerCase().trim();
+  useEffect(() => {
+    if (searchQuery === '') {
+      setDebouncedSearchQuery('');
+      return;
+    }
+    const timer = setTimeout(() => {
+      setDebouncedSearchQuery(searchQuery);
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
+
+  const {
+    data: infiniteProductsData,
+    fetchNextPage,
+    hasNextPage,
+    isFetching,
+    isFetchingNextPage,
+    isLoading: loadingProducts,
+  } = useInfiniteQuery({
+    queryKey: ['admin-products', debouncedSearchQuery],
+    queryFn: ({ pageParam = 1 }) =>
+      adminGetProducts({ q: debouncedSearchQuery, page: pageParam, page_size: 20 }).then((r) => r.data),
+    getNextPageParam: (lastPage) => {
+      if (!lastPage.next) return undefined;
+      const match = lastPage.next.match(/[?&]page=(\d+)/);
+      return match ? parseInt(match[1], 10) : undefined;
+    },
+    initialPageParam: 1,
+  });
+
+  const products = useMemo(() => {
+    return infiniteProductsData?.pages.flatMap((page) => page.results || []) || [];
+  }, [infiniteProductsData]);
+
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+
+  // useCallback — har render'da qayta yaratilmasin (perfomance)
+  // Backend allaqachon FTS qiladi: q + page bo'yicha filtrlangan natijalar
+  // qaytaradi. Bu yerda faqat infinite-scroll trigger'i.
+  const handleScroll = useCallback(() => {
+    const container = scrollContainerRef.current;
+    if (!container) return;
+    // 200px buffer — yetib kelmaganda oldindan keyingi sahifani so'raymiz
+    if (container.scrollHeight - container.scrollTop <= container.clientHeight + 200) {
+      if (hasNextPage && !isFetchingNextPage) {
+        fetchNextPage();
+      }
+    }
+  }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
+
+  // ⚠ MUHIM: client-side query filtri OLIB TASHLANDI.
+  // Sabab: backend PostgreSQL FTS bilan rank'ga qarab natija qaytaradi
+  // (description, kategoriya nomi va boshqalarda ham qidiradi).
+  // Eski client filtri faqat name/sku/model/color'ga `includes` qilardi —
+  // bu backend FTS bilan KELISHMASLIKKA olib kelardi:
+  //   • Backend: 20 ta natija (FTS match)
+  //   • Client: filter ularning 5 tasini HIDE qilardi → foydalanuvchi
+  //     izlagan mahsulotni KO'RMAY qolardi.
+  // Endi `expandedItems` faqat variantlarni POSItem'larga ajratadi —
+  // SEARCH server tomonda qoldi.
+  const expandedItems = useMemo(() => {
     const items: POSItem[] = [];
     products.forEach((p: any) => {
       if (p.variants?.length > 0) {
         p.variants.forEach((v: any) => {
-          if (
-            !q ||
-            p.name.toLowerCase().includes(q) ||
-            (v.sku && v.sku.toLowerCase().includes(q)) ||
-            (v.model && v.model.toLowerCase().includes(q)) ||
-            (v.color && v.color.toLowerCase().includes(q))
-          ) {
-            items.push({
-              cartId: `v-${v.id}`,
-              productId: p.id,
-              variantId: v.id,
-              name: p.name,
-              quality: v.quality || '',
-              model: v.model || '',
-              size: v.size || '',
-              color: v.color || '',
-              price: Number(v.discount_price || v.price || p.discount_price || p.price),
-              costPrice: Number(v.cost_price || p.cost_price),
-              quantity: 1,
-              stock: v.stock,
-              sku: v.sku || '',
-            });
-          }
+          items.push({
+            cartId: `v-${v.id}`,
+            productId: p.id,
+            variantId: v.id,
+            name: p.name,
+            quality: v.quality || '',
+            model: v.model || '',
+            size: v.size || '',
+            color: v.color || '',
+            price: Number(v.discount_price || v.price || p.discount_price || p.price),
+            costPrice: Number(v.cost_price || p.cost_price),
+            quantity: 1,
+            stock: v.stock,
+            sku: v.sku || '',
+          });
         });
       } else {
-        if (!q || p.name.toLowerCase().includes(q)) {
-          items.push({
-            cartId: `p-${p.id}`,
-            productId: p.id,
-            name: p.name,
-            quality: '', model: '', size: '', color: '',
-            price: Number(p.discount_price || p.price),
-            costPrice: Number(p.cost_price),
-            quantity: 1, stock: p.stock, sku: '',
-          });
-        }
+        items.push({
+          cartId: `p-${p.id}`,
+          productId: p.id,
+          name: p.name,
+          quality: '', model: '', size: '', color: '',
+          price: Number(p.discount_price || p.price),
+          costPrice: Number(p.cost_price),
+          quantity: 1, stock: p.stock, sku: '',
+        });
       }
     });
     return items;
-  }, [products, searchQuery]);
+  }, [products]);
 
   const addToCart = useCallback((item: POSItem) => {
     setCart((prev) => {
@@ -583,44 +628,117 @@ const AdminPOS = () => {
         <div className="flex h-[calc(100vh-220px)] gap-4">
           {/* LEFT: Products grid */}
           <div className="flex w-2/3 flex-col rounded-xl border border-outline-variant bg-surface-container-lowest p-4">
-            <input
-              type="text"
-              placeholder="Barkod, nom yoki model bo'yicha qidirish..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="mb-4 w-full rounded-lg border border-outline-variant bg-surface px-4 py-2.5 outline-none focus:border-primary text-sm"
-            />
-            <div className="flex-1 overflow-y-auto pr-1">
+            <div className="relative mb-4 w-full">
+              <input
+                type="text"
+                placeholder="Barkod, nom yoki model bo'yicha qidirish..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full rounded-lg border border-outline-variant bg-surface pl-4 pr-10 py-2.5 outline-none focus:border-primary text-sm font-medium"
+              />
+              <div className="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none">
+                {isFetching && !isFetchingNextPage ? (
+                  <span className="material-symbols-outlined animate-spin text-[20px] text-primary">
+                    progress_activity
+                  </span>
+                ) : searchQuery ? (
+                  <button
+                    type="button"
+                    onClick={() => setSearchQuery('')}
+                    className="pointer-events-auto text-on-surface-variant hover:text-on-surface flex items-center"
+                  >
+                    <span className="material-symbols-outlined text-[20px]">close</span>
+                  </button>
+                ) : (
+                  <span className="material-symbols-outlined text-[20px] text-on-surface-variant">
+                    search
+                  </span>
+                )}
+              </div>
+            </div>
+            <div
+              ref={scrollContainerRef}
+              onScroll={handleScroll}
+              className="flex-1 overflow-y-auto pr-1"
+            >
               {loadingProducts ? (
+                /* Birinchi yuklanish — skeleton/spinner */
                 <div className="flex h-full items-center justify-center text-on-surface-variant">
                   <span className="material-symbols-outlined animate-spin mr-2">progress_activity</span>
                   Yuklanmoqda...
                 </div>
-              ) : (
-                <div className="grid grid-cols-2 gap-2.5 lg:grid-cols-3 xl:grid-cols-4">
-                  {filteredItems.map((item) => (
+              ) : expandedItems.length === 0 ? (
+                /* Empty state — backend hech narsa qaytarmadi */
+                <div className="flex h-full flex-col items-center justify-center text-on-surface-variant px-6 text-center">
+                  <span className="material-symbols-outlined text-6xl mb-3 opacity-40">
+                    {debouncedSearchQuery ? 'search_off' : 'inventory_2'}
+                  </span>
+                  <p className="font-semibold text-base mb-1">
+                    {debouncedSearchQuery
+                      ? `"${debouncedSearchQuery}" bo'yicha hech narsa topilmadi`
+                      : "Mahsulot mavjud emas"}
+                  </p>
+                  <p className="text-xs opacity-70">
+                    {debouncedSearchQuery
+                      ? "Boshqa kalit so'z bilan urinib ko'ring yoki qidiruvni tozalang"
+                      : "Avval omborga mahsulot qo'shing"}
+                  </p>
+                  {debouncedSearchQuery && (
                     <button
-                      key={item.cartId}
                       type="button"
-                      onClick={() => addToCart(item)}
-                      disabled={item.stock < 1}
-                      className={`text-left rounded-xl border p-3 transition-all hover:border-primary hover:bg-primary/5 active:scale-95 ${item.stock < 1 ? 'opacity-40 cursor-not-allowed border-error' : 'border-outline-variant cursor-pointer'}`}
+                      onClick={() => setSearchQuery('')}
+                      className="mt-3 inline-flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-xs font-semibold text-on-primary hover:bg-primary/90"
                     >
-                      <p className="font-bold leading-tight text-on-surface line-clamp-2 text-sm mb-1">{item.name}</p>
-                      {(item.color || item.size || item.model) && (
-                        <p className="text-xs text-on-surface-variant line-clamp-1 mb-2">
-                          {[item.color, item.size, item.model].filter(Boolean).join(' · ')}
-                        </p>
-                      )}
-                      <div className="flex items-end justify-between">
-                        <span className="font-bold text-primary text-sm">{fmt(item.price)}</span>
-                        <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${item.stock < 5 ? 'bg-error-container/50 text-error' : 'bg-surface-container text-on-surface-variant'}`}>
-                          {item.stock} ta
-                        </span>
-                      </div>
+                      <span className="material-symbols-outlined text-[16px]">close</span>
+                      Qidiruvni tozalash
                     </button>
-                  ))}
+                  )}
                 </div>
+              ) : (
+                <>
+                  {/* Natijalar soni — server qaytargani */}
+                  {debouncedSearchQuery && (
+                    <p className="mb-2 text-xs text-on-surface-variant">
+                      <span className="font-semibold text-primary">{expandedItems.length}</span> ta variant topildi
+                      {hasNextPage && " (skroll qiling — yana bor)"}
+                    </p>
+                  )}
+                  <div className="grid grid-cols-2 gap-2.5 lg:grid-cols-3 xl:grid-cols-4">
+                    {expandedItems.map((item) => (
+                      <button
+                        key={item.cartId}
+                        type="button"
+                        onClick={() => addToCart(item)}
+                        disabled={item.stock < 1}
+                        className={`text-left rounded-xl border p-3 transition-all hover:border-primary hover:bg-primary/5 active:scale-95 ${item.stock < 1 ? 'opacity-40 cursor-not-allowed border-error' : 'border-outline-variant cursor-pointer'}`}
+                      >
+                        <p className="font-bold leading-tight text-on-surface line-clamp-2 text-sm mb-1">{item.name}</p>
+                        {(item.color || item.size || item.model) && (
+                          <p className="text-xs text-on-surface-variant line-clamp-1 mb-2">
+                            {[item.color, item.size, item.model].filter(Boolean).join(' · ')}
+                          </p>
+                        )}
+                        <div className="flex items-end justify-between">
+                          <span className="font-bold text-primary text-sm">{fmt(item.price)}</span>
+                          <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${item.stock < 5 ? 'bg-error-container/50 text-error' : 'bg-surface-container text-on-surface-variant'}`}>
+                            {item.stock} ta
+                          </span>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                  {isFetchingNextPage && (
+                    <div className="flex items-center justify-center py-4 text-on-surface-variant">
+                      <span className="material-symbols-outlined animate-spin mr-2 text-[20px]">progress_activity</span>
+                      Yana yuklanmoqda...
+                    </div>
+                  )}
+                  {!hasNextPage && expandedItems.length > 0 && debouncedSearchQuery === '' && (
+                    <p className="py-3 text-center text-xs text-on-surface-variant opacity-70">
+                      Hammasi yuklandi
+                    </p>
+                  )}
+                </>
               )}
             </div>
           </div>
