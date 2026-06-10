@@ -25,6 +25,7 @@ class _AdminPosPageState extends State<AdminPosPage> {
   static const Color _brand = Color(0xFF0A7C55);
   final _searchCtrl = TextEditingController();
   final _scrollController = ScrollController();
+  Timer? _searchDebounce;
 
   @override
   void initState() {
@@ -40,6 +41,7 @@ class _AdminPosPageState extends State<AdminPosPage> {
 
   @override
   void dispose() {
+    _searchDebounce?.cancel();
     _searchCtrl.dispose();
     _scrollController.dispose();
     super.dispose();
@@ -152,11 +154,13 @@ class _AdminPosPageState extends State<AdminPosPage> {
           hintText: 'Mahsulot, SKU, model, rang...',
           hintStyle: const TextStyle(color: Colors.white60),
           prefixIcon: const Icon(Icons.search, color: Colors.white60),
-          suffixIcon: state.search.isNotEmpty
+          suffixIcon: _searchCtrl.text.isNotEmpty
               ? IconButton(
                   icon: const Icon(Icons.clear, color: Colors.white60),
                   onPressed: () {
                     _searchCtrl.clear();
+                    setState(() {});
+                    _searchDebounce?.cancel();
                     bloc.add(const PosSearchChanged(''));
                   },
                 )
@@ -169,7 +173,15 @@ class _AdminPosPageState extends State<AdminPosPage> {
           ),
           contentPadding: const EdgeInsets.symmetric(vertical: 0),
         ),
-        onChanged: (v) => bloc.add(PosSearchChanged(v)),
+        onChanged: (v) {
+          setState(() {}); // Instant suffix icon update
+          _searchDebounce?.cancel();
+          _searchDebounce = Timer(const Duration(milliseconds: 500), () {
+            if (mounted) {
+              bloc.add(PosSearchChanged(v));
+            }
+          });
+        },
       ),
     );
   }
@@ -192,6 +204,7 @@ class _AdminPosPageState extends State<AdminPosPage> {
     }
     return GridView.builder(
       controller: _scrollController,
+      keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
       padding: const EdgeInsets.fromLTRB(12, 12, 12, 96),
       gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
         maxCrossAxisExtent: 220,

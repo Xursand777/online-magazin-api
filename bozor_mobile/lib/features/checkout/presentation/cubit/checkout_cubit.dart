@@ -16,9 +16,16 @@ class CheckoutLoading extends CheckoutState {}
 class CheckoutSuccess extends CheckoutState {}
 class CheckoutError extends CheckoutState {
   final String message;
-  const CheckoutError(this.message);
+  /// Backend error code — `master_required`, `credit_ban`, va boshqalar.
+  /// UI ga qarab maxsus xulq-atvor qabul qilish uchun (autoreset, dialog).
+  final String? code;
+  const CheckoutError(this.message, {this.code});
   @override
-  List<Object?> get props => [message];
+  List<Object?> get props => [message, code];
+
+  /// Mehmon usta emas, lekin somehow 'credit' yuborilgan — UI 'cash'ga reset
+  /// qilishi kerak va foydalanuvchini xabardor qilishi kerak.
+  bool get isMasterRequired => code == 'master_required';
 }
 
 class CheckoutCubit extends Cubit<CheckoutState> {
@@ -37,22 +44,26 @@ class CheckoutCubit extends Cubit<CheckoutState> {
     emit(CheckoutLoading());
     try {
       final cleanPhone = phone.replaceAll(RegExp(r'\s+'), '');
-      final body = {
+      // ⚠ DEFENSIVE: payment_method'ni QAT'IY validatsiya — kutilmagan qiymat
+      // bo'lsa, default 'cash'ga qaytamiz (XSS, state buzilishi va h.k.larga qarshi)
+      final normalizedPayment = _normalizePayment(paymentMethod);
+      final body = <String, dynamic>{
         'product_id': product.id,
         'quantity': 1,
         'receiver_name': name.trim(),
         'receiver_phone': cleanPhone,
         'delivery_address': address.trim(),
-        'payment_method': paymentMethod == 'installment' ? 'credit' : paymentMethod,
+        'payment_method': normalizedPayment,
       };
-      if (paymentMethod == 'installment' && creditDays != null) {
+      // Credit-related fields ONLY agar haqiqatan kredit bo'lsa
+      if (normalizedPayment == 'credit' && creditDays != null) {
         body['credit_days'] = creditDays;
       }
-      
+
       await apiClient.dio.post(ApiConstants.ordersQuick, data: body);
       emit(CheckoutSuccess());
     } catch (e) {
-      emit(CheckoutError(_getErrorMessage(e)));
+      emit(_buildError(e));
     }
   }
 
@@ -66,39 +77,67 @@ class CheckoutCubit extends Cubit<CheckoutState> {
     emit(CheckoutLoading());
     try {
       final cleanPhone = phone.replaceAll(RegExp(r'\s+'), '');
+      // ⚠ DEFENSIVE: yuqoridagi kabi normalizatsiya
+      final normalizedPayment = _normalizePayment(paymentMethod);
       final body = <String, dynamic>{
         'receiver_name': name.trim(),
         'receiver_phone': cleanPhone,
         'delivery_address': address.trim(),
-        'payment_method': paymentMethod == 'installment' ? 'credit' : paymentMethod,
+        'payment_method': normalizedPayment,
       };
-      if (paymentMethod == 'installment' && creditDays != null) {
+      if (normalizedPayment == 'credit' && creditDays != null) {
         body['credit_days'] = creditDays;
       }
-      
+
       await apiClient.dio.post(ApiConstants.ordersFromCart, data: body);
       emit(CheckoutSuccess());
     } catch (e) {
-      emit(CheckoutError(_getErrorMessage(e)));
+      emit(_buildError(e));
     }
   }
 
-  String _getErrorMessage(dynamic e) {
+  /// Payment method normalizatsiyasi — faqat 3 ta backend qiymati qabul qilinadi.
+  /// 'installment' → 'credit' (UI/backend nom farqi)
+  /// Boshqa har qanday qiymat → 'cash' (xavfsiz default)
+  static String _normalizePayment(String paymentMethod) {
+    switch (paymentMethod) {
+      case 'cash':
+      case 'card':
+      case 'credit':
+        return paymentMethod;
+      case 'installment':
+        return 'credit';
+      default:
+        // Nazariy jihatdan bunga yetib bo'lmaydi, lekin xavfsizroq
+        return 'cash';
+    }
+  }
+
+  /// Xatoni tahlil qilib `CheckoutError` yaratadi, error code ham saqlaydi.
+  /// UI bu code'ni o'qib auto-recovery qila oladi (master_required → cash).
+  CheckoutError _buildError(dynamic e) {
+    String message = "Xatolik yuz berdi. Iltimos qayta urinib ko'ring.";
+    String? code;
     try {
       if (e is DioException && e.response != null) {
         final data = e.response?.data;
         if (data is Map) {
+          // Error code (master_required, credit_ban, etc.)
+          code = data['code']?.toString();
+          // Asosiy xato matni
           if (data['error'] != null) {
-            return data['error'].toString();
+            message = data['error'].toString();
+          } else if (data.isNotEmpty) {
+            final firstValue = data.values.first;
+            if (firstValue is List && firstValue.isNotEmpty) {
+              message = firstValue.first.toString();
+            } else {
+              message = firstValue.toString();
+            }
           }
-          final firstValue = data.values.first;
-          if (firstValue is List && firstValue.isNotEmpty) {
-            return firstValue.first.toString();
-          }
-          return firstValue.toString();
         }
       }
     } catch (_) {}
-    return "Xatolik yuz berdi. Iltimos qayta urinib ko'ring.";
+    return CheckoutError(message, code: code);
   }
 }

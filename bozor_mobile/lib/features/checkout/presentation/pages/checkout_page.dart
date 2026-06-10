@@ -215,9 +215,31 @@ class _CheckoutViewState extends State<CheckoutView> {
                     ),
                   );
                 } else if (state is CheckoutError) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text(state.message), backgroundColor: theme.colorScheme.error),
-                  );
+                  // ⚠ DEFENSIVE: backend `master_required` kodi qaytarsa,
+                  // foydalanuvchi usta emas — to'lov turini Naqd'ga avtomatik
+                  // qaytarib chiroyli yo'naltirish xabari ko'rsatamiz.
+                  if (state.isMasterRequired) {
+                    setState(() => _paymentMethod = 'cash');
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: const Text(
+                          "Muddatli to'lov faqat Ustalar uchun. "
+                          "Naqd pul tanlandi — qayta urinib ko'ring.",
+                        ),
+                        backgroundColor: theme.colorScheme.tertiary,
+                        behavior: SnackBarBehavior.floating,
+                        duration: const Duration(seconds: 4),
+                      ),
+                    );
+                  } else {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text(state.message),
+                        backgroundColor: theme.colorScheme.error,
+                        behavior: SnackBarBehavior.floating,
+                      ),
+                    );
+                  }
                 }
               },
               builder: (context, state) {

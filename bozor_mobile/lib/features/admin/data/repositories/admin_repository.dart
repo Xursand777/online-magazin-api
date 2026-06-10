@@ -199,7 +199,7 @@ class AdminRepository {
   // ─── POS (Do'kon) ─────────────────────────────────────────────────────────
   Future<({List<PosProduct> products, bool hasReachedMax})> getPosProducts({int page = 1, String q = ''}) async {
     final params = <String, dynamic>{'page': page, 'page_size': 20};
-    if (q.isNotEmpty) params['search'] = q;
+    if (q.isNotEmpty) params['q'] = q;
 
     final response = await apiClient.dio.get(
       ApiConstants.adminProducts,

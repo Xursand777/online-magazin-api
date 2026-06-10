@@ -195,7 +195,13 @@ class AdminPosBloc extends Bloc<AdminPosEvent, AdminPosState> {
   }
 
   Future<void> _onLoad(LoadPosProducts event, Emitter<AdminPosState> emit) async {
-    emit(state.copyWith(status: PosStatus.loading, error: null, hasReachedMax: false, currentPage: 1));
+    emit(state.copyWith(
+      status: PosStatus.loading,
+      products: const [],
+      error: null,
+      hasReachedMax: false,
+      currentPage: 1,
+    ));
     try {
       final response = await repository.getPosProducts(page: 1, q: state.search);
       emit(state.copyWith(
