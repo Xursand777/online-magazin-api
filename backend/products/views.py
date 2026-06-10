@@ -1538,9 +1538,21 @@ class AdminPhoneModelViewSet(viewsets.ModelViewSet):
 from .models import Favorite
 
 class FavoritesListView(generics.ListAPIView):
-    """Foydalanuvchining sevimlilar ro'yxatini olish."""
+    """
+    Foydalanuvchining sevimlilar ro'yxatini olish.
+
+    ⚠ pagination_class = None: bu endpoint TO'LIQ massiv qaytaradi.
+    Frontend (sayt + mobile) javobni Array sifatida ishlatadi
+    (favorites.some, favorites.length va boshqalar). Agar pagination
+    yoqilsa, javob {count, next, previous, results} bo'lar va
+    foydalanuvchi sahifasi crash bo'lar edi.
+
+    Settings'da DEFAULT_PAGINATION_CLASS = PageNumberPagination o'rnatilgan
+    bo'lgani uchun bu yerda explicit o'chirish kerak.
+    """
     serializer_class = ProductListSerializer
     permission_classes = (IsAuthenticated,)
+    pagination_class = None  # ⚠ MUHIM — frontend Array kutadi
 
     def get_queryset(self):
         return Product.objects.filter(

@@ -34,7 +34,10 @@ class FavoritesRepository {
     }
     try {
       final response = await apiClient.dio.get(ApiConstants.favorites);
-      final List<dynamic> dataList = response.data as List<dynamic>;
+      // ⚠ DEFENSIVE: backend pagination yoqilgan bo'lsa
+      // {count, next, previous, results} qaytaradi, aks holda massiv.
+      // Sayt'da bu pageNumberPagination crash sababi bo'lgan edi.
+      final List<dynamic> dataList = _extractList(response.data);
       final items = dataList.map((json) {
         return ProductModel.fromJson(json as Map<String, dynamic>);
       }).toList();
@@ -44,6 +47,19 @@ class FavoritesRepository {
     } catch (_) {
       return getFavoritesLocal();
     }
+  }
+
+  /// Defensive: javobni Array sifatida ajratib oladi.
+  ///   • To'liq massiv → o'sha
+  ///   • {results: [...]} → results
+  ///   • Boshqa hollarda → bo'sh massiv
+  List<dynamic> _extractList(dynamic data) {
+    if (data is List) return data;
+    if (data is Map<String, dynamic>) {
+      final results = data['results'];
+      if (results is List) return results;
+    }
+    return const [];
   }
 
   /// Toggles favorite status on server and local database.
@@ -90,7 +106,7 @@ class FavoritesRepository {
         data: {'product_ids': productIds},
       );
 
-      final List<dynamic> dataList = response.data as List<dynamic>;
+      final List<dynamic> dataList = _extractList(response.data);
       final items = dataList.map((json) {
         return ProductModel.fromJson(json as Map<String, dynamic>);
       }).toList();
