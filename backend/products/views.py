@@ -861,26 +861,66 @@ class AdminProductViewSet(viewsets.ModelViewSet):
     pagination_class = AdminResultsPagination
 
     def get_queryset(self):
+        """
+        Admin POS qidiruvi — PROFESSIONAL pattern:
+
+        MUAMMO (eski yondashuv):
+          Q(variants__sku__icontains=q) | Q(variants__color__icontains=q) ...
+          JOIN ga variants jadval — 10 ta varianti bo'lgan mahsulot 10 marta
+          qaytadi. .distinct() qiladi, lekin pagination COUNT'i noto'g'ri
+          ishlaydi va RANKING buziladi.
+
+        YECHIM (yangi yondashuv):
+          1. Variant matchni SUBQUERY orqali qilamiz — JOIN yo'q, duplikat yo'q
+          2. RANKING — name match birinchi, slug ikkinchi, variant uchinchi
+          3. .distinct('id') — PostgreSQL'da to'g'ri tartiblash
+          4. Order: rank DESC, updated_at DESC, id DESC
+        """
+        from .models import ProductVariant
+
         queryset = (
             Product.objects.select_related('category')
             .prefetch_related('images', 'variants', 'variants__images')
-            .order_by('-updated_at', '-id')
         )
 
         q = (self.request.query_params.get('q') or '').strip()
         if q:
+            # ── 1. Variant match — SUBQUERY (JOIN yo'q) ─────────────────────
+            # Faqat mahsulot ID'sini olamiz. Bu birga "ko'p" duplikati yo'q.
+            variant_match_pks = ProductVariant.objects.filter(
+                Q(sku__icontains=q)
+                | Q(barcode__icontains=q)
+                | Q(color__icontains=q)
+                | Q(quality__icontains=q)
+                | Q(model__icontains=q)
+                | Q(size__icontains=q),
+                product__isnull=False,
+            ).values_list('product_id', flat=True)
+
+            # ── 2. Filter: mahsulot maydonlari OR variant subquery ──────────
             queryset = queryset.filter(
                 Q(name__icontains=q)
                 | Q(description__icontains=q)
                 | Q(slug__icontains=q)
                 | Q(category__name__icontains=q)
-                | Q(variants__sku__icontains=q)
-                | Q(variants__barcode__icontains=q)
-                | Q(variants__color__icontains=q)
-                | Q(variants__quality__icontains=q)
-                | Q(variants__model__icontains=q)
-                | Q(variants__size__icontains=q)
+                | Q(id__in=variant_match_pks)
             )
+
+            # ── 3. RANKING — aniq mos > boshidan > o'rtadan > variant ──────
+            queryset = queryset.annotate(
+                _search_rank=Case(
+                    When(name__iexact=q, then=Value(100)),
+                    When(name__istartswith=q, then=Value(80)),
+                    When(name__icontains=q, then=Value(60)),
+                    When(slug__icontains=q, then=Value(50)),
+                    When(category__name__icontains=q, then=Value(40)),
+                    When(id__in=variant_match_pks, then=Value(30)),
+                    default=Value(0),
+                    output_field=IntegerField(),
+                )
+            ).order_by('-_search_rank', '-updated_at', '-id')
+        else:
+            queryset = queryset.order_by('-updated_at', '-id')
 
         category_id = self.request.query_params.get('category')
         if category_id:
@@ -900,6 +940,8 @@ class AdminProductViewSet(viewsets.ModelViewSet):
         elif tag_filter == 'popular':
             queryset = queryset.filter(is_popular=True)
 
+        # SUBQUERY yondashuv tufayli .distinct() shart emas (JOIN yo'q),
+        # lekin category JOIN'i bo'lgani uchun xavfsizlik uchun qoldiramiz.
         return queryset.distinct()
 
 

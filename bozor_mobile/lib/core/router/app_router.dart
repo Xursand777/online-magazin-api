@@ -285,10 +285,7 @@ class AppRouter {
             child: const MyOrdersPage(),
           ),
         ),
-        GoRoute(
-          path: '/favorites',
-          builder: (context, _) => const FavoritesPage(),
-        ),
+        // /favorites endi shell branch (tab) — pastdagi navigation'da
         GoRoute(
           path: '/profile-edit',
           builder: (context, _) => const ProfileEditPage(),
@@ -313,6 +310,11 @@ class AppRouter {
             StatefulShellBranch(
               navigatorKey: GlobalKey<NavigatorState>(debugLabel: 'catalogTab'),
               routes: [GoRoute(path: '/catalog', builder: (context, _) => const CatalogPage())],
+            ),
+            // ⭐ Favorites tab — bottom nav'da badge bilan (count'ni ko'rsatadi)
+            StatefulShellBranch(
+              navigatorKey: GlobalKey<NavigatorState>(debugLabel: 'favoritesTab'),
+              routes: [GoRoute(path: '/favorites', builder: (context, _) => const FavoritesPage())],
             ),
             StatefulShellBranch(
               navigatorKey: GlobalKey<NavigatorState>(debugLabel: 'cartTab'),

@@ -160,7 +160,7 @@ class _GuestProfile extends StatelessWidget {
               borderRadius: BorderRadius.circular(14),
               onTap: () {
                 HapticFeedback.lightImpact();
-                context.push('/favorites');
+                context.go('/favorites');
               },
               child: Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
@@ -537,7 +537,7 @@ class _AuthenticatedProfileState extends State<_AuthenticatedProfile> {
                   title: 'Sevimlilar',
                   badgeCount: count,
                   onTap: () {
-                    context.push('/favorites');
+                    context.go('/favorites');
                   },
                 );
               },
