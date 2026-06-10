@@ -366,17 +366,47 @@ class _CheckoutViewState extends State<CheckoutView> {
                         ),
                         const SizedBox(height: 20),
 
-                        // Telefon raqam
-                        Text('Telefon raqam', style: theme.textTheme.titleSmall),
+                        // Telefon raqam — READ-ONLY (login raqami, o'zgartirib bo'lmaydi)
+                        Row(
+                          children: [
+                            Text('Telefon raqam',
+                                style: theme.textTheme.titleSmall),
+                            const SizedBox(width: 6),
+                            Icon(Icons.lock_outline_rounded,
+                                size: 14,
+                                color: theme.colorScheme.outline),
+                          ],
+                        ),
                         const SizedBox(height: 8),
                         TextFormField(
                           controller: _phoneController,
+                          readOnly: true, // ⚠ Login raqami — o'zgartirib bo'lmaydi
                           keyboardType: TextInputType.phone,
+                          style: TextStyle(
+                            color: theme.colorScheme.onSurface,
+                            fontWeight: FontWeight.w600,
+                          ),
                           decoration: InputDecoration(
                             hintText: '+998 90 123 45 67',
-                            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                            helperText: 'Login raqamingiz — o\'zgartirib bo\'lmaydi',
+                            helperStyle: TextStyle(
+                              fontSize: 11,
+                              color: theme.colorScheme.outline,
+                            ),
+                            filled: true,
+                            fillColor:
+                                theme.colorScheme.surfaceContainerLow,
+                            border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(12)),
+                            suffixIcon: Icon(
+                              Icons.lock_outline_rounded,
+                              size: 18,
+                              color: theme.colorScheme.outline,
+                            ),
                           ),
-                          validator: (v) => v == null || v.length < 9 ? "To'g'ri raqam kiriting" : null,
+                          validator: (v) => v == null || v.length < 9
+                              ? "Telefon raqami yo'q. Profilda o'rnatilgan bo'lishi kerak."
+                              : null,
                         ),
                         const SizedBox(height: 20),
 
