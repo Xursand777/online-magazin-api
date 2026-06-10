@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Minimal statik sitemap. Domeningizni almashtiring.
+  KELAJAK (tavsiya): 5000+ mahsulot uchun backend'dan dinamik sitemap
+  generatsiya qiling (har bir mahsulot/kategoriya URL'i bilan).
+-->
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url>
+    <loc>https://bozor.uz/</loc>
+    <changefreq>daily</changefreq>
+    <priority>1.0</priority>
+  </url>
+</urlset>

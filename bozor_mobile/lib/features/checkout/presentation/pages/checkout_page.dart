@@ -122,6 +122,19 @@ class _CheckoutViewState extends State<CheckoutView> {
         return;
       }
 
+      // ⚠ DEFENSIVE NORMALIZATION (Phase 3.0)
+      // Oddiy foydalanuvchi (usta emas) muddatli to'lov tanlay olmaydi.
+      // Lekin state buzilishi (auth race condition, eski cache) sababli
+      // _paymentMethod='installment' bo'lib qolishi mumkin. Bu yerda kuch
+      // bilan 'cash'ga aylantiramiz — backend hech qachon master_required
+      // qaytarmaydi.
+      final authState = context.read<AuthBloc>().state;
+      final bool isMasterAuth = authState is AuthAuthenticated &&
+          (authState.isMaster || authState.canUseCredit);
+      if (!isMasterAuth && _paymentMethod == 'installment') {
+        setState(() => _paymentMethod = 'cash');
+      }
+
       if (_paymentMethod == 'installment') {
         if (_creditStatus != null) {
           if (_creditStatus!['credit_ban'] == true) {

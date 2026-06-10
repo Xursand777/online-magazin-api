@@ -215,6 +215,43 @@ if CDN_PROVIDER == 'b2':
     # Media URL: Backblaze public URL formatida
     MEDIA_URL = f'{_b2_endpoint}/{_b2_bucket}/'
 
+elif CDN_PROVIDER == 'r2':
+    # Cloudflare R2 — S3-mos object storage. Egress (yuklab olish) BEPUL.
+    # Uzbekistonda Cloudinary blok bo'lishi mumkin — R2 + Cloudflare CDN ishonchli.
+    #
+    # MUHIM FARQ (S3'dan): R2 ACL'ni qo'llab-quvvatlamaydi.
+    #   → AWS_DEFAULT_ACL = None bo'lishi SHART (aks holda 400 xato).
+    #   → Public ko'rinish bucket'ga custom domen (cdn.bozor.uz) ulanishi orqali.
+    _r2_account = os.getenv('R2_ACCOUNT_ID', '')        # Cloudflare account ID
+    _r2_key_id  = os.getenv('R2_ACCESS_KEY_ID', '')     # R2 API token — Access Key ID
+    _r2_secret  = os.getenv('R2_SECRET_ACCESS_KEY', '') # R2 API token — Secret
+    _r2_bucket  = os.getenv('R2_BUCKET_NAME', '')       # Bucket nomi (masalan bozor-media)
+    _r2_domain  = os.getenv('R2_PUBLIC_DOMAIN', '')     # Custom domen, masalan cdn.bozor.uz
+
+    if not all([_r2_account, _r2_key_id, _r2_secret, _r2_bucket]):
+        raise RuntimeError(
+            "[CDN] CDN_PROVIDER=r2 lekin sozlamalar to'liq emas!\n"
+            "  R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_BUCKET_NAME\n"
+            "  muhit o'zgaruvchilarini o'rnating."
+        )
+
+    DEFAULT_FILE_STORAGE     = 'storages.backends.s3boto3.S3Boto3Storage'
+    AWS_ACCESS_KEY_ID        = _r2_key_id
+    AWS_SECRET_ACCESS_KEY    = _r2_secret
+    AWS_STORAGE_BUCKET_NAME  = _r2_bucket
+    AWS_S3_ENDPOINT_URL      = f'https://{_r2_account}.r2.cloudflarestorage.com'
+    AWS_S3_REGION_NAME       = 'auto'        # R2 uchun doim 'auto'
+    AWS_S3_SIGNATURE_VERSION = 's3v4'
+    AWS_DEFAULT_ACL          = None          # R2 ACL'ni qo'llamaydi (S3'dan farqi)
+    AWS_QUERYSTRING_AUTH     = False         # URL'lar ochiq (imzosiz)
+    AWS_S3_FILE_OVERWRITE    = False         # Fayl ustiga yozmaslik
+    # Public URL: custom domen bo'lsa undan, aks holda R2 endpoint'dan
+    if _r2_domain:
+        AWS_S3_CUSTOM_DOMAIN = _r2_domain
+        MEDIA_URL = f'https://{_r2_domain}/'
+    else:
+        MEDIA_URL = f'{AWS_S3_ENDPOINT_URL}/{_r2_bucket}/'
+
 elif CDN_PROVIDER == 'cloudinary':
     _cloud_name   = os.getenv('CLOUDINARY_CLOUD_NAME', '')
     _api_key      = os.getenv('CLOUDINARY_API_KEY', '')
@@ -805,7 +842,7 @@ if _REDIS_URL:
 # ─────────────────────────────────────────────────────────────────────────────
 _SENTRY_DSN = os.getenv('SENTRY_DSN', '').strip()
 
-if _SENTRY_DSN and not DEBUG:
+if _SENTRY_DSN.startswith(('http://', 'https://')) and not DEBUG:
     try:
         import sentry_sdk
         from sentry_sdk.integrations.django import DjangoIntegration

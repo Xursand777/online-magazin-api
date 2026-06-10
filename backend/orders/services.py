@@ -350,10 +350,42 @@ def create_order_with_items(
     *, user, receiver_name, receiver_phone, delivery_address,
     payment_method, items, credit_days=None, skip_credit_check=False
 ):
+    import logging
+    _log = logging.getLogger('orders.create')
+
     if not items:
         raise serializers.ValidationError({'error': "Savat bo'sh."})
 
+    # ⚠ DEFENSIVE NORMALIZATION (Phase 3.0): payment_method qiymatini
+    # qat'iy normallashtirish — frontend bug, race condition yoki encoding
+    # muammosi sababli noto'g'ri qiymat kelgan bo'lsa, "cash" ga aylantirib
+    # log yozamiz. Bu xulq mehmonni HECH QACHON master_required xatoga
+    # urinmaslik kafolatini beradi.
+    _VALID_PAYMENT_METHODS = {
+        Order.PAYMENT_METHOD_CASH,
+        Order.PAYMENT_METHOD_CARD,
+        Order.PAYMENT_METHOD_CREDIT,
+    }
+    if payment_method not in _VALID_PAYMENT_METHODS:
+        _log.warning(
+            "Noto'g'ri payment_method '%s' (user=%s) — 'cash' ga normallashtirildi",
+            payment_method, getattr(user, 'phone', None),
+        )
+        payment_method = Order.PAYMENT_METHOD_CASH
+
     is_credit = (payment_method == Order.PAYMENT_METHOD_CREDIT)
+
+    # Diagnostic log — agar credit bo'lsa, kim va qanday qiymatlar yuborganini
+    # ko'rish uchun. Bu Render logs'da ko'rinadi: muammoni topishga yordam beradi.
+    if is_credit:
+        _log.info(
+            "Credit order attempt: user=%s, is_master=%s, can_use_credit=%s, credit_days=%s",
+            getattr(user, 'phone', None),
+            getattr(user, 'is_master', False),
+            getattr(user, 'can_use_credit', False),
+            credit_days,
+        )
+
     if is_credit:
         if user is None:
             raise serializers.ValidationError({'error': "Muddatli to'lov faqat ro'yxatdan o'tgan mijozlar uchun mumkin."})
@@ -365,7 +397,7 @@ def create_order_with_items(
             })
 
     # Muddatli to'lov cheklovlarini tekshiramiz (admin POS da o'tkazib yuboriladi)
-    if user is not None and not skip_credit_check:
+    if is_credit and user is not None and not skip_credit_check:
         check_credit_eligibility(user)
 
     credit_due_date = None

@@ -1,0 +1,25 @@
+# Virtual env va cache
+venv/
+__pycache__/
+*.py[cod]
+*.so
+
+# Maxfiy / lokal
+.env
+.env.*
+!.env.production.example
+
+# Lokal DB va yuklamalar (production'da Postgres + R2)
+db.sqlite3
+*.sqlite3
+media/
+
+# Build artefaktlari
+staticfiles/
+logs/
+*.log
+
+# Git va hujjatlar
+.git/
+.gitignore
+*.md

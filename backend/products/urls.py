@@ -15,6 +15,8 @@ from .views import (
     AdminPhoneBrandViewSet, AdminPhoneSeriesViewSet, AdminPhoneModelViewSet,
 )
 
+from .views import FavoritesListView, FavoriteToggleView, FavoriteSyncView
+
 router = DefaultRouter()
 router.register(r'admin/categories',    AdminCategoryViewSet,      basename='admin-category')
 router.register(r'admin/products',      AdminProductViewSet,       basename='admin-product')
@@ -70,6 +72,11 @@ urlpatterns = [
          AdminCompatibilityView.as_view(), name='admin_product_compatibility'),
     path('admin/products/<int:pk>/compatibility/bulk-series/',
          AdminCompatibilityBulkSeriesView.as_view(), name='admin_product_compat_bulk_series'),
+
+    # Sevimlilar (Favorites)
+    path('products/favorites/', FavoritesListView.as_view(), name='favorites_list'),
+    path('products/favorites/toggle/', FavoriteToggleView.as_view(), name='favorite_toggle'),
+    path('products/favorites/sync/', FavoriteSyncView.as_view(), name='favorite_sync'),
 
     path('', include(router.urls)),
 ]

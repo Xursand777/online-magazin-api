@@ -3,6 +3,7 @@ import { useNavigate, Link, useSearchParams } from 'react-router-dom';
 import axios from 'axios';
 import { useAuthStore } from '../store/authStore';
 import { useCartStore } from '../store/cartStore';
+import { useFavoritesStore } from '../store/favoritesStore';
 import { registerUser, requestLoginOtp, verifyLoginOtp } from '../api/endpoints';
 import { recordTokenIssued } from '../api/client';
 import { toast } from '../utils/toast';
@@ -157,11 +158,23 @@ const Auth = () => {
     // Har ikkala holatda ham (cookie yoki localStorage) vaqtni saqlaymiz.
     recordTokenIssued();
     login(payload.user);
-    const syncResult = await useCartStore.getState().syncLocalCartToBackend();
-    await useCartStore.getState().fetchCart();
-    if (syncResult.syncedCount > 0) {
-      toast.success(`Savat akkauntga ko'chirildi (${syncResult.syncedCount} ta).`);
-    }
+    
+    // Sync cart and favorites parallel
+    const syncCartPromise = useCartStore.getState().syncLocalCartToBackend()
+      .then((syncResult) => {
+        useCartStore.getState().fetchCart();
+        if (syncResult.syncedCount > 0) {
+          toast.success(`Savat akkauntga ko'chirildi (${syncResult.syncedCount} ta).`);
+        }
+      });
+
+    const syncFavoritesPromise = useFavoritesStore.getState().syncLocalFavoritesToBackend()
+      .then(() => {
+        useFavoritesStore.getState().fetchFavorites();
+      });
+
+    Promise.all([syncCartPromise, syncFavoritesPromise]).catch(console.error);
+
     navigate(payload.user.is_admin && redirectTarget === '/' ? '/admin' : redirectTarget);
   };
 

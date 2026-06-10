@@ -1491,3 +1491,63 @@ class AdminPhoneModelViewSet(viewsets.ModelViewSet):
         .select_related('series__brand')
         .order_by('series__brand__order', 'series__order', 'order', 'name')
     )
+
+
+from .models import Favorite
+
+class FavoritesListView(generics.ListAPIView):
+    """Foydalanuvchining sevimlilar ro'yxatini olish."""
+    serializer_class = ProductListSerializer
+    permission_classes = (IsAuthenticated,)
+
+    def get_queryset(self):
+        return Product.objects.filter(
+            favorited_by__user=self.request.user,
+            is_active=True
+        ).order_by('-favorited_by__created_at').prefetch_related('images')
+
+
+class FavoriteToggleView(views.APIView):
+    """Mahsulotni sevimlilarga qo'shish yoki o'chirish."""
+    permission_classes = (IsAuthenticated,)
+
+    def post(self, request):
+        product_id = request.data.get('product_id')
+        if not product_id:
+            return Response({'error': 'product_id kiritilishi shart'}, status=status.HTTP_400_BAD_REQUEST)
+        
+        product = get_object_or_404(Product, id=product_id)
+        favorite, created = Favorite.objects.get_or_create(user=request.user, product=product)
+        
+        if not created:
+            favorite.delete()
+            is_favorite = False
+        else:
+            is_favorite = True
+            
+        return Response({'is_favorite': is_favorite}, status=status.HTTP_200_OK)
+
+
+class FavoriteSyncView(views.APIView):
+    """Mehmon foydalanuvchining sevimli mahsulotlarini akkauntiga sinxronlash."""
+    permission_classes = (IsAuthenticated,)
+
+    def post(self, request):
+        product_ids = request.data.get('product_ids', [])
+        if not isinstance(product_ids, list):
+            return Response({'error': 'product_ids massiv (list) bo\'lishi shart'}, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Faol mahsulotlarni saqlaymiz
+        valid_products = Product.objects.filter(id__in=product_ids, is_active=True)
+        for product in valid_products:
+            Favorite.objects.get_or_create(user=request.user, product=product)
+            
+        # Yangilangan ro'yxatni qaytaramiz
+        favorites_qs = Product.objects.filter(
+            favorited_by__user=request.user,
+            is_active=True
+        ).order_by('-favorited_by__created_at').prefetch_related('images')
+        
+        serializer = ProductListSerializer(favorites_qs, many=True, context={'request': request})
+        return Response(serializer.data, status=status.HTTP_200_OK)
+

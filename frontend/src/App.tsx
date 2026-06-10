@@ -14,6 +14,7 @@ import SearchPage from './pages/SearchPage';
 import NotFound from './pages/NotFound';
 import ProtectedRoute from './components/ProtectedRoute';
 import { useCartStore } from './store/cartStore';
+import { useFavoritesStore } from './store/favoritesStore';
 import { useAuthStore } from './store/authStore';
 import { applyThemeMode, useThemeStore } from './store/themeStore';
 import { getProfile } from './api/endpoints';
@@ -47,11 +48,13 @@ const AdminFallback = () => (
 
 function App() {
   const fetchCart = useCartStore((s) => s.fetchCart);
+  const fetchFavorites = useFavoritesStore((s) => s.fetchFavorites);
   const theme = useThemeStore((s) => s.theme);
 
   useEffect(() => {
     fetchCart();
-  }, [fetchCart]);
+    fetchFavorites();
+  }, [fetchCart, fetchFavorites]);
 
   useEffect(() => {
     applyThemeMode(theme);

@@ -1,0 +1,12 @@
+# Bozor — qidiruv tizimlari uchun
+User-agent: *
+Allow: /
+
+# Shaxsiy / xarid jarayoni sahifalarini indekslamaslik
+Disallow: /admin
+Disallow: /checkout
+Disallow: /profile
+Disallow: /auth
+
+# TODO: domeningizni o'rnating
+Sitemap: https://bozor.uz/sitemap.xml

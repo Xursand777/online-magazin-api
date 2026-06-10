@@ -56,6 +56,13 @@ export const getCategories = () => apiClient.get('/categories/');
 export const getCategoryProducts = (id: number | string) =>
   apiClient.get(`/categories/${id}/products/`, { params: EXPAND });
 
+// FAVORITES
+export const getFavorites = () => apiClient.get('/products/favorites/');
+export const toggleFavorite = (productId: number | string) =>
+  apiClient.post('/products/favorites/toggle/', { product_id: productId });
+export const syncLocalFavorites = (data: { product_ids: number[] }) =>
+  apiClient.post('/products/favorites/sync/', data);
+
 // CART
 export const getCart = () => apiClient.get('/cart/');
 export const addToCart = (data: { product_id: number; quantity: number; variant_id?: number }) =>

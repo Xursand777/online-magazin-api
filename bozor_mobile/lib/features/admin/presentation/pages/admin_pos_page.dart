@@ -99,20 +99,24 @@ class _AdminPosPageState extends State<AdminPosPage> {
           }
         },
         builder: (context, state) {
-          if (state.status == PosStatus.loading && state.products.isEmpty) {
-            return const Center(child: CircularProgressIndicator());
-          }
-          if (state.status == PosStatus.failure && state.products.isEmpty) {
-            return _ErrorView(
-              message: state.error ?? 'Xatolik',
-              onRetry: () =>
-                  context.read<AdminPosBloc>().add(const LoadPosProducts()),
-            );
-          }
+          final isLoading = state.status == PosStatus.loading && state.products.isEmpty;
+          final isFailure = state.status == PosStatus.failure && state.products.isEmpty;
+
           return Column(
             children: [
               _searchBar(context, state),
-              Expanded(child: _productGrid(context, state)),
+              Expanded(
+                child: isLoading
+                    ? const Center(child: CircularProgressIndicator())
+                    : isFailure
+                        ? _ErrorView(
+                            message: state.error ?? 'Xatolik',
+                            onRetry: () => context
+                                .read<AdminPosBloc>()
+                                .add(const LoadPosProducts()),
+                          )
+                        : _productGrid(context, state),
+              ),
             ],
           );
         },
@@ -154,17 +158,29 @@ class _AdminPosPageState extends State<AdminPosPage> {
           hintText: 'Mahsulot, SKU, model, rang...',
           hintStyle: const TextStyle(color: Colors.white60),
           prefixIcon: const Icon(Icons.search, color: Colors.white60),
-          suffixIcon: _searchCtrl.text.isNotEmpty
-              ? IconButton(
-                  icon: const Icon(Icons.clear, color: Colors.white60),
-                  onPressed: () {
-                    _searchCtrl.clear();
-                    setState(() {});
-                    _searchDebounce?.cancel();
-                    bloc.add(const PosSearchChanged(''));
-                  },
+          suffixIcon: state.status == PosStatus.loading
+              ? const Padding(
+                  padding: EdgeInsets.all(12.0),
+                  child: SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      valueColor: AlwaysStoppedAnimation<Color>(Colors.white60),
+                    ),
+                  ),
                 )
-              : null,
+              : _searchCtrl.text.isNotEmpty
+                  ? IconButton(
+                      icon: const Icon(Icons.clear, color: Colors.white60),
+                      onPressed: () {
+                        _searchCtrl.clear();
+                        setState(() {});
+                        _searchDebounce?.cancel();
+                        bloc.add(const PosSearchChanged(''));
+                      },
+                    )
+                  : null,
           filled: true,
           fillColor: Colors.white.withValues(alpha: 0.15),
           border: OutlineInputBorder(

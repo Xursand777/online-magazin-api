@@ -151,8 +151,21 @@ const Checkout = () => {
       }
     }
 
-    const payload: Record<string, unknown> = { ...formData };
-    if (formData.payment_method !== 'credit') {
+    // ⚠ DEFENSIVE NORMALIZATION (Phase 3.0)
+    // Foydalanuvchi usta emas, lekin formData.payment_method='credit' bo'lsa
+    // (stale localStorage, useEffect race condition, yoki React state buzilishi),
+    // kuch bilan 'cash'ga aylantirib yuboramiz. Bu backend master_required
+    // xatosini OLDIN-OLDIN to'xtatadi — foydalanuvchi qayta urinmaydi.
+    const safePaymentMethod =
+      !canUseCredit && formData.payment_method === 'credit'
+        ? 'cash'
+        : formData.payment_method;
+
+    const payload: Record<string, unknown> = {
+      ...formData,
+      payment_method: safePaymentMethod,
+    };
+    if (safePaymentMethod !== 'credit') {
       delete payload.credit_days;
     }
 

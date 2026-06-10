@@ -93,6 +93,12 @@ export const useAuthStore = create<AuthState>((set) => ({
     localStorage.removeItem('access_token');
     localStorage.removeItem('refresh_token');
     localStorage.removeItem('_token_issued_at');
+    
+    // Clear favorites safely avoiding circular import
+    import('./favoritesStore')
+      .then((m) => m.useFavoritesStore.getState().resetFavorites())
+      .catch(console.error);
+
     set({ user: null, isAuthenticated: false });
   },
 
