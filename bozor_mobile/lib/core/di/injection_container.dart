@@ -33,8 +33,10 @@ import '../../features/admin/presentation/bloc/admin_stock_bloc.dart';
 import '../../features/profile/data/repositories/user_orders_repository.dart';
 import '../../features/profile/data/repositories/favorites_repository.dart';
 import '../../features/profile/data/repositories/profile_repository.dart';
+import '../../features/profile/data/repositories/master_credit_repository.dart';
 import '../../features/profile/presentation/cubit/my_orders_cubit.dart';
 import '../../features/profile/presentation/cubit/favorites_cubit.dart';
+import '../../features/profile/presentation/cubit/master_credit_cubit.dart';
 
 final sl = GetIt.instance;
 
@@ -96,6 +98,9 @@ Future<void> init() async {
   sl.registerLazySingleton<ProfileRepository>(
     () => ProfileRepository(apiClient: sl()),
   );
+  sl.registerLazySingleton<MasterCreditRepository>(
+    () => MasterCreditRepository(apiClient: sl()),
+  );
 
   // ── Auth: startup state detection ─────────────────────────────────────────
   // AuthBloc app ishga tushishdan OLDIN to'g'ri state bilan yaratiladi.
@@ -151,6 +156,12 @@ Future<void> init() async {
   sl.registerFactory<MyOrdersCubit>(     () => MyOrdersCubit(repository:      sl()));
   sl.registerLazySingleton<FavoritesCubit>(
     () => FavoritesCubit(repository: sl())..loadFavorites(),
+  );
+  // Usta + Kredit cubit — Profile sahifa BlocProvider ichida ham ishlatish
+  // mumkin, lekin singleton qilamiz: AuthBloc state'i o'zgarganda invalidatsiya
+  // qilish va boshqa joydan ham (masalan, checkout) chaqirish uchun.
+  sl.registerLazySingleton<MasterCreditCubit>(
+    () => MasterCreditCubit(repository: sl()),
   );
 
   // CartBloc — singleton (savatcha butun ilova bo'yicha bir xil)

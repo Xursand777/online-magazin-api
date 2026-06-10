@@ -9,6 +9,9 @@ import '../../../../core/widgets/coming_soon_sheet.dart';
 import '../../../auth/presentation/bloc/auth_bloc.dart';
 import '../cubit/favorites_cubit.dart';
 import '../cubit/favorites_state.dart';
+import '../cubit/master_credit_cubit.dart';
+import '../widgets/master_status_card.dart';
+import '../widgets/credit_status_card.dart';
 
 /// Profile sahifa — auth state'ga qarab 2 xil UI:
 ///   • AuthAuthenticated → foydalanuvchi ma'lumotlari, buyurtmalar, sozlamalar
@@ -414,6 +417,23 @@ class _AuthenticatedProfileState extends State<_AuthenticatedProfile> {
   void initState() {
     super.initState();
     _loadProfile();
+    // ⭐ Usta + Kredit kartalarini yuklash (AuthBloc gating bilan)
+    // AuthBloc state'i tekshirilib, faqat usta bo'lsa fetch bo'ladi.
+    _loadMasterCreditIfMaster();
+  }
+
+  /// Faqat usta foydalanuvchi uchun usta + kredit status yuklash.
+  /// Authoritative ikki tomonlama tekshirish:
+  ///   1. AuthBloc.isMaster (UX, tezroq) — kerakmas so'rovlarni oldini oladi
+  ///   2. Backend `is_master` (xavfsizlik, batafsil) — kartalar ko'rsatishni hal qiladi
+  void _loadMasterCreditIfMaster() {
+    final authState = context.read<AuthBloc>().state;
+    final isMaster = authState is AuthAuthenticated &&
+        (authState.isMaster || authState.canUseCredit);
+    if (isMaster) {
+      // Cubit'ni instaniyatsiya qilish (singleton) + load
+      sl<MasterCreditCubit>().loadStatuses();
+    }
   }
 
   Future<void> _loadProfile() async {
@@ -442,6 +462,22 @@ class _AuthenticatedProfileState extends State<_AuthenticatedProfile> {
         _loading = false;
       });
     }
+  }
+
+  /// Pull-to-refresh — profile + master/credit ikkalasini yangilaydi.
+  Future<void> _refreshAll() async {
+    await Future.wait([
+      _loadProfile(),
+      Future.sync(() {
+        final authState = context.read<AuthBloc>().state;
+        final isMaster = authState is AuthAuthenticated &&
+            (authState.isMaster || authState.canUseCredit);
+        if (isMaster) {
+          return sl<MasterCreditCubit>().loadStatuses(force: true);
+        }
+        return null;
+      }),
+    ]);
   }
 
   @override
@@ -475,11 +511,11 @@ class _AuthenticatedProfileState extends State<_AuthenticatedProfile> {
         ],
       ),
       body: RefreshIndicator(
-        onRefresh: _loadProfile,
+        onRefresh: _refreshAll,
         child: ListView(
-          padding: const EdgeInsets.all(16),
+          padding: EdgeInsets.zero, // kartalar full-width chiqishi uchun
           children: [
-            const SizedBox(height: 16),
+            const SizedBox(height: 24),
             Center(
               child: CircleAvatar(
                 radius: 48,
@@ -519,7 +555,65 @@ class _AuthenticatedProfileState extends State<_AuthenticatedProfile> {
                       ),
                     ),
             ),
-            const SizedBox(height: 32),
+            const SizedBox(height: 24),
+
+            // ─────────────────────────────────────────────────────────────
+            // ⭐ USTA + KREDIT BLOK — FAQAT USTALAR UCHUN
+            // ─────────────────────────────────────────────────────────────
+            // 3 ta gating:
+            //   1. AuthBloc.isMaster yoki canUseCredit (UX gating)
+            //   2. MasterStatusModel.isMaster (backend authoritative)
+            //   3. isLoading bo'lsa skeleton, errorMessage bo'lsa hide
+            BlocBuilder<AuthBloc, AuthState>(
+              buildWhen: (prev, curr) =>
+                  (prev is AuthAuthenticated) != (curr is AuthAuthenticated),
+              builder: (context, authState) {
+                final isMasterUI = authState is AuthAuthenticated &&
+                    (authState.isMaster || authState.canUseCredit);
+                if (!isMasterUI) return const SizedBox.shrink();
+
+                return BlocProvider.value(
+                  value: sl<MasterCreditCubit>(),
+                  child: BlocBuilder<MasterCreditCubit, MasterCreditState>(
+                    builder: (context, mcState) {
+                      // Birinchi yuklanish — skeleton
+                      if (mcState.isLoading &&
+                          mcState.lastFetchedAt == null) {
+                        return const _MasterCreditSkeleton();
+                      }
+                      // Backend usta deb tasdiqlamasa, hech narsa ko'rsatmaymiz
+                      if (!mcState.shouldShowCards) {
+                        return const SizedBox.shrink();
+                      }
+                      return Column(
+                        children: [
+                          MasterStatusCard(status: mcState.master),
+                          const SizedBox(height: 12),
+                          CreditStatusCard(
+                            status: mcState.credit,
+                            onPayTap: mcState.credit.unpaidCreditOrderId == null
+                                ? null
+                                : () {
+                                    // Buyurtmaga o'tish
+                                    context.push(
+                                        '/my-orders?highlight=${mcState.credit.unpaidCreditOrderId}');
+                                  },
+                          ),
+                          const SizedBox(height: 24),
+                        ],
+                      );
+                    },
+                  ),
+                );
+              },
+            ),
+
+            // Qolgan content uchun 16 padding
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: Column(
+                children: [
+                  const SizedBox(height: 8),
             _menuTile(
               theme,
               icon: Icons.receipt_long,
@@ -589,9 +683,12 @@ class _AuthenticatedProfileState extends State<_AuthenticatedProfile> {
                 padding: const EdgeInsets.symmetric(vertical: 16),
               ),
             ),
-          ],
-        ),
-      ),
+                ], // Column children'lari
+              ), // Column
+            ), // Padding
+          ], // ListView children'lari
+        ), // ListView
+      ), // RefreshIndicator
     );
   }
 
@@ -641,5 +738,37 @@ class _AuthenticatedProfileState extends State<_AuthenticatedProfile> {
         sl<AuthBloc>().add(const LogoutEvent());
       }
     });
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// MASTER + CREDIT SKELETON — birinchi yuklanish vaqtidagi placeholder
+// ═══════════════════════════════════════════════════════════════════════════════
+
+class _MasterCreditSkeleton extends StatelessWidget {
+  const _MasterCreditSkeleton();
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    Widget _shimmer({required double height}) {
+      return Container(
+        margin: const EdgeInsets.symmetric(horizontal: 16),
+        height: height,
+        decoration: BoxDecoration(
+          color: theme.colorScheme.surfaceContainerHighest,
+          borderRadius: BorderRadius.circular(20),
+        ),
+      );
+    }
+
+    return Column(
+      children: [
+        _shimmer(height: 180), // Master card placeholder
+        const SizedBox(height: 12),
+        _shimmer(height: 130), // Credit card placeholder
+        const SizedBox(height: 24),
+      ],
+    );
   }
 }

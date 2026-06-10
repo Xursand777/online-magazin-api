@@ -65,6 +65,10 @@ class ApiConstants {
   static const String cartItems = '/api/cart/items/';
   static const String syncLocalCart = '/api/cart/sync-local/';
   static const String orders = '/api/orders/';
+
+  // ─── Usta status + Muddatli to'lov (FAQAT ustalar uchun) ──────────────────
+  static const String masterStatus = '/api/master/status/';
+  static const String creditStatus = '/api/orders/credit-status/';
   static const String ordersFromCart = '/api/orders/from-cart/';
   static const String ordersQuick = '/api/orders/quick/';
 
