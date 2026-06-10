@@ -5,7 +5,10 @@ import 'package:go_router/go_router.dart';
 import '../../../../core/di/injection_container.dart';
 import '../../../../core/network/api_client.dart';
 import '../../../../core/network/api_constants.dart';
+import '../../../../core/widgets/coming_soon_sheet.dart';
 import '../../../auth/presentation/bloc/auth_bloc.dart';
+import '../cubit/favorites_cubit.dart';
+import '../cubit/favorites_state.dart';
 
 /// Profile sahifa — auth state'ga qarab 2 xil UI:
 ///   • AuthAuthenticated → foydalanuvchi ma'lumotlari, buyurtmalar, sozlamalar
@@ -144,11 +147,70 @@ class _GuestProfile extends StatelessWidget {
             icon: Icons.receipt_long_outlined,
             title: "Buyurtmalarim",
             subtitle: "Buyurtma tarixi va holati",
+            redirectPath: '/my-orders',
           ),
-          _LockedTile(
-            icon: Icons.favorite_outline,
-            title: "Sevimlilar",
-            subtitle: "Saqlangan mahsulotlar",
+          Card(
+            elevation: 0,
+            margin: const EdgeInsets.only(bottom: 8),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(14),
+              side: BorderSide(color: theme.colorScheme.outlineVariant),
+            ),
+            child: InkWell(
+              borderRadius: BorderRadius.circular(14),
+              onTap: () {
+                HapticFeedback.lightImpact();
+                context.push('/favorites');
+              },
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 42,
+                      height: 42,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: theme.colorScheme.surfaceContainerLow,
+                      ),
+                      child: BlocBuilder<FavoritesCubit, FavoritesState>(
+                        builder: (context, state) {
+                          final count = state is FavoritesLoaded ? state.favorites.length : 0;
+                          return Badge(
+                            isLabelVisible: count > 0,
+                            label: Text(count.toString()),
+                            backgroundColor: Colors.red,
+                            child: Icon(Icons.favorite_outline,
+                                size: 22, color: theme.colorScheme.onSurfaceVariant),
+                          );
+                        },
+                      ),
+                    ),
+                    const SizedBox(width: 14),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text("Sevimlilar",
+                              style: theme.textTheme.titleSmall
+                                  ?.copyWith(fontWeight: FontWeight.w700)),
+                          const SizedBox(height: 2),
+                          Text("Saqlangan mahsulotlar",
+                              style: theme.textTheme.bodySmall?.copyWith(
+                                color: theme.colorScheme.onSurfaceVariant,
+                              )),
+                        ],
+                      ),
+                    ),
+                    Icon(
+                      Icons.chevron_right_rounded,
+                      size: 22,
+                      color: theme.colorScheme.outline,
+                    ),
+                  ],
+                ),
+              ),
+            ),
           ),
           _LockedTile(
             icon: Icons.location_on_outlined,
@@ -173,12 +235,18 @@ class _GuestProfile extends StatelessWidget {
           _UnlockedTile(
             icon: Icons.help_outline_rounded,
             title: "Yordam markazi",
-            onTap: () {},
+            onTap: () => showComingSoonSheet(
+              context,
+              icon: Icons.support_agent_rounded,
+              title: "Yordam markazi",
+              description: "Tez-tez so'raladigan savollar, support bilan "
+                  "bog'lanish va qo'llanma tez orada qo'shiladi.",
+            ),
           ),
           _UnlockedTile(
             icon: Icons.info_outline_rounded,
             title: "Ilova haqida",
-            onTap: () {},
+            onTap: () => _showAboutDialog(context),
           ),
         ],
       ),
@@ -186,16 +254,51 @@ class _GuestProfile extends StatelessWidget {
   }
 }
 
+/// "Ilova haqida" professional dialog — versiya, copyright, va so'rovlar.
+void _showAboutDialog(BuildContext context) {
+  HapticFeedback.lightImpact();
+  showAboutDialog(
+    context: context,
+    applicationName: 'Bozor',
+    applicationVersion: '1.0.0',
+    applicationIcon: Container(
+      width: 64,
+      height: 64,
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.primary,
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: const Icon(
+        Icons.shopping_bag_rounded,
+        color: Colors.white,
+        size: 36,
+      ),
+    ),
+    applicationLegalese: '© 2026 Bozor. Barcha huquqlar himoyalangan.',
+    children: [
+      const SizedBox(height: 16),
+      const Text(
+        "Bozor — O'zbekistondagi online savdo platformasi. "
+        "Mahsulotlar, chegirmalar va tezkor yetkazib berish "
+        "imkoniyatlarini bir joyda taklif etamiz.",
+        style: TextStyle(height: 1.5),
+      ),
+    ],
+  );
+}
+
 /// Lock'langan bo'lim tile — bosilsa login sheet ochiladi.
 class _LockedTile extends StatelessWidget {
   final IconData icon;
   final String title;
   final String subtitle;
+  final String redirectPath;
 
   const _LockedTile({
     required this.icon,
     required this.title,
     required this.subtitle,
+    this.redirectPath = '/profile',
   });
 
   @override
@@ -212,7 +315,7 @@ class _LockedTile extends StatelessWidget {
         borderRadius: BorderRadius.circular(14),
         onTap: () {
           HapticFeedback.lightImpact();
-          context.push('/auth?redirect=/profile');
+          context.push('/auth?redirect=$redirectPath');
         },
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
@@ -411,25 +514,68 @@ class _AuthenticatedProfileState extends State<_AuthenticatedProfile> {
               theme,
               icon: Icons.receipt_long,
               title: 'Mening buyurtmalarim',
-              onTap: () {},
+              onTap: () {
+                context.push('/my-orders');
+              },
             ),
+            BlocBuilder<FavoritesCubit, FavoritesState>(
+              builder: (context, state) {
+                final count = state is FavoritesLoaded ? state.favorites.length : 0;
+                return _menuTile(
+                  theme,
+                  icon: Icons.favorite_border,
+                  title: 'Sevimlilar',
+                  badgeCount: count,
+                  onTap: () {
+                    context.push('/favorites');
+                  },
+                );
+              },
+            ),
+            // Mening manzillarim — Backend /api/addresses/ allaqachon mavjud,
+            // lekin mobile UI hali yozilmagan. ComingSoonSheet bilan
+            // foydalanuvchi xabardor qilinadi (Amazon/Wildberries usuli).
             _menuTile(
               theme,
               icon: Icons.location_on_outlined,
               title: 'Mening manzillarim',
-              onTap: () {},
+              onTap: () => showComingSoonSheet(
+                context,
+                icon: Icons.location_on_outlined,
+                title: "Mening manzillarim",
+                description: "Yetkazib berish manzillaringizni saqlash va "
+                    "boshqarish imkoniyati tez orada qo'shiladi. "
+                    "Bir nechta manzil saqlay olasiz va checkout vaqtida "
+                    "tezda tanlay olasiz.",
+              ),
             ),
+            // To'lov usullari — kelajakda Click, Payme integratsiyasi
             _menuTile(
               theme,
               icon: Icons.credit_card,
-              title: 'To\'lov usullari',
-              onTap: () {},
+              title: "To'lov usullari",
+              onTap: () => showComingSoonSheet(
+                context,
+                icon: Icons.credit_card_rounded,
+                title: "To'lov usullari",
+                description: "Click, Payme, Uzcard va Humo kartalaringizni "
+                    "saqlash va tezkor to'lov qilish imkoniyati tez orada "
+                    "qo'shiladi.",
+              ),
             ),
+            // Sozlamalar — i18n, push notifications va boshqalar
             _menuTile(
               theme,
               icon: Icons.settings_outlined,
               title: 'Sozlamalar',
-              onTap: () {},
+              onTap: () => showComingSoonSheet(
+                context,
+                icon: Icons.settings_rounded,
+                title: "Sozlamalar",
+                description: "Til tanlash (o'zbek/rus/ingliz), bildirishnomalar, "
+                    "qorong'u rejim va boshqa sozlamalar tez orada "
+                    "qo'shiladi.",
+              ),
             ),
             const SizedBox(height: 32),
             ElevatedButton.icon(
@@ -453,9 +599,16 @@ class _AuthenticatedProfileState extends State<_AuthenticatedProfile> {
     required IconData icon,
     required String title,
     required VoidCallback onTap,
+    int badgeCount = 0,
   }) {
     return ListTile(
-      leading: Icon(icon, color: theme.colorScheme.onSurfaceVariant),
+      leading: badgeCount > 0
+          ? Badge(
+              label: Text(badgeCount.toString()),
+              backgroundColor: Colors.red,
+              child: Icon(icon, color: theme.colorScheme.onSurfaceVariant),
+            )
+          : Icon(icon, color: theme.colorScheme.onSurfaceVariant),
       title: Text(title, style: theme.textTheme.bodyLarge),
       trailing: Icon(Icons.chevron_right, color: theme.colorScheme.outline),
       onTap: onTap,

@@ -7,6 +7,7 @@ import '../../../../core/di/injection_container.dart';
 import '../../../../core/storage/local_storage.dart';
 import '../../../cart/presentation/bloc/cart_bloc.dart';
 import '../../../admin/presentation/bloc/admin_bloc.dart';
+import '../../../profile/presentation/cubit/favorites_cubit.dart';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // EVENTS
@@ -38,6 +39,23 @@ class VerifyOtpEvent extends AuthEvent {
   const VerifyOtpEvent(this.phone, this.otp);
   @override
   List<Object?> get props => [phone, otp];
+}
+
+class RegisterEvent extends AuthEvent {
+  final String phone;
+  final String password;
+  final String confirmPassword;
+  final bool termsAccepted;
+
+  const RegisterEvent({
+    required this.phone,
+    required this.password,
+    required this.confirmPassword,
+    required this.termsAccepted,
+  });
+
+  @override
+  List<Object?> get props => [phone, password, confirmPassword, termsAccepted];
 }
 
 /// Foydalanuvchi o'zi tizimdan chiqdi.
@@ -120,6 +138,7 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     on<AppStartedEvent>  (_onAppStarted);
     on<SendOtpEvent>     (_onSendOtp);
     on<VerifyOtpEvent>   (_onVerifyOtp);
+    on<RegisterEvent>    (_onRegister);
     on<LogoutEvent>      (_onLogout);
     on<_ForceLogoutEvent>(_onForceLogout);
 
@@ -150,11 +169,12 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
       emit(AuthAuthenticated(
           isAdmin: admin, isMaster: isMaster, canUseCredit: canUseCredit));
 
-      // ⭐ APP RESTART CART SYNC
-      // Foydalanuvchi sayt'da yoki boshqa qurilmada cart'iga mahsulot
-      // qo'shgan bo'lishi mumkin. App ochilganda fresh server cart fetch
-      // qilamiz — local stale bo'lmasin.
+      // ⭐ APP RESTART SINKRONIZATSIYA (Cart + Favorites)
+      // Foydalanuvchi sayt'da yoki boshqa qurilmada cart yoki sevimlilarga
+      // mahsulot qo'shgan bo'lishi mumkin. App ochilganda fresh server
+      // ma'lumoti fetch qilamiz — local stale bo'lmasin.
       _syncCartSafely();
+      _syncFavoritesSafely();
     } else {
       emit(AuthUnauthenticated());
     }
@@ -166,6 +186,26 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
   ) async {
     emit(AuthLoading());
     try {
+      final debugCode = await repository.sendOtp(event.phone);
+      emit(AuthOtpSent(event.phone, debugCode: debugCode));
+    } catch (e) {
+      emit(AuthFailure(_toUserMessage(e)));
+    }
+  }
+
+  Future<void> _onRegister(
+    RegisterEvent event,
+    Emitter<AuthState> emit,
+  ) async {
+    emit(AuthLoading());
+    try {
+      await repository.register(
+        phone: event.phone,
+        password: event.password,
+        confirmPassword: event.confirmPassword,
+        termsAccepted: event.termsAccepted,
+      );
+      // Ro'yxatdan o'tgandan so'ng, OTP kodini so'raymiz (tizimga kirish uchun)
       final debugCode = await repository.sendOtp(event.phone);
       emit(AuthOtpSent(event.phone, debugCode: debugCode));
     } catch (e) {
@@ -190,22 +230,23 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
       emit(AuthAuthenticated(
           isAdmin: isAdmin, isMaster: isMaster, canUseCredit: canUseCredit));
 
-      // ⭐ KROSS-PLATFORM CART SINKRONIZATSIYASI
+      // ⭐ KROSS-PLATFORM SINKRONIZATSIYA (Cart + Favorites)
       //
-      // Foydalanuvchi mehmon sifatida cart'ga mahsulot qo'shgan bo'lishi mumkin.
-      // Login bo'lgandan keyin uni server'dagi USER cart bilan birlashtirish kerak.
+      // Foydalanuvchi mehmon sifatida cart va sevimliga mahsulot qo'shgan
+      // bo'lishi mumkin. Login bo'lgandan keyin ularni server bilan
+      // birlashtirish KRITIK — aks holda ma'lumotlar yetim qoladi va sayt'da
+      // ko'rinmaydi.
       //
-      // Aks holda:
-      //   • Mobil mehmon → cart guest_session_id ostida saqlanadi
-      //   • Login bo'ldi → JWT yuboriladi, server endi USER cart'iga qaraydi (bo'sh)
-      //   • Sayt'da kirsa USER cart bo'sh ko'rinadi (mobile items orphaned)
+      // 1. Cart sync (mavjud edi):
+      //    POST /api/cart/sync-local/ — guest items'ni user_cart'ga merge
       //
-      // SyncCartWithServer:
-      //   • Local items bo'lsa: POST /api/cart/sync-local/ — merge qilinadi
-      //   • Local bo'sh bo'lsa: GET /api/cart/ — server USER cart fetch
+      // 2. Favorites sync (YANGI):
+      //    POST /api/products/favorites/sync/ — guest favorites'ni
+      //    user_favorites'ga merge (idempotent — duplicatesiz)
       //
-      // Natija: mobile + sayt bir xil cart ko'rsatadi.
+      // Natija: mobile va sayt 100% sinxron — cart va sevimlilar bir xil.
       _syncCartSafely();
+      _syncFavoritesSafely();
     } catch (e) {
       emit(AuthFailure(_toUserMessage(e)));
     }
@@ -218,6 +259,27 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
       sl<CartBloc>().add(const SyncCartWithServer());
     } catch (_) {
       // CartBloc DI'da yo'q yoki boshqa xato — login muvaffaqiyatli bo'ldi
+    }
+  }
+
+  /// Favorites sync'ni xavfsiz chaqiradi.
+  ///
+  /// Cart bilan bir xil pattern: mehmon sifatida sevimliga qo'shilgan
+  /// mahsulotlar login bo'lgandan keyin server bilan birlashtiriladi.
+  /// Backend `POST /api/products/favorites/sync/` allaqachon idempotent — bir xil
+  /// mahsulot 2 marta yuborilsa ham xatosiz ishlaydi.
+  ///
+  /// Stsenariy:
+  ///   • Mehmon ❤️ bosib 5 ta mahsulot saqladi (lokal Hive)
+  ///   • Login bo'ldi → bu metod chaqiriladi
+  ///   • Server: user_favorites += guest_favorites (deduplicate)
+  ///   • Lokal: server fresh ro'yxat bilan yangilanadi
+  ///   • Sayt'da kirsa: AYNI sevimlilar ro'yxati
+  void _syncFavoritesSafely() {
+    try {
+      sl<FavoritesCubit>().syncFavoritesWithServer();
+    } catch (_) {
+      // FavoritesCubit DI'da yo'q — login muvaffaqiyatli bo'ldi
     }
   }
 

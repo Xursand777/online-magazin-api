@@ -29,6 +29,24 @@ class CartRepository {
   /// Lokal Hive'dan o'qish — app ochilganda darhol UI ko'rsatish uchun.
   List<CartItemModel> getCartItemsLocal() {
     final cartBox = LocalStorage.cartBox;
+
+    // Check guest cart expiration (3 days limit)
+    final guestCartUpdatedAtStr = LocalStorage.settingsBox.get('guest_cart_updated_at') as String?;
+    if (guestCartUpdatedAtStr != null) {
+      try {
+        final guestCartUpdatedAt = DateTime.parse(guestCartUpdatedAtStr);
+        final difference = DateTime.now().difference(guestCartUpdatedAt);
+        if (difference.inDays >= 3) {
+          // Guest cart expired! Clear local storage and delete the timestamp.
+          cartBox.clear();
+          LocalStorage.settingsBox.delete('guest_cart_updated_at');
+          return [];
+        }
+      } catch (_) {
+        // Parse error, ignore
+      }
+    }
+
     final List<CartItemModel> items = [];
     for (var key in cartBox.keys) {
       final String? jsonString = cartBox.get(key);
@@ -45,12 +63,22 @@ class CartRepository {
 
   /// Server'dan fresh cart oladi va lokalga yozadi.
   Future<List<CartItemModel>> fetchCartFromServer() async {
+    final isLoggedIn = await apiClient.tokenService.hasTokens();
+    if (!isLoggedIn) {
+      return getCartItemsLocal();
+    }
     try {
       final response = await apiClient.dio.get(ApiConstants.cart);
       return _parseAndSaveCart(response.data);
     } catch (_) {
       return getCartItemsLocal();
     }
+  }
+
+  /// Helper to update the guest cart modification timestamp.
+  Future<void> _updateGuestCartTimestamp() async {
+    final nowStr = DateTime.now().toIso8601String();
+    await LocalStorage.settingsBox.put('guest_cart_updated_at', nowStr);
   }
 
   /// Mahsulotni (variant bilan birga) savatga qo'shadi.
@@ -71,18 +99,23 @@ class CartRepository {
     }
     await _saveLocalOnly(tempItems);
 
-    try {
-      final response = await apiClient.dio.post(
-        ApiConstants.cartItems,
-        data: {
-          'product_id': product.id,
-          'quantity': quantity,
-          if (product.variantId != null) 'variant_id': product.variantId,
-        },
-      );
-      _parseAndSaveCart(response.data);
-    } catch (_) {
-      // Tarmoq xatosi — keyingi syncCart vaqtida tuzatiladi
+    final isLoggedIn = await apiClient.tokenService.hasTokens();
+    if (isLoggedIn) {
+      try {
+        final response = await apiClient.dio.post(
+          ApiConstants.cartItems,
+          data: {
+            'product_id': product.id,
+            'quantity': quantity,
+            if (product.variantId != null) 'variant_id': product.variantId,
+          },
+        );
+        _parseAndSaveCart(response.data);
+      } catch (_) {
+        // Tarmoq xatosi — keyingi syncCart vaqtida tuzatiladi
+      }
+    } else {
+      await _updateGuestCartTimestamp();
     }
   }
 
@@ -95,15 +128,20 @@ class CartRepository {
     );
     await _saveLocalOnly(tempItems);
 
-    if (itemToRemove?.id != null) {
-      try {
-        final response = await apiClient.dio.delete(
-          '${ApiConstants.cartItems}${itemToRemove!.id}/',
-        );
-        _parseAndSaveCart(response.data);
-      } catch (_) {
-        // Tarmoq xatosi
+    final isLoggedIn = await apiClient.tokenService.hasTokens();
+    if (isLoggedIn) {
+      if (itemToRemove?.id != null) {
+        try {
+          final response = await apiClient.dio.delete(
+            '${ApiConstants.cartItems}${itemToRemove!.id}/',
+          );
+          _parseAndSaveCart(response.data);
+        } catch (_) {
+          // Tarmoq xatosi
+        }
       }
+    } else {
+      await _updateGuestCartTimestamp();
     }
   }
 
@@ -128,19 +166,24 @@ class CartRepository {
     tempItems[idx] = updatedItem;
     await _saveLocalOnly(tempItems);
 
-    if (updatedItem.id != null) {
-      try {
-        final response = await apiClient.dio.patch(
-          '${ApiConstants.cartItems}${updatedItem.id}/',
-          data: {'quantity': quantity},
-        );
-        _parseAndSaveCart(response.data);
-      } catch (_) {
-        // Tarmoq xatosi
+    final isLoggedIn = await apiClient.tokenService.hasTokens();
+    if (isLoggedIn) {
+      if (updatedItem.id != null) {
+        try {
+          final response = await apiClient.dio.patch(
+            '${ApiConstants.cartItems}${updatedItem.id}/',
+            data: {'quantity': quantity},
+          );
+          _parseAndSaveCart(response.data);
+        } catch (_) {
+          // Tarmoq xatosi
+        }
+      } else {
+        // ID yo'q — yangi qo'shilgan, qayta POST orqali ID olish kerak
+        await addToCart(updatedItem.product, quantity: quantity);
       }
     } else {
-      // ID yo'q — yangi qo'shilgan, qayta POST orqali ID olish kerak
-      await addToCart(updatedItem.product, quantity: quantity);
+      await _updateGuestCartTimestamp();
     }
   }
 
@@ -156,44 +199,50 @@ class CartRepository {
   /// Endi: server cart'ni avval olamiz, har bir item'ni DELETE qilamiz,
   /// keyin lokal tozalanadi. Server bilan local doim sinxron.
   Future<void> clearCart() async {
-    // Avval server'dan fresh cart olamiz (lokal stale bo'lishi mumkin)
-    List<CartItemModel> serverItems;
-    try {
-      final response = await apiClient.dio.get(ApiConstants.cart);
-      final cartData = response.data as Map<String, dynamic>;
-      final itemsList = cartData['items'] as List<dynamic>? ?? [];
-      serverItems = itemsList
-          .map((rawItem) {
-            final i = rawItem as Map<String, dynamic>;
-            return CartItemModel(
-              id: i['id'] as int?,
-              product: ProductModel.fromJson(
-                Map<String, dynamic>.from(i['product_details'] as Map),
-              ),
-              quantity: 0, // qiymat muhim emas, faqat ID kerak
-            );
-          })
-          .toList();
-    } catch (_) {
-      // Server xato — lokal bilan o'tamiz
-      serverItems = getCartItemsLocal();
-    }
-
-    // Har bir item'ni server'dan DELETE qilamiz (parallel).
-    // Birortasi xato bersa ham boshqalarining muvaffaqiyatiga ta'sir qilmaydi.
-    final deleteFutures = serverItems
-        .where((item) => item.id != null)
-        .map((item) async {
+    final isLoggedIn = await apiClient.tokenService.hasTokens();
+    if (isLoggedIn) {
+      // Avval server'dan fresh cart olamiz (lokal stale bo'lishi mumkin)
+      List<CartItemModel> serverItems;
       try {
-        await apiClient.dio.delete('${ApiConstants.cartItems}${item.id}/');
+        final response = await apiClient.dio.get(ApiConstants.cart);
+        final cartData = response.data as Map<String, dynamic>;
+        final itemsList = cartData['items'] as List<dynamic>? ?? [];
+        serverItems = itemsList
+            .map((rawItem) {
+              final i = rawItem as Map<String, dynamic>;
+              return CartItemModel(
+                id: i['id'] as int?,
+                product: ProductModel.fromJson(
+                  Map<String, dynamic>.from(i['product_details'] as Map),
+                ),
+                quantity: 0, // qiymat muhim emas, faqat ID kerak
+              );
+            })
+            .toList();
       } catch (_) {
-        // Item allaqachon o'chirilgan yoki tarmoq xatosi — silently ignore
+        // Server xato — lokal bilan o'tamiz
+        serverItems = getCartItemsLocal();
       }
-    });
-    await Future.wait(deleteFutures);
 
-    // Lokal'ni tozalaymiz
-    await LocalStorage.cartBox.clear();
+      // Har bir item'ni server'dan DELETE qilamiz (parallel).
+      // Birortasi xato bersa ham boshqalarining muvaffaqiyatiga ta'sir qilmaydi.
+      final deleteFutures = serverItems
+          .where((item) => item.id != null)
+          .map((item) async {
+        try {
+          await apiClient.dio.delete('${ApiConstants.cartItems}${item.id}/');
+        } catch (_) {
+          // Item allaqachon o'chirilgan yoki tarmoq xatosi — silently ignore
+        }
+      });
+      await Future.wait(deleteFutures);
+
+      // Lokal'ni tozalaymiz
+      await LocalStorage.cartBox.clear();
+    } else {
+      await LocalStorage.cartBox.clear();
+      await LocalStorage.settingsBox.delete('guest_cart_updated_at');
+    }
   }
 
   /// Login bo'lgandan keyin lokal guest cart'ni server cart'ga merge qiladi.
@@ -218,6 +267,10 @@ class CartRepository {
       final cartData = response.data is Map && (response.data as Map).containsKey('cart')
           ? response.data['cart'] as Map<String, dynamic>
           : response.data as Map<String, dynamic>;
+
+      // Muvaffaqiyatli sinxronizatsiyadan keyin mehmon savatchasi timestamp'ini o'chiramiz.
+      await LocalStorage.settingsBox.delete('guest_cart_updated_at');
+
       return _parseAndSaveCart(cartData);
     } catch (_) {
       return localItems;

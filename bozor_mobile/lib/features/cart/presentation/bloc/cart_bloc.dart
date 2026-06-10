@@ -123,10 +123,14 @@ class CartBloc extends Bloc<CartEvent, CartState> {
     on<SyncCartWithServer>(_onSyncCartWithServer);
   }
 
-  void _onLoadCart(LoadCart event, Emitter<CartState> emit) {
+  Future<void> _onLoadCart(LoadCart event, Emitter<CartState> emit) async {
     final items = repository.getCartItemsLocal();
     emit(CartState(items: items));
-    _fetchAndEmit(emit);
+
+    final isLoggedIn = await repository.apiClient.tokenService.hasTokens();
+    if (isLoggedIn) {
+      await _fetchAndEmit(emit);
+    }
   }
 
   Future<void> _fetchAndEmit(Emitter<CartState> emit) async {

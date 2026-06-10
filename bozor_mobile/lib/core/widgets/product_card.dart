@@ -1,9 +1,13 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:intl/intl.dart';
 import '../models/product_model.dart';
 import 'cart_action_button.dart';
+import '../../features/profile/presentation/cubit/favorites_cubit.dart';
+import '../../features/profile/presentation/cubit/favorites_state.dart';
 
 class ProductCard extends StatelessWidget {
   final ProductModel product;
@@ -75,19 +79,37 @@ class ProductCard extends StatelessWidget {
                   Positioned(
                     top: 8,
                     right: 8, // Heart icon to the top right
-                    child: Container(
-                      width: 32,
-                      height: 32,
-                      decoration: BoxDecoration(
-                        color: theme.colorScheme.surfaceContainerLowest
-                            .withValues(alpha: 0.8),
-                        shape: BoxShape.circle,
-                      ),
-                      child: Icon(
-                        Icons.favorite_border,
-                        size: 18,
-                        color: theme.colorScheme.onSurfaceVariant,
-                      ),
+                    child: BlocBuilder<FavoritesCubit, FavoritesState>(
+                      builder: (context, state) {
+                        final isFavorite = context.read<FavoritesCubit>().isProductFavorite(product.id);
+                        return GestureDetector(
+                          onTap: () {
+                            HapticFeedback.lightImpact();
+                            context.read<FavoritesCubit>().toggleFavorite(product);
+                          },
+                          child: Container(
+                            width: 32,
+                            height: 32,
+                            decoration: BoxDecoration(
+                              color: theme.colorScheme.surfaceContainerLowest
+                                  .withValues(alpha: 0.8),
+                              shape: BoxShape.circle,
+                              boxShadow: [
+                                BoxShadow(
+                                  color: Colors.black.withValues(alpha: 0.05),
+                                  blurRadius: 4,
+                                  offset: const Offset(0, 2),
+                                )
+                              ],
+                            ),
+                            child: Icon(
+                              isFavorite ? Icons.favorite_rounded : Icons.favorite_border_rounded,
+                              size: 18,
+                              color: isFavorite ? Colors.red : theme.colorScheme.onSurfaceVariant,
+                            ),
+                          ),
+                        );
+                      },
                     ),
                   ),
                 ],

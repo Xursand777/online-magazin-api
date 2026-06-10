@@ -41,6 +41,9 @@ import '../../features/admin/presentation/bloc/admin_stock_bloc.dart';
 import '../di/injection_container.dart';
 import '../../core/models/product_model.dart';
 import '../widgets/main_screen.dart';
+import '../../features/profile/presentation/pages/my_orders_page.dart';
+import '../../features/profile/presentation/pages/favorites_page.dart';
+import '../../features/profile/presentation/cubit/my_orders_cubit.dart';
 
 // ── Auth Notifier ──────────────────────────────────────────────────────────
 // AuthBloc state o'zgarganda GoRouter'ga xabar beradi — redirect qayta tekshiriladi.
@@ -110,25 +113,15 @@ class AppRouter {
         final isAdminRoute = loc.startsWith('/admin');
 
         if (isLoggedIn) {
-          final isAdmin =
-              authState is AuthAuthenticated && authState.isAdmin;
+          final isAdmin = authState.isAdmin;
 
           if (isAdmin) {
             // 2a. Admin — hamisha admin panelga
             if (isAuthRoute) return '/admin';
             if (!isAdminRoute) return '/admin';
           } else {
-            // 2b. Oddiy foydalanuvchi
-            if (isAuthRoute) {
-              // ?redirect= bo'lsa o'sha sahifaga; /auth ga emas
-              final redirect = state.uri.queryParameters['redirect'];
-              if (redirect != null &&
-                  redirect.startsWith('/') &&
-                  !redirect.startsWith('/auth')) {
-                return redirect;
-              }
-              return '/';
-            }
+            // 2b. Oddiy foydalanuvchi — doim Home (/) sahifasiga
+            if (isAuthRoute) return '/';
             // Oddiy foydalanuvchi /admin sahifalariga kirolmaydi
             if (isAdminRoute) return '/';
           }
@@ -283,6 +276,17 @@ class AppRouter {
               products:   e['products']   as List<ProductModel>,
             );
           },
+        ),
+        GoRoute(
+          path: '/my-orders',
+          builder: (context, _) => BlocProvider(
+            create: (_) => sl<MyOrdersCubit>()..loadOrders(),
+            child: const MyOrdersPage(),
+          ),
+        ),
+        GoRoute(
+          path: '/favorites',
+          builder: (context, _) => const FavoritesPage(),
         ),
         GoRoute(
           path: '/category/:id',

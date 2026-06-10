@@ -4,6 +4,7 @@ class LocalStorage {
   static const String cartBoxName = 'cartBox';
   static const String settingsBoxName = 'settingsBox';
   static const String searchHistoryBoxName = 'searchHistoryBox';
+  static const String favoritesBoxName = 'favoritesBox';
   // Phase 1.5 — Offline cache (API javoblari SWR pattern bilan)
   static const String offlineCacheBoxName = 'offlineCacheBox';
 
@@ -12,6 +13,7 @@ class LocalStorage {
     await Hive.openBox(cartBoxName);
     await Hive.openBox(settingsBoxName);
     await Hive.openBox<String>(searchHistoryBoxName);
+    await Hive.openBox(favoritesBoxName);
     await Hive.openBox<String>(offlineCacheBoxName);
   }
 
@@ -34,6 +36,9 @@ class LocalStorage {
   static Box<String> get offlineCacheBox =>
       Hive.box<String>(offlineCacheBoxName);
 
+  // Favorites
+  static Box get favoritesBox => Hive.box(favoritesBoxName);
+
   /// Logout vaqtida butun foydalanuvchiga oid lokal ma'lumotlarni tozalaydi.
   ///
   /// ── NIMA UCHUN MUHIM ──────────────────────────────────────────────────────
@@ -49,6 +54,7 @@ class LocalStorage {
   static Future<void> clearAllUserData() async {
     await cartBox.clear();
     await searchHistoryBox.clear();
+    await favoritesBox.clear();
     // Phase 1.5 — keshlangan API javoblari (banners/categories'gacha)
     // Public narsalar texnik jihatdan PII emas, lekin xavfsizroq tozalash
     await offlineCacheBox.clear();

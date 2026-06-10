@@ -58,6 +58,9 @@ class ApiConstants {
 
   // ─── Profil / Savat / Buyurtma ────────────────────────────────────────────
   static const String profile = '/api/profile/';
+  static const String favorites = '/api/products/favorites/';
+  static const String favoriteToggle = '/api/products/favorites/toggle/';
+  static const String favoriteSync = '/api/products/favorites/sync/';
   static const String cart = '/api/cart/';
   static const String cartItems = '/api/cart/items/';
   static const String syncLocalCart = '/api/cart/sync-local/';

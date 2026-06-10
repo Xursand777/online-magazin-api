@@ -13,6 +13,7 @@ import 'core/widgets/app_version_gate.dart';
 import 'core/widgets/cold_start_banner.dart';
 import 'features/cart/presentation/bloc/cart_bloc.dart';
 import 'features/auth/presentation/bloc/auth_bloc.dart';
+import 'features/profile/presentation/cubit/favorites_cubit.dart';
 
 /// Sentry DSN — build vaqtida --dart-define=SENTRY_DSN=... orqali kelinadi.
 ///
@@ -146,6 +147,7 @@ class BozorApp extends StatelessWidget {
         // Singleton BLoC'lar — BlocProvider.value ishlatiladi (yopmaydi)
         BlocProvider<AuthBloc>.value(value: di.sl<AuthBloc>()),
         BlocProvider<CartBloc>.value(value: di.sl<CartBloc>()),
+        BlocProvider<FavoritesCubit>.value(value: di.sl<FavoritesCubit>()),
       ],
       child: MaterialApp.router(
         title: 'Bozor Mobile',
@@ -161,11 +163,15 @@ class BozorApp extends StatelessWidget {
           return MultiBlocListener(
             listeners: [
               BlocListener<AuthBloc, AuthState>(
-                listenWhen: (previous, current) =>
-                    previous is! AuthAuthenticated && current is AuthAuthenticated,
                 listener: (context, state) {
-                  // Foydalanuvchi tizimga kirganda savatchani server bilan sinxronlash
-                  context.read<CartBloc>().add(const SyncCartWithServer());
+                  if (state is AuthAuthenticated) {
+                    // Foydalanuvchi tizimga kirganda savatchani va sevimlilarni server bilan sinxronlash
+                    context.read<CartBloc>().add(const SyncCartWithServer());
+                    context.read<FavoritesCubit>().syncFavoritesWithServer();
+                  } else if (state is AuthUnauthenticated) {
+                    // Tizimdan chiqqanda sevimlilarni tozalash
+                    context.read<FavoritesCubit>().clearFavorites();
+                  }
                 },
               ),
             ],

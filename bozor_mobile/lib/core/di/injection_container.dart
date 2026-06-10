@@ -30,6 +30,10 @@ import '../../features/admin/presentation/bloc/admin_settings_bloc.dart';
 import '../../features/admin/presentation/bloc/admin_master_bloc.dart';
 import '../../features/admin/presentation/bloc/admin_staff_bloc.dart';
 import '../../features/admin/presentation/bloc/admin_stock_bloc.dart';
+import '../../features/profile/data/repositories/user_orders_repository.dart';
+import '../../features/profile/data/repositories/favorites_repository.dart';
+import '../../features/profile/presentation/cubit/my_orders_cubit.dart';
+import '../../features/profile/presentation/cubit/favorites_cubit.dart';
 
 final sl = GetIt.instance;
 
@@ -81,6 +85,12 @@ Future<void> init() async {
   );
   sl.registerLazySingleton<AdminRepository>(
     () => AdminRepository(apiClient: sl()),
+  );
+  sl.registerLazySingleton<UserOrdersRepository>(
+    () => UserOrdersRepository(apiClient: sl()),
+  );
+  sl.registerLazySingleton<FavoritesRepository>(
+    () => FavoritesRepository(apiClient: sl()),
   );
 
   // ── Auth: startup state detection ─────────────────────────────────────────
@@ -134,6 +144,10 @@ Future<void> init() async {
   sl.registerFactory<AdminStaffBloc>(    () => AdminStaffBloc(repository:     sl()));
   sl.registerFactory<AdminStockBloc>(    () => AdminStockBloc(repository:     sl()));
   sl.registerFactory<AdminSettingsBloc>( () => AdminSettingsBloc(repository:  sl()));
+  sl.registerFactory<MyOrdersCubit>(     () => MyOrdersCubit(repository:      sl()));
+  sl.registerLazySingleton<FavoritesCubit>(
+    () => FavoritesCubit(repository: sl())..loadFavorites(),
+  );
 
   // CartBloc — singleton (savatcha butun ilova bo'yicha bir xil)
   sl.registerLazySingleton<CartBloc>(

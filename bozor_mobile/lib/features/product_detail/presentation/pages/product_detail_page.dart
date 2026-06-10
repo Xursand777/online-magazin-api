@@ -1,3 +1,4 @@
+import 'package:flutter/services.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -10,6 +11,8 @@ import '../../../../core/widgets/login_required_sheet.dart';
 import '../../../../core/widgets/product_card.dart';
 import '../../../auth/presentation/bloc/auth_bloc.dart';
 import '../bloc/product_detail_bloc.dart';
+import '../../../profile/presentation/cubit/favorites_cubit.dart';
+import '../../../profile/presentation/cubit/favorites_state.dart';
 
 /// Mahsulot batafsil sahifa — variant tanlash bilan (sayt bilan bir xil).
 ///
@@ -48,7 +51,21 @@ class _ProductDetailView extends StatelessWidget {
       appBar: AppBar(
         title: Text(initialProduct.name, overflow: TextOverflow.ellipsis),
         actions: [
-          IconButton(icon: const Icon(Icons.favorite_border), onPressed: () {}),
+          BlocBuilder<FavoritesCubit, FavoritesState>(
+            builder: (context, state) {
+              final isFavorite = context.read<FavoritesCubit>().isProductFavorite(initialProduct.id);
+              return IconButton(
+                icon: Icon(
+                  isFavorite ? Icons.favorite : Icons.favorite_border,
+                  color: isFavorite ? Colors.red : null,
+                ),
+                onPressed: () {
+                  HapticFeedback.lightImpact();
+                  context.read<FavoritesCubit>().toggleFavorite(initialProduct);
+                },
+              );
+            },
+          ),
           IconButton(icon: const Icon(Icons.share), onPressed: () {}),
         ],
       ),

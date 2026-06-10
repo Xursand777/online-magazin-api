@@ -55,6 +55,29 @@ class AuthRepository {
     }
   }
 
+  /// Ro'yxatdan o'tkazish
+  Future<void> register({
+    required String phone,
+    required String password,
+    required String confirmPassword,
+    required bool termsAccepted,
+  }) async {
+    try {
+      await apiClient.dio.post(
+        ApiConstants.register,
+        data: {
+          'phone': '+998$phone',
+          'password': password,
+          'confirm_password': confirmPassword,
+          'terms_accepted': termsAccepted,
+        },
+      );
+    } on DioException catch (e) {
+      throw Exception(_messageFromError(e,
+          fallback: 'Ro\'yxatdan o\'tishda xatolik yuz berdi.'));
+    }
+  }
+
   Future<Map<String, dynamic>> getProfile() async {
     try {
       final response = await apiClient.dio.get(ApiConstants.profile);

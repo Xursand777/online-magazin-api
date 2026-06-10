@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
+import '../../features/cart/presentation/bloc/cart_bloc.dart';
 
 class MainScreen extends StatelessWidget {
   const MainScreen({super.key, required this.navigationShell});
@@ -24,23 +26,36 @@ class MainScreen extends StatelessWidget {
         onDestinationSelected: (index) => _onTap(context, index),
         backgroundColor: theme.colorScheme.surface,
         indicatorColor: theme.colorScheme.primary.withValues(alpha: 0.1),
-        destinations: const [
-          NavigationDestination(
+        destinations: [
+          const NavigationDestination(
             icon: Icon(Icons.home_outlined),
             selectedIcon: Icon(Icons.home),
             label: 'Home',
           ),
-          NavigationDestination(
+          const NavigationDestination(
             icon: Icon(Icons.grid_view_outlined),
             selectedIcon: Icon(Icons.grid_view),
             label: 'Catalog',
           ),
-          NavigationDestination(
-            icon: Icon(Icons.shopping_cart_outlined),
-            selectedIcon: Icon(Icons.shopping_cart),
-            label: 'Cart',
+          BlocBuilder<CartBloc, CartState>(
+            builder: (context, state) {
+              final count = state.totalItemCount;
+              return NavigationDestination(
+                icon: Badge(
+                  isLabelVisible: count > 0,
+                  label: Text(count.toString()),
+                  child: const Icon(Icons.shopping_cart_outlined),
+                ),
+                selectedIcon: Badge(
+                  isLabelVisible: count > 0,
+                  label: Text(count.toString()),
+                  child: const Icon(Icons.shopping_cart),
+                ),
+                label: 'Cart',
+              );
+            },
           ),
-          NavigationDestination(
+          const NavigationDestination(
             icon: Icon(Icons.person_outline),
             selectedIcon: Icon(Icons.person),
             label: 'Profile',
@@ -50,3 +65,4 @@ class MainScreen extends StatelessWidget {
     );
   }
 }
+
