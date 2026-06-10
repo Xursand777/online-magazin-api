@@ -10,7 +10,7 @@ import React, {
   type ReactNode,
   type SetStateAction,
 } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient, useInfiniteQuery } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import * as XLSX from 'xlsx';
 import { useAuthStore } from '../store/authStore';
@@ -27,6 +27,7 @@ import {
   adminGetOrders,
   adminGetProducts,
   adminGetReport,
+  adminGetReportOrders,
   adminUpdateBanner,
   adminUpdateOrderStatus,
   adminUpdateProduct,
@@ -4811,6 +4812,46 @@ const ReportsTab = () => {
     queryFn: () => adminGetReport(params).then((r) => r.data),
     staleTime: 30_000,
   });
+
+  // ⚠ REGRESSIYA TUZATILDI (commit 91499a8): cheklar endi alohida
+  // paginatsiyalangan endpoint orqali keladi (/orders/admin/report/orders/).
+  // AdminReportView'dan 'orders' maydoni olib tashlangan edi — sales tabi
+  // BO'SH ko'rinardi. Endi useInfiniteQuery bilan tartibli yuklanadi:
+  //   • Birinchi sahifa: 20 ta chek
+  //   • "Yana yuklash" tugmasi yoki skroll uchidagi avtomat fetchNextPage
+  //   • Sanani o'zgartirilsa avtomat qayta yuklanadi (queryKey'da params)
+  //   • Faqat 'sales' subTab faol bo'lganda yuklanadi (enabled)
+  const ordersInfQuery = useInfiniteQuery({
+    queryKey: ['admin-report-orders', params],
+    queryFn: ({ pageParam = 1 }) =>
+      adminGetReportOrders({
+        date_from: params.date_from,
+        date_to: params.date_to,
+        page: pageParam,
+        page_size: 20,
+      }).then((r) => r.data),
+    getNextPageParam: (lastPage) => {
+      if (!lastPage?.next) return undefined;
+      const m = /[?&]page=(\d+)/.exec(lastPage.next);
+      return m ? parseInt(m[1], 10) : undefined;
+    },
+    initialPageParam: 1,
+    enabled: subTab === 'sales', // faqat kerakli tabda
+    staleTime: 30_000,
+  });
+
+  // Barcha sahifalarning natijalarini bitta tekis massivga birlashtiramiz.
+  // Backend `order_by('-created_at')` — eng yangi tepada.
+  type ReportOrder = NonNullable<ReportData['orders']>[number];
+  const orders: ReportOrder[] = useMemo(
+    () =>
+      (ordersInfQuery.data?.pages ?? []).flatMap(
+        (p) => (p?.results as ReportOrder[]) ?? [],
+      ),
+    [ordersInfQuery.data],
+  );
+  const ordersTotalCount: number =
+    ordersInfQuery.data?.pages?.[0]?.count ?? orders.length;
   const summary: ReportSummary = data?.summary ?? {
     total_revenue: 0,
     total_discount: 0,
@@ -5097,29 +5138,35 @@ const ReportsTab = () => {
             )}
             {subTab === 'sales' && (
               <span className='ml-2 text-sm font-normal text-on-surface-variant'>
-                ({data?.orders?.length || 0} ta chek)
+                ({orders.length} / {ordersTotalCount} ta chek)
               </span>
             )}
           </h3>
         </div>
-        {isLoading ? (
+        {(subTab === 'general' && isLoading) ||
+        (subTab === 'sales' && ordersInfQuery.isLoading) ? (
           <div className='py-16 text-center'>
             <span className='material-symbols-outlined mb-2 block animate-spin text-5xl text-primary'>
               progress_activity
             </span>
             <p className='text-on-surface-variant'>Yuklanmoqda...</p>
           </div>
-        ) : isError ? (
+        ) : (subTab === 'general' && isError) ||
+          (subTab === 'sales' && ordersInfQuery.isError) ? (
           <div className='py-16 text-center'>
             <span className='material-symbols-outlined mb-2 block text-5xl text-error'>error</span>
             <button
-              onClick={() => refetch()}
+              onClick={() => {
+                if (subTab === 'sales') ordersInfQuery.refetch();
+                else refetch();
+              }}
               className='mt-3 rounded-lg bg-primary px-4 py-2 text-sm text-on-primary'
             >
               Qayta urinish
             </button>
           </div>
-        ) : (subTab === 'general' && filteredProducts.length === 0) || (subTab === 'sales' && (!data?.orders || data.orders.length === 0)) ? (
+        ) : (subTab === 'general' && filteredProducts.length === 0) ||
+          (subTab === 'sales' && orders.length === 0) ? (
           <div className='py-16 text-center'>
             <span className='material-symbols-outlined mb-2 block text-5xl text-outline'>
               inventory_2
@@ -5259,7 +5306,7 @@ const ReportsTab = () => {
                   chegirma → vaznli 5.05% (moliyaviy to'g'ri), oddiy o'rta
                   7.5% (adashtiruvchi). Vaznli — receiptDiscount/receiptOriginal.
                 */}
-                {(data?.orders ?? []).map((order, orderIndex) => {
+                {orders.map((order, orderIndex) => {
                   // Per-receipt total chegirma items'dan recompute (bottom JAMI
                   // bilan bir xil mantiq, eski cache'lar bilan ham to'g'ri).
                   const receiptOriginal = order.items.reduce(
@@ -5332,7 +5379,7 @@ const ReportsTab = () => {
                   </Fragment>
                   );
                 })}
-                {(!data?.orders || data.orders.length === 0) && (
+                {orders.length === 0 && (
                   <tr>
                     <td colSpan={7} className='py-8 text-center text-on-surface-variant'>
                       Ma'lumot topilmadi
@@ -5340,25 +5387,65 @@ const ReportsTab = () => {
                   </tr>
                 )}
               </tbody>
+              {/*
+                JAMI — faqat YUKLANGAN sahifalar uchun. Kelajakda backend
+                aggregated summary qaytarsa, bu JAMI to'liq count uchun
+                bo'ladi (count maydonidan emas, balki real backend totaldan).
+                Hozir loaded pages bo'yicha hisoblanadi.
+              */}
               <tfoot className='bg-surface-container border-t-2 border-outline-variant font-bold text-on-surface'>
                 <tr>
-                  <td colSpan={2} className='px-3 py-4 text-right uppercase'>Jami:</td>
+                  <td colSpan={2} className='px-3 py-4 text-right uppercase'>
+                    Jami {orders.length < ordersTotalCount ? `(yuklangan: ${orders.length}/${ordersTotalCount})` : ''}:
+                  </td>
                   <td className='px-3 py-4 text-center text-primary text-base'>
-                    {data?.orders?.reduce((acc, order) => acc + order.items.reduce((sum, item) => sum + item.quantity, 0), 0) || 0}
+                    {orders.reduce((acc, order) => acc + order.items.reduce((sum, item) => sum + item.quantity, 0), 0)}
                   </td>
                   <td className='px-3 py-4 text-right text-base'>
-                    {fmt(data?.orders?.reduce((acc, order) => acc + order.items.reduce((sum, item) => sum + (item.original_price * item.quantity), 0), 0) || 0)} so'm
+                    {fmt(orders.reduce((acc, order) => acc + order.items.reduce((sum, item) => sum + (item.original_price * item.quantity), 0), 0))} so'm
                   </td>
                   <td className='px-3 py-4 text-right text-primary text-base'>
-                    {fmt(data?.orders?.reduce((acc, order) => acc + order.total_price, 0) || 0)} so'm
+                    {fmt(orders.reduce((acc, order) => acc + order.total_price, 0))} so'm
                   </td>
                   <td className='px-3 py-4 text-center'></td>
                   <td className='px-3 py-4 text-right text-error text-base'>
-                    {fmt(data?.orders?.reduce((acc, order) => acc + order.items.reduce((sum, item) => sum + item.discount_amount, 0), 0) || 0)} so'm
+                    {fmt(orders.reduce((acc, order) => acc + order.items.reduce((sum, item) => sum + item.discount_amount, 0), 0))} so'm
                   </td>
                 </tr>
               </tfoot>
             </table>
+            {/* "Yana yuklash" tugmasi — keyingi sahifa borligi uchun */}
+            {ordersInfQuery.hasNextPage && (
+              <div className='py-4 text-center'>
+                <button
+                  type='button'
+                  onClick={() => ordersInfQuery.fetchNextPage()}
+                  disabled={ordersInfQuery.isFetchingNextPage}
+                  className='inline-flex items-center gap-2 rounded-lg bg-primary px-5 py-2.5 text-sm font-semibold text-on-primary hover:bg-primary/90 disabled:opacity-60'
+                >
+                  {ordersInfQuery.isFetchingNextPage ? (
+                    <>
+                      <span className='material-symbols-outlined animate-spin text-[18px]'>
+                        progress_activity
+                      </span>
+                      Yuklanmoqda...
+                    </>
+                  ) : (
+                    <>
+                      <span className='material-symbols-outlined text-[18px]'>
+                        expand_more
+                      </span>
+                      Yana yuklash ({ordersTotalCount - orders.length} ta qoldi)
+                    </>
+                  )}
+                </button>
+              </div>
+            )}
+            {!ordersInfQuery.hasNextPage && orders.length > 0 && (
+              <p className='py-3 text-center text-xs text-on-surface-variant opacity-70'>
+                Hammasi yuklandi
+              </p>
+            )}
           </div>
         )}
       </div>

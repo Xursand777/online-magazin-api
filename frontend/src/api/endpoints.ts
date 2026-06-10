@@ -115,6 +115,25 @@ export const adminGetReport = (params?: {
   period?: 'daily' | 'monthly' | 'yearly';
 }) => apiClient.get('/orders/admin/report/', { params });
 
+/**
+ * Cheklar — paginatsiyalangan ro'yxat (DELIVERED + RECEIVED).
+ *
+ * Regressiya tarixi: commit 91499a8 (3-iyun 2026) AdminReportView'dan
+ * `orders` maydonini olib tashladi va alohida endpoint yaratdi
+ * (cheklar ko'p bo'lganda paginatsiya uchun). Frontend Hisobotlar > Savdo
+ * tabi yangilanmagan edi → cheklar BUTUNLAY ko'rinmasdi.
+ *
+ * Backend: `/api/orders/admin/report/orders/` (AdminReportOrdersView)
+ * Javob: { count, next, previous, results: [Order, Order, ...] }
+ * page_size standart 20, max 100. useInfiniteQuery bilan infinite scroll.
+ */
+export const adminGetReportOrders = (params?: {
+  date_from?: string;
+  date_to?: string;
+  page?: number;
+  page_size?: number;
+}) => apiClient.get('/orders/admin/report/orders/', { params });
+
 export const adminGetExchangeRate = () => apiClient.get('/admin/exchange-rate/');
 export const adminUpdateExchangeRate = (data: { usd_rate: number | string }) =>
   apiClient.post('/admin/exchange-rate/', data);
