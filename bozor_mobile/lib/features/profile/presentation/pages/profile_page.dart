@@ -457,6 +457,16 @@ class _AuthenticatedProfileState extends State<_AuthenticatedProfile> {
           ),
         ),
         actions: [
+          // Tahrirlash — ism, familya va manzilni o'zgartirish uchun
+          IconButton(
+            onPressed: () async {
+              // Profile-edit dan true qaytsa, profile reload qilamiz
+              final updated = await context.push<bool>('/profile-edit');
+              if (updated == true && context.mounted) _loadProfile();
+            },
+            icon: const Icon(Icons.edit_outlined),
+            tooltip: 'Tahrirlash',
+          ),
           IconButton(
             onPressed: _loading ? null : _loadProfile,
             icon: const Icon(Icons.refresh),
@@ -532,22 +542,13 @@ class _AuthenticatedProfileState extends State<_AuthenticatedProfile> {
                 );
               },
             ),
-            // Mening manzillarim — Backend /api/addresses/ allaqachon mavjud,
-            // lekin mobile UI hali yozilmagan. ComingSoonSheet bilan
-            // foydalanuvchi xabardor qilinadi (Amazon/Wildberries usuli).
+            // Mening manzilim — yagona manzil saqlash (UserProfile.delivery_address)
+            // Tahrirlash sahifasiga olib boradi (ism + familya + manzil bir joyda)
             _menuTile(
               theme,
               icon: Icons.location_on_outlined,
-              title: 'Mening manzillarim',
-              onTap: () => showComingSoonSheet(
-                context,
-                icon: Icons.location_on_outlined,
-                title: "Mening manzillarim",
-                description: "Yetkazib berish manzillaringizni saqlash va "
-                    "boshqarish imkoniyati tez orada qo'shiladi. "
-                    "Bir nechta manzil saqlay olasiz va checkout vaqtida "
-                    "tezda tanlay olasiz.",
-              ),
+              title: 'Mening manzilim',
+              onTap: () => context.push('/profile-edit'),
             ),
             // To'lov usullari — kelajakda Click, Payme integratsiyasi
             _menuTile(

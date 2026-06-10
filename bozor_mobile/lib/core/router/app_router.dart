@@ -43,6 +43,7 @@ import '../../core/models/product_model.dart';
 import '../widgets/main_screen.dart';
 import '../../features/profile/presentation/pages/my_orders_page.dart';
 import '../../features/profile/presentation/pages/favorites_page.dart';
+import '../../features/profile/presentation/pages/profile_edit_page.dart';
 import '../../features/profile/presentation/cubit/my_orders_cubit.dart';
 
 // ── Auth Notifier ──────────────────────────────────────────────────────────
@@ -287,6 +288,10 @@ class AppRouter {
         GoRoute(
           path: '/favorites',
           builder: (context, _) => const FavoritesPage(),
+        ),
+        GoRoute(
+          path: '/profile-edit',
+          builder: (context, _) => const ProfileEditPage(),
         ),
         GoRoute(
           path: '/category/:id',

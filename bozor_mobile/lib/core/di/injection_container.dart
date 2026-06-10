@@ -32,6 +32,7 @@ import '../../features/admin/presentation/bloc/admin_staff_bloc.dart';
 import '../../features/admin/presentation/bloc/admin_stock_bloc.dart';
 import '../../features/profile/data/repositories/user_orders_repository.dart';
 import '../../features/profile/data/repositories/favorites_repository.dart';
+import '../../features/profile/data/repositories/profile_repository.dart';
 import '../../features/profile/presentation/cubit/my_orders_cubit.dart';
 import '../../features/profile/presentation/cubit/favorites_cubit.dart';
 
@@ -91,6 +92,9 @@ Future<void> init() async {
   );
   sl.registerLazySingleton<FavoritesRepository>(
     () => FavoritesRepository(apiClient: sl()),
+  );
+  sl.registerLazySingleton<ProfileRepository>(
+    () => ProfileRepository(apiClient: sl()),
   );
 
   // ── Auth: startup state detection ─────────────────────────────────────────
