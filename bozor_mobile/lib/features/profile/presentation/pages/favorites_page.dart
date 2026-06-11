@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
+import '../../../../core/i18n/language_extension.dart';
 import '../../../../core/widgets/product_card.dart';
 import '../cubit/favorites_cubit.dart';
 import '../cubit/favorites_state.dart';
@@ -34,7 +35,7 @@ class _FavoritesPageState extends State<FavoritesPage> {
               countSuffix = " (${state.favorites.length})";
             }
             return Text(
-              "Sevimlilar$countSuffix",
+              "${context.tr('favorites.title')}$countSuffix",
               style: theme.textTheme.titleLarge?.copyWith(
                 fontWeight: FontWeight.bold,
               ),
@@ -135,7 +136,7 @@ class _FavoritesPageState extends State<FavoritesPage> {
             ),
             const SizedBox(height: 24),
             Text(
-              "Sevimlilar ro'yxati bo'sh",
+              context.tr('favorites.empty'),
               textAlign: TextAlign.center,
               style: theme.textTheme.headlineSmall?.copyWith(
                 fontWeight: FontWeight.w800,
@@ -144,7 +145,7 @@ class _FavoritesPageState extends State<FavoritesPage> {
             ),
             const SizedBox(height: 12),
             Text(
-              "Sizga yoqqan mahsulotlarni keyinroq ko'rish yoki sotib olish uchun ularni sevimlilarga qo'shing.",
+              context.tr('favorites.emptyDescription'),
               textAlign: TextAlign.center,
               style: theme.textTheme.bodyMedium?.copyWith(
                 color: theme.colorScheme.onSurfaceVariant,
@@ -165,9 +166,9 @@ class _FavoritesPageState extends State<FavoritesPage> {
                     borderRadius: BorderRadius.circular(12),
                   ),
                 ),
-                child: const Text(
-                  "Xaridni boshlash",
-                  style: TextStyle(fontWeight: FontWeight.bold),
+                child: Text(
+                  context.tr('cart.goShopping'),
+                  style: const TextStyle(fontWeight: FontWeight.bold),
                 ),
               ),
             ),
@@ -186,9 +187,9 @@ class _FavoritesPageState extends State<FavoritesPage> {
           children: [
             const Icon(Icons.cloud_off, size: 64, color: Colors.grey),
             const SizedBox(height: 16),
-            const Text(
-              "Yuklashda xatolik",
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            Text(
+              context.tr('error.server'),
+              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 8),
             Text(
@@ -200,7 +201,7 @@ class _FavoritesPageState extends State<FavoritesPage> {
             FilledButton.icon(
               onPressed: () => context.read<FavoritesCubit>().loadFavorites(),
               icon: const Icon(Icons.refresh),
-              label: const Text("Qayta urinish"),
+              label: Text(context.tr('common.retry')),
             ),
           ],
         ),

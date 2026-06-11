@@ -3,6 +3,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:intl/intl.dart';
 import 'package:go_router/go_router.dart';
+import '../../../../core/i18n/language_extension.dart';
 import '../../../../core/widgets/login_required_sheet.dart';
 import '../../../auth/presentation/bloc/auth_bloc.dart';
 import '../bloc/cart_bloc.dart';
@@ -57,7 +58,7 @@ class CartPage extends StatelessWidget {
     return Scaffold(
       appBar: AppBar(
         title: Text(
-          'Savat',
+          context.tr('cart.title'),
           style: theme.textTheme.headlineMedium?.copyWith(
             fontWeight: FontWeight.bold,
           ),
@@ -260,7 +261,7 @@ class CartPage extends StatelessWidget {
                         vertical: 16,
                       ),
                     ),
-                    child: const Text('Rasmiylashtirish'),
+                    child: Text(context.tr('cart.checkout')),
                   ),
                 ],
               ),

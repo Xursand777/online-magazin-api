@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../../../core/i18n/language_extension.dart';
 import '../../data/models/credit_status_model.dart';
 
 /// Muddatli to'lov holati — kart usulida ko'rsatish.
@@ -25,7 +26,7 @@ class CreditStatusCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final config = _configFor(theme, status);
+    final config = _configFor(context, theme, status);
 
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 16),
@@ -60,7 +61,7 @@ class CreditStatusCard extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      "MUDDATLI TO'LOV",
+                      context.tr('credit.title').toUpperCase(),
                       style: theme.textTheme.labelSmall?.copyWith(
                         color: config.subtleText,
                         fontWeight: FontWeight.w800,
@@ -136,7 +137,7 @@ class CreditStatusCard extends StatelessWidget {
 
   // ── State'ga qarab config qaytarish ─────────────────────────────────────
 
-  _CardConfig _configFor(ThemeData theme, CreditStatusModel s) {
+  _CardConfig _configFor(BuildContext context, ThemeData theme, CreditStatusModel s) {
     switch (s.state) {
       case CreditStatusState.banned:
         return _CardConfig(
@@ -145,10 +146,8 @@ class CreditStatusCard extends StatelessWidget {
           iconBg: const Color(0xFFEF4444),
           iconColor: Colors.white,
           icon: Icons.block_rounded,
-          title: "Bloklangan",
-          description: "Siz 3 marta to'lov muddatini o'tkazib yuborgansiz. "
-              "Muddatli to'lov imkoniyatingiz doimiy bloklangan. "
-              "Yordam uchun do'kon bilan bog'laning.",
+          title: context.tr('credit.banned'),
+          description: context.tr('credit.bannedDescription'),
           primaryText: const Color(0xFF7F1D1D),
           subtleText: const Color(0xFFB91C1C),
           buttonBg: const Color(0xFF7F1D1D),
@@ -162,9 +161,8 @@ class CreditStatusCard extends StatelessWidget {
           iconBg: const Color(0xFFEF4444),
           iconColor: Colors.white,
           icon: Icons.warning_amber_rounded,
-          title: "Muddati o'tgan",
-          description: "Sizning muddatli to'lov vaqtingiz o'tib ketdi. "
-              "Darhol to'lashingiz kerak — aks holda blokga tushasiz.",
+          title: context.tr('credit.overdue'),
+          description: context.tr('credit.overdueDescription'),
           primaryText: const Color(0xFF7F1D1D),
           subtleText: const Color(0xFFB91C1C),
           buttonBg: const Color(0xFFEF4444),
@@ -178,9 +176,8 @@ class CreditStatusCard extends StatelessWidget {
           iconBg: const Color(0xFFF59E0B),
           iconColor: Colors.white,
           icon: Icons.access_time_filled_rounded,
-          title: "Faol kredit",
-          description: "Sizda to'lanmagan muddatli to'lov buyurtma bor. "
-              "Belgilangan muddatda to'lashingiz kerak.",
+          title: context.tr('credit.active'),
+          description: context.tr('credit.activeDescription'),
           primaryText: const Color(0xFF78350F),
           subtleText: const Color(0xFFB45309),
           buttonBg: const Color(0xFFF59E0B),
@@ -195,9 +192,8 @@ class CreditStatusCard extends StatelessWidget {
           iconBg: theme.colorScheme.primary,
           iconColor: Colors.white,
           icon: Icons.verified_rounded,
-          title: "Sizga mavjud",
-          description: "Ajoyib! Siz muddatli to'lov bilan xarid qilishingiz "
-              "mumkin. Buyurtma vaqtida 5–20 kunlik to'lov muddati tanlanadi.",
+          title: context.tr('credit.available'),
+          description: context.tr('credit.availableDescription'),
           primaryText: theme.colorScheme.onPrimaryContainer,
           subtleText: theme.colorScheme.primary,
           buttonBg: theme.colorScheme.primary,

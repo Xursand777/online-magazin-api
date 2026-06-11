@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import '../../../../core/di/injection_container.dart';
 import '../../../../core/network/api_client.dart';
 import '../../../../core/network/api_constants.dart';
+import '../../../../core/i18n/language_extension.dart';
 import '../../../../core/widgets/coming_soon_sheet.dart';
 import '../../../auth/presentation/bloc/auth_bloc.dart';
 import '../cubit/favorites_cubit.dart';
@@ -80,15 +81,14 @@ class _GuestProfile extends StatelessWidget {
                 ),
                 const SizedBox(height: 16),
                 Text(
-                  "Salom, mehmon!",
+                  context.tr('auth.guestGreeting'),
                   style: theme.textTheme.headlineSmall?.copyWith(
                     fontWeight: FontWeight.w800,
                   ),
                 ),
                 const SizedBox(height: 6),
                 Text(
-                  "Buyurtmalaringizni boshqarish va sevimli\n"
-                  "mahsulotlarni saqlash uchun tizimga kiring",
+                  context.tr('auth.guestDescription'),
                   textAlign: TextAlign.center,
                   style: theme.textTheme.bodyMedium?.copyWith(
                     color: theme.colorScheme.onSurfaceVariant,
@@ -117,10 +117,9 @@ class _GuestProfile extends StatelessWidget {
                 ),
               ),
               icon: const Icon(Icons.login_rounded, size: 22),
-              label: const Text(
-                "Tizimga kirish",
-                style:
-                    TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+              label: Text(
+                context.tr('auth.login'),
+                style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
               ),
             ),
           ),
@@ -487,7 +486,7 @@ class _AuthenticatedProfileState extends State<_AuthenticatedProfile> {
     return Scaffold(
       appBar: AppBar(
         title: Text(
-          'Profil',
+          context.tr('profile.title'),
           style: theme.textTheme.headlineMedium?.copyWith(
             fontWeight: FontWeight.bold,
           ),
@@ -501,7 +500,7 @@ class _AuthenticatedProfileState extends State<_AuthenticatedProfile> {
               if (updated == true && context.mounted) _loadProfile();
             },
             icon: const Icon(Icons.edit_outlined),
-            tooltip: 'Tahrirlash',
+            tooltip: context.tr('common.edit'),
           ),
           IconButton(
             onPressed: _loading ? null : _loadProfile,
@@ -617,7 +616,7 @@ class _AuthenticatedProfileState extends State<_AuthenticatedProfile> {
             _menuTile(
               theme,
               icon: Icons.receipt_long,
-              title: 'Mening buyurtmalarim',
+              title: context.tr('profile.myOrders'),
               onTap: () {
                 context.push('/my-orders');
               },
@@ -628,7 +627,7 @@ class _AuthenticatedProfileState extends State<_AuthenticatedProfile> {
                 return _menuTile(
                   theme,
                   icon: Icons.favorite_border,
-                  title: 'Sevimlilar',
+                  title: context.tr('profile.favorites'),
                   badgeCount: count,
                   onTap: () {
                     context.go('/favorites');
@@ -641,18 +640,18 @@ class _AuthenticatedProfileState extends State<_AuthenticatedProfile> {
             _menuTile(
               theme,
               icon: Icons.location_on_outlined,
-              title: 'Mening manzilim',
+              title: context.tr('profile.myAddress'),
               onTap: () => context.push('/profile-edit'),
             ),
             // To'lov usullari — kelajakda Click, Payme integratsiyasi
             _menuTile(
               theme,
               icon: Icons.credit_card,
-              title: "To'lov usullari",
+              title: context.tr('profile.paymentMethods'),
               onTap: () => showComingSoonSheet(
                 context,
                 icon: Icons.credit_card_rounded,
-                title: "To'lov usullari",
+                title: context.tr('profile.paymentMethods'),
                 description: "Click, Payme, Uzcard va Humo kartalaringizni "
                     "saqlash va tezkor to'lov qilish imkoniyati tez orada "
                     "qo'shiladi.",
@@ -662,14 +661,14 @@ class _AuthenticatedProfileState extends State<_AuthenticatedProfile> {
             _menuTile(
               theme,
               icon: Icons.settings_outlined,
-              title: 'Sozlamalar',
+              title: context.tr('profile.settings'),
               onTap: () => context.push('/settings'),
             ),
             const SizedBox(height: 32),
             ElevatedButton.icon(
               onPressed: () => _logout(context),
               icon: const Icon(Icons.logout),
-              label: const Text('Tizimdan chiqish'),
+              label: Text(context.tr('auth.logout')),
               style: ElevatedButton.styleFrom(
                 backgroundColor: theme.colorScheme.errorContainer,
                 foregroundColor: theme.colorScheme.onErrorContainer,

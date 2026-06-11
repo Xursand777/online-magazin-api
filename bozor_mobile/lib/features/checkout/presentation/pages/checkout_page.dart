@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../../../../core/di/injection_container.dart';
+import '../../../../core/i18n/language_extension.dart';
 import '../../../../core/network/api_client.dart';
 import '../../../../core/network/api_constants.dart';
 import '../../../../core/models/product_model.dart';
@@ -198,7 +199,7 @@ class _CheckoutViewState extends State<CheckoutView> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Rasmiylashtirish'),
+        title: Text(context.tr('checkout.title')),
       ),
       body: _isLoadingDetails
           ? const Center(child: CircularProgressIndicator())
@@ -389,7 +390,7 @@ class _CheckoutViewState extends State<CheckoutView> {
                         ],
                         
                         // F.I.Sh
-                        Text('Ism va familiya', style: theme.textTheme.titleSmall),
+                        Text(context.tr('checkout.receiverName'), style: theme.textTheme.titleSmall),
                         const SizedBox(height: 8),
                         TextFormField(
                           controller: _nameController,
@@ -404,7 +405,7 @@ class _CheckoutViewState extends State<CheckoutView> {
                         // Telefon raqam — READ-ONLY (login raqami, o'zgartirib bo'lmaydi)
                         Row(
                           children: [
-                            Text('Telefon raqam',
+                            Text(context.tr('checkout.receiverPhone'),
                                 style: theme.textTheme.titleSmall),
                             const SizedBox(width: 6),
                             Icon(Icons.lock_outline_rounded,
@@ -446,7 +447,7 @@ class _CheckoutViewState extends State<CheckoutView> {
                         const SizedBox(height: 20),
 
                         // Manzil
-                        Text('Yetkazib berish manzili', style: theme.textTheme.titleSmall),
+                        Text(context.tr('checkout.deliveryAddress'), style: theme.textTheme.titleSmall),
                         const SizedBox(height: 8),
                         TextFormField(
                           controller: _addressController,
@@ -460,13 +461,13 @@ class _CheckoutViewState extends State<CheckoutView> {
                         const SizedBox(height: 32),
 
                         // To'lov turi
-                        Text("To'lov turi", style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
+                        Text(context.tr('checkout.paymentType'), style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
                         const SizedBox(height: 12),
                         Row(
                           children: [
                             Expanded(
                               child: _PaymentMethodCard(
-                                title: 'Naqd pul',
+                                title: context.tr('checkout.cash'),
                                 icon: Icons.money,
                                 isSelected: _paymentMethod == 'cash',
                                 onTap: () => setState(() => _paymentMethod = 'cash'),
@@ -475,7 +476,7 @@ class _CheckoutViewState extends State<CheckoutView> {
                             const SizedBox(width: 8),
                             Expanded(
                               child: _PaymentMethodCard(
-                                title: 'Plastik karta',
+                                title: context.tr('checkout.card'),
                                 icon: Icons.credit_card,
                                 isSelected: _paymentMethod == 'card',
                                 onTap: () => setState(() => _paymentMethod = 'card'),
@@ -485,7 +486,7 @@ class _CheckoutViewState extends State<CheckoutView> {
                               const SizedBox(width: 8),
                               Expanded(
                                 child: _PaymentMethodCard(
-                                  title: "Muddatli to'lov",
+                                  title: context.tr('checkout.credit'),
                                   icon: Icons.calendar_today_rounded,
                                   isSelected: _paymentMethod == 'installment',
                                   onTap: () {
@@ -572,9 +573,9 @@ class _CheckoutViewState extends State<CheckoutView> {
                             ),
                             child: state is CheckoutLoading
                                 ? const CircularProgressIndicator(color: Colors.white)
-                                : const Text(
-                                    'Buyurtmani tasdiqlash',
-                                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                                : Text(
+                                    context.tr('checkout.confirmOrder'),
+                                    style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
                                   ),
                           ),
                         ),

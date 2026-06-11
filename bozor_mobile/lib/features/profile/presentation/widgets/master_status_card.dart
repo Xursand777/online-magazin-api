@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../../../core/i18n/language_extension.dart';
 import '../../data/models/master_status_model.dart';
 
 /// Usta statusi — premium gradient hero card.
@@ -83,7 +84,7 @@ class MasterStatusCard extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      "USTA STATUS",
+                      context.tr('master.title').toUpperCase(),
                       style: theme.textTheme.labelSmall?.copyWith(
                         color: Colors.white.withValues(alpha: 0.85),
                         fontWeight: FontWeight.w800,
@@ -92,7 +93,7 @@ class MasterStatusCard extends StatelessWidget {
                     ),
                     const SizedBox(height: 2),
                     Text(
-                      "Daraja ${status.level}/${status.maxLevel}",
+                      "${context.tr('master.level')} ${status.level}/${status.maxLevel}",
                       style: theme.textTheme.titleSmall?.copyWith(
                         color: Colors.white,
                         fontWeight: FontWeight.w700,
@@ -101,7 +102,7 @@ class MasterStatusCard extends StatelessWidget {
                   ],
                 ),
                 const Spacer(),
-                _statusPill(theme, isFull, isInactive, hasNeverPurchased),
+                _statusPill(context, theme, isFull, isInactive, hasNeverPurchased),
               ],
             ),
             const SizedBox(height: 20),
@@ -136,7 +137,7 @@ class MasterStatusCard extends StatelessWidget {
                 Padding(
                   padding: const EdgeInsets.only(bottom: 8),
                   child: Text(
-                    "amaldagi chegirma",
+                    context.tr('master.discountLabel'),
                     style: theme.textTheme.bodySmall?.copyWith(
                       color: Colors.white.withValues(alpha: 0.85),
                       height: 1.2,
@@ -166,7 +167,7 @@ class MasterStatusCard extends StatelessWidget {
             const SizedBox(height: 12),
 
             // ── Pastki info: oxirgi xarid + daraja oshirish maslahati ─────
-            _bottomInfoRow(theme, status, hasNeverPurchased, isInactive),
+            _bottomInfoRow(context, theme, status, hasNeverPurchased, isInactive),
           ],
         ),
       ),
@@ -176,6 +177,7 @@ class MasterStatusCard extends StatelessWidget {
   // ── Status pill (yuqori o'ng) ─────────────────────────────────────────
 
   Widget _statusPill(
+    BuildContext context,
     ThemeData theme,
     bool isFull,
     bool isInactive,
@@ -186,19 +188,19 @@ class MasterStatusCard extends StatelessWidget {
     IconData icon;
 
     if (hasNeverPurchased) {
-      text = "YANGI";
+      text = context.tr('master.statusNew');
       bg = Colors.blue.withValues(alpha: 0.85);
       icon = Icons.fiber_new_rounded;
     } else if (isInactive) {
-      text = "FAOLSIZ";
+      text = context.tr('master.statusInactive');
       bg = Colors.orange.withValues(alpha: 0.85);
       icon = Icons.bedtime_rounded;
     } else if (isFull) {
-      text = "TO'LIQ";
+      text = context.tr('master.statusFull');
       bg = Colors.green.withValues(alpha: 0.9);
       icon = Icons.check_circle_rounded;
     } else {
-      text = "KAMAYGAN";
+      text = context.tr('master.statusReduced');
       bg = Colors.amber.withValues(alpha: 0.85);
       icon = Icons.trending_down_rounded;
     }
@@ -254,6 +256,7 @@ class MasterStatusCard extends StatelessWidget {
   // ── Pastki info qator ─────────────────────────────────────────────────
 
   Widget _bottomInfoRow(
+    BuildContext context,
     ThemeData theme,
     MasterStatusModel s,
     bool hasNeverPurchased,
@@ -263,24 +266,22 @@ class MasterStatusCard extends StatelessWidget {
     IconData icon;
 
     if (hasNeverPurchased) {
-      text = "Birinchi xaridingizdan boshlab\ndaraja oshib boradi";
+      text = context.tr('master.firstPurchaseHint');
       icon = Icons.shopping_bag_outlined;
     } else if (s.daysSinceLastPurchase != null) {
       final days = s.daysSinceLastPurchase!;
       if (days == 0) {
-        text = "Bugun xarid qildingiz — faol!";
-      } else if (days == 1) {
-        text = "Kecha xarid qildingiz";
+        text = context.tr('master.todayPurchase');
       } else if (days < 30) {
-        text = "$days kun oldin xarid qildingiz";
+        text = context.tr('master.daysAgo', params: {'days': days});
       } else {
-        text = "$days kun bo'ldi — yana xarid qiling,\ndaraja qayta tiklanadi";
+        text = context.tr('master.longInactive', params: {'days': days});
       }
       icon = isInactive
           ? Icons.access_time_filled_rounded
           : Icons.history_rounded;
     } else {
-      text = "Xarid tarixingiz bo'sh";
+      text = context.tr('master.firstPurchaseHint');
       icon = Icons.history_rounded;
     }
 

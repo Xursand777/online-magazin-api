@@ -5,6 +5,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 
+import '../../../../core/i18n/language_extension.dart';
 import '../../../admin/data/models/order_status_helper.dart';
 import '../cubit/my_orders_cubit.dart';
 import '../cubit/my_orders_state.dart';
@@ -35,7 +36,7 @@ class MyOrdersPage extends StatelessWidget {
             backgroundColor: theme.colorScheme.surfaceContainerLowest,
             appBar: AppBar(
               title: Text(
-                'Mening buyurtmalarim',
+                context.tr('profile.myOrders'),
                 style: theme.textTheme.titleLarge?.copyWith(
                   fontWeight: FontWeight.w800,
                 ),

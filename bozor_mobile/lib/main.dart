@@ -163,6 +163,13 @@ class BozorApp extends StatelessWidget {
         theme:      AppTheme.lightTheme,
         darkTheme:  AppTheme.darkTheme,
         themeMode:  ThemeMode.system,
+        // ⭐ FLUTTER NATIVE LOCALE — auto-rebuild trigger
+        // Locale o'zgarsa Flutter butun MaterialApp tree'ni qayta render qiladi
+        // (Localizations widget orqali). Bu bilan ChrorRouter route'lari ham
+        // qayta build bo'ladi — context.tr() bilan ulanmagan widgetlar ham
+        // yangilanadi (chunki ularning ancestor Localizations o'zgaradi).
+        locale: lang.locale,
+        supportedLocales: AppLanguage.values.map((e) => e.locale).toList(),
         routerConfig: di.sl<AppRouter>().router,
         debugShowCheckedModeBanner: false,
         // ── Cold-start banner — barcha sahifalar ustida ko'rinadi ─────────

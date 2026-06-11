@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:intl/intl.dart';
 import '../../../../core/di/injection_container.dart';
+import '../../../../core/i18n/language_extension.dart';
 import '../../../../core/widgets/product_card.dart';
 import '../../../../core/widgets/skeleton.dart';
 import '../bloc/home_bloc.dart';
@@ -62,27 +63,27 @@ class HomeView extends StatelessWidget {
                 _buildCategoryChips(context, state, theme),
                 const SizedBox(height: 24),
                 if (state.recommended.isNotEmpty) ...[
-                  _buildSectionHeader(context, 'Tavsiya qilamiz', theme),
+                  _buildSectionHeader(context, context.tr('home.recommended'), theme),
                   const SizedBox(height: 16),
-                  _buildProductGrid(context, 'Tavsiya qilamiz', 'recommended', state.recommended, theme),
+                  _buildProductGrid(context, context.tr('home.recommended'), 'recommended', state.recommended, theme),
                   const SizedBox(height: 24),
                 ],
                 if (state.discounted.isNotEmpty) ...[
-                  _buildSectionHeader(context, 'Chegirmadagi mahsulotlar', theme),
+                  _buildSectionHeader(context, context.tr('home.discounts'), theme),
                   const SizedBox(height: 16),
-                  _buildProductGrid(context, 'Chegirmadagi mahsulotlar', 'discount', state.discounted, theme),
+                  _buildProductGrid(context, context.tr('home.discounts'), 'discount', state.discounted, theme),
                   const SizedBox(height: 24),
                 ],
                 if (state.newProducts.isNotEmpty) ...[
-                  _buildSectionHeader(context, 'Yangi mahsulotlar', theme),
+                  _buildSectionHeader(context, context.tr('home.new'), theme),
                   const SizedBox(height: 16),
-                  _buildProductGrid(context, 'Yangi mahsulotlar', 'new', state.newProducts, theme),
+                  _buildProductGrid(context, context.tr('home.new'), 'new', state.newProducts, theme),
                   const SizedBox(height: 24),
                 ],
                 if (state.popularProducts.isNotEmpty) ...[
-                  _buildSectionHeader(context, 'Ommabop mahsulotlar', theme),
+                  _buildSectionHeader(context, context.tr('home.popular'), theme),
                   const SizedBox(height: 16),
-                  _buildProductGrid(context, 'Ommabop mahsulotlar', 'popular', state.popularProducts, theme),
+                  _buildProductGrid(context, context.tr('home.popular'), 'popular', state.popularProducts, theme),
                   const SizedBox(height: 24),
                 ],
               ],
@@ -410,7 +411,7 @@ class HomeView extends StatelessWidget {
               context.read<HomeBloc>().add(const LoadHomeData(forceRefresh: true));
             },
             icon: const Icon(Icons.refresh, size: 16),
-            label: const Text("Yangilash"),
+            label: Text(context.tr('common.retry')),
             style: TextButton.styleFrom(
               foregroundColor: const Color(0xFF7A5F00),
               padding: const EdgeInsets.symmetric(horizontal: 8),
@@ -432,9 +433,9 @@ class HomeView extends StatelessWidget {
           children: [
             const Icon(Icons.cloud_off, size: 72, color: Colors.grey),
             const SizedBox(height: 16),
-            const Text(
-              "Internet aloqasi yo'q",
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
+            Text(
+              context.tr('error.network'),
+              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
             ),
             const SizedBox(height: 8),
             Text(
@@ -450,7 +451,7 @@ class HomeView extends StatelessWidget {
                 context.read<HomeBloc>().add(const LoadHomeData(forceRefresh: true));
               },
               icon: const Icon(Icons.refresh),
-              label: const Text("Qayta urinish"),
+              label: Text(context.tr('common.retry')),
             ),
           ],
         ),
