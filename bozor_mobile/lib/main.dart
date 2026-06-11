@@ -2,6 +2,7 @@ import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:sentry_flutter/sentry_flutter.dart';
 import 'core/theme/app_theme.dart';
@@ -165,11 +166,31 @@ class BozorApp extends StatelessWidget {
         themeMode:  ThemeMode.system,
         // ⭐ FLUTTER NATIVE LOCALE — auto-rebuild trigger
         // Locale o'zgarsa Flutter butun MaterialApp tree'ni qayta render qiladi
-        // (Localizations widget orqali). Bu bilan ChrorRouter route'lari ham
+        // (Localizations widget orqali). Bu bilan GoRouter route'lari ham
         // qayta build bo'ladi — context.tr() bilan ulanmagan widgetlar ham
         // yangilanadi (chunki ularning ancestor Localizations o'zgaradi).
         locale: lang.locale,
         supportedLocales: AppLanguage.values.map((e) => e.locale).toList(),
+        // ⚠ MUHIM: locale ko'rsatilganda flutter_localizations delegate'lari
+        // ZARUR. Aks holda "No MaterialLocalizations found" xatosi chiqadi.
+        // GlobalMaterialLocalizations — Material widget'lar uchun (dialog, dropdown va h.k.)
+        // GlobalWidgetsLocalizations — RTL/LTR yo'nalish
+        // GlobalCupertinoLocalizations — iOS-style widget'lar
+        localizationsDelegates: const [
+          GlobalMaterialLocalizations.delegate,
+          GlobalWidgetsLocalizations.delegate,
+          GlobalCupertinoLocalizations.delegate,
+        ],
+        // Agar foydalanuvchi tilini topa olmasa (masalan, uz_UZ Flutter
+        // global'da to'liq qo'llab-quvvatlanmasa) — eng yaqin variantni
+        // tanlash. Default Flutter algoritmi bo'sh til uchun ham ishlaydi.
+        localeResolutionCallback: (deviceLocale, supported) {
+          if (deviceLocale == null) return supported.first;
+          for (final s in supported) {
+            if (s.languageCode == deviceLocale.languageCode) return s;
+          }
+          return supported.first;
+        },
         routerConfig: di.sl<AppRouter>().router,
         debugShowCheckedModeBanner: false,
         // ── Cold-start banner — barcha sahifalar ustida ko'rinadi ─────────
