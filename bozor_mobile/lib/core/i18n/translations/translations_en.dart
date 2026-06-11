@@ -49,6 +49,11 @@ const Map<String, String> translationsEn = {
 
   // ─── Home ────────────────────────────────────────────────────────────────
   'home.searchHint': 'Search products...',
+  'home.searchHintFull': 'Products, brands or categories...',
+  'catalog.loadError': 'Failed to load catalog',
+  'catalog.noCategories': 'No categories found',
+  'catalog.subcategoriesCount': '{count} subcategories',
+  'common.error': 'Error',
   'home.categories': 'Categories',
   'home.discounts': 'Deals',
   'home.new': 'New arrivals',

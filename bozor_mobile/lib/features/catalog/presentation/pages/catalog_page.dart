@@ -3,6 +3,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../../../../core/di/injection_container.dart';
+import '../../../../core/i18n/language_extension.dart';
 import '../bloc/catalog_bloc.dart';
 import '../../../../core/models/category_model.dart';
 import '../../../search/presentation/widgets/search_bar_stub.dart';
@@ -42,10 +43,12 @@ class CatalogView extends StatelessWidget {
             return const Center(child: CircularProgressIndicator());
           }
           if (state.error != null && state.categories.isEmpty) {
-            return Center(child: Text('Xatolik: ${state.error}'));
+            return Center(
+              child: Text('${context.tr('common.error')}: ${state.error}'),
+            );
           }
           if (state.categories.isEmpty) {
-            return const Center(child: Text('Kataloglar topilmadi.'));
+            return Center(child: Text(context.tr('catalog.noCategories')));
           }
 
           final parentCategories = state.categories;

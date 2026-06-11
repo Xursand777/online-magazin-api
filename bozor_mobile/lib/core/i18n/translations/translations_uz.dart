@@ -52,6 +52,11 @@ const Map<String, String> translationsUz = {
 
   // ─── Home (bosh sahifa) ───────────────────────────────────────────────────
   'home.searchHint': 'Mahsulot qidirish...',
+  'home.searchHintFull': 'Mahsulot, brend yoki kategoriya...',
+  'catalog.loadError': 'Kataloglar yuklab bo\'lmadi',
+  'catalog.noCategories': 'Kataloglar topilmadi',
+  'catalog.subcategoriesCount': '{count} ta turkum',
+  'common.error': 'Xatolik',
   'home.categories': 'Kategoriyalar',
   'home.discounts': 'Chegirmalar',
   'home.new': 'Yangi mahsulotlar',

@@ -49,6 +49,11 @@ const Map<String, String> translationsRu = {
 
   // ─── Home ────────────────────────────────────────────────────────────────
   'home.searchHint': 'Поиск товаров...',
+  'home.searchHintFull': 'Товары, бренды или категории...',
+  'catalog.loadError': 'Не удалось загрузить каталог',
+  'catalog.noCategories': 'Категории не найдены',
+  'catalog.subcategoriesCount': '{count} подкатегорий',
+  'common.error': 'Ошибка',
   'home.categories': 'Категории',
   'home.discounts': 'Скидки',
   'home.new': 'Новинки',

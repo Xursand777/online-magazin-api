@@ -11,6 +11,8 @@ import 'core/storage/local_storage.dart';
 import 'core/di/injection_container.dart' as di;
 import 'core/i18n/app_languages.dart';
 import 'core/i18n/language_cubit.dart';
+import 'features/home/presentation/bloc/home_bloc.dart';
+import 'features/catalog/presentation/bloc/catalog_bloc.dart';
 import 'core/network/api_constants.dart';
 import 'core/widgets/app_version_gate.dart';
 import 'core/widgets/cold_start_banner.dart';
@@ -199,6 +201,25 @@ class BozorApp extends StatelessWidget {
         builder: (context, child) {
           return MultiBlocListener(
             listeners: [
+              // ⭐ TIL O'ZGARGANDA AVTO-REFRESH
+              // Til o'zgarsa BARCHA data-fetching BLoC'lar qayta yuklanadi:
+              // HomeBloc, CatalogBloc, FavoritesCubit, CartBloc.
+              // Backend Accept-Language: <new lang> bilan qayta so'rov yuboradi
+              // → mahsulot va kategoriya nomlari avtomat yangilanadi.
+              // Bu — Amazon, Wildberries, Yandex Market kabi mashxur ilovalar
+              // qiladigan professional pattern.
+              BlocListener<LanguageCubit, AppLanguage>(
+                bloc: di.sl<LanguageCubit>(),
+                listenWhen: (prev, curr) => prev != curr,
+                listener: (context, _) {
+                  _safeRefresh(() => di.sl<HomeBloc>().add(
+                        const LoadHomeData(forceRefresh: true),
+                      ));
+                  _safeRefresh(() => di.sl<CatalogBloc>().add(LoadCatalogData()));
+                  _safeRefresh(() => di.sl<FavoritesCubit>().loadFavorites());
+                  _safeRefresh(() => di.sl<CartBloc>().add(LoadCart()));
+                },
+              ),
               BlocListener<AuthBloc, AuthState>(
                 listener: (context, state) {
                   if (state is AuthAuthenticated) {
@@ -231,5 +252,15 @@ class BozorApp extends StatelessWidget {
         }, // BlocBuilder builder
       ), // BlocBuilder
     ); // LanguageCubit BlocProvider
+  }
+}
+
+/// Til o'zgarganda BLoC refresh helper — try-catch ichida xavfsiz chaqirish.
+/// Agar bir BLoC DI'da yo'q bo'lsa, boshqalariga ta'sir qilmaydi.
+void _safeRefresh(void Function() action) {
+  try {
+    action();
+  } catch (_) {
+    // sukut bilan — boshqa BLoC'lar baribir refresh bo'ladi
   }
 }

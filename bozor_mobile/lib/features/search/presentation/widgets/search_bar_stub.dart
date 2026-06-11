@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../../core/i18n/language_extension.dart';
+
 /// Search bar stub — tappable "soxta" search input.
 ///
 /// Home va Catalog AppBar'ida ishlatiladi. Bosilganda `/search` sahifaga
@@ -13,17 +15,21 @@ class SearchBarStub extends StatelessWidget {
   /// Hero tag — SearchPage'dagi TextField bilan AYNI bo'lishi kerak.
   static const String heroTag = 'bozor-search-bar';
 
-  /// Placeholder matn — saytdagi hint matni bilan bir xil.
-  final String hintText;
+  /// Placeholder matn — null bo'lsa, joriy tildagi default ishlatiladi.
+  /// Bu bilan SearchBarStub() chaqirilganda til o'zgarsa avtomat yangilanadi
+  /// (context.tr() watch'ga subscribe bo'ladi).
+  final String? hintText;
 
   const SearchBarStub({
     super.key,
-    this.hintText = 'Mahsulot, brend yoki kategoriya...',
+    this.hintText,
   });
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    // ⭐ Joriy tildan hint — kelajakda til o'zgarsa avtomat rebuild
+    final effectiveHint = hintText ?? context.tr('home.searchHintFull');
 
     // Hero — Material'da o'ralgan bo'lishi shart (text underline yo'q)
     return Hero(
@@ -33,7 +39,7 @@ class SearchBarStub extends StatelessWidget {
           (flightContext, animation, direction, fromContext, toContext) {
         return Material(
           color: Colors.transparent,
-          child: _buildContainer(theme, hintText),
+          child: _buildContainer(theme, effectiveHint),
         );
       },
       child: Material(
@@ -41,7 +47,7 @@ class SearchBarStub extends StatelessWidget {
         child: InkWell(
           borderRadius: BorderRadius.circular(14),
           onTap: () => context.push('/search'),
-          child: _buildContainer(theme, hintText),
+          child: _buildContainer(theme, effectiveHint),
         ),
       ),
     );
