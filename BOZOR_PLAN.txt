@@ -1,0 +1,939 @@
+══════════════════════════════════════════════════════════════════════════════
+  BOZOR LOYIHASI — LAUNCH-READY YO'L XARITASI
+  Yaratilgan: 2026-05-30
+  Maqsad:     6 oylik premortem'dan keyin xavfsiz launch
+  Plan fayli: /Users/xursand/.claude/plans/zippy-twirling-crane.md
+══════════════════════════════════════════════════════════════════════════════
+
+
+[ UMUMIY HOLAT ]
+───────────────────────────────────────────────────────────────────────────────
+  Plan'dagi jami task:    56
+  Bajarilgan:              3  (Phase 0.1, Phase 0.5, Phase 0.2)
+  Bajarilish foizi:        ~5.4%
+  Plan'dan oldin tuzatilgan bug:  4 ta (find_user_by_phone, mobile logout, ...)
+  Qolgan:                 53
+
+  Joriy phase:            0 (Bloklovchilarni neytralizatsiya, 1 hafta)
+  Eng yaqin task:         0.4 — Eskiz balans webhook alert
+
+  Constraints:
+    • Hosting:       hozircha Render free, launch yaqinida ~100,000 UZS/oy paid
+    • Backup:        Backblaze B2 (sozlangan)
+    • Kredit:        7 kun disput muddati + delivery proof (passport keyin)
+    • Identity:      faqat telefon (email yo'q)
+    • Mobile:        Flutter Android (iOS keyin)
+    • Support:       Telegram bot (email yo'q)
+
+
+
+══════════════════════════════════════════════════════════════════════════════
+  KONTEKST — NEGA BU PLAN
+══════════════════════════════════════════════════════════════════════════════
+
+6 oylik premortem tahlili (loyiha yopilishini OLDINDAN xayolan yashash) 8 ta
+asosiy yopilish ssenariysini ko'rsatdi:
+
+  1. Render free cold start (60s) → mijozlar 8s dan ko'p kutmaydi
+  2. Kreditli buyurtma + kuryer xatosi → brand obro'si yorilishi
+  3. Tarjima skandali → audit yo'q, aybdor topib bo'lmaydi
+  4. Eskiz/Cloudinary/PostgreSQL limit tugashi → sukutda yopiladi
+  5. SIM swap / telefon-asosli identifikatsiya → noto'g'ri foydalanuvchi kirishi
+  6. Singleton BLoC + Hive cart tozalanmasligi → sessiyalar aralashadi
+  7. Backup yo'q → bitta DB xatosi = umumiy ma'lumot yo'qolishi
+  8. Monitoring yo'q → bilmasdan turib 24 soat ishlamasdan qolish
+
+Ushbu plan har bir ssenariyni neytralizatsiya qiladi. Eng katta xulosa:
+  TEXNOLOGIYA 20%, qolgan 80% — operatsion vakolat, infratuzilma byudjeti
+  va mijoz qarama-qarshiligi tartibi. Plan shu 80% ni qo'shadi.
+
+
+
+══════════════════════════════════════════════════════════════════════════════
+  ✅ BAJARILGAN ISHLAR (BATAFSIL)
+══════════════════════════════════════════════════════════════════════════════
+
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  PLAN'DAN OLDIN TUZATILGAN BUG'LAR                                          │
+│  (mobil ilovada admin sessiyasi aralashishi)                                │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+
+─── BUG #1: find_user_by_phone NOANIQ NATIJA ────────────────────────────────
+
+  MUAMMO:
+    backend/users/utils.py dagi find_user_by_phone funksiyasi:
+        return User.objects.filter(phone__in=phone_lookup_variants(phone)).first()
+    Telefon raqami uchun 3 ta format variant qaytaradi:
+        "+998901234567", "998901234567", "901234567"
+    Agar bazada ikki yozuv bo'lsa (masalan, eski va yangi format):
+        User A: phone="+998901234567" (admin)
+        User B: phone="901234567"     (eski format, oddiy mijoz)
+    .first() har xil natijani qaytaradi (DB tartibi belgisiz).
+    Siz raqamingizni kiritganda BOSHQA foydalanuvchi sifatida kirib qolishingiz
+    mumkin edi — bu sizning Telegram'da tasvirlagan asosiy muammo.
+
+  YECHIM:
+    backend/users/utils.py: yangi 3 bosqichli algoritm:
+      1. Telefonni canonical formatga (+998XXXXXXXXX) keltir
+      2. EXACT match orqali qidir → topilsa qaytar (98% holat)
+      3. Topilmagandagina legacy format variantlarini ko'r:
+         a) Canonical formatlilarini afzal ko'r
+         b) Hali ham bir nechta bo'lsa — eng eski qayd (pk asc) ni tanla
+         c) Logger orqali ogohlantirish — adminga duplicate xabar berish
+
+  NIMA UCHUN MUHIM:
+    Login = shaxs identifikatsiyasi. Noto'g'ri foydalanuvchi sifatida
+    kirish = umumiy maxfiylik buzilishi + biznes obro'si yo'qotilishi.
+
+
+
+─── BUG #2: CookieLogoutView MOBILE'NI QO'LLAB-QUVVATLAMAYDI ────────────────
+
+  MUAMMO:
+    backend/users/views.py::CookieLogoutView faqat cookie'dan refresh
+    tokenni o'qiy olardi. Mobile ilova esa refresh tokenni body'da yuboradi
+    (httpOnly cookie mobile'da ishlamaydi).
+    Natija: mobile logout chaqirsa, refresh token serverda blacklist'ga
+    QO'YILMAS edi. Token 7 kun yaroqli qolardi.
+
+  YECHIM:
+    backend/users/views.py: CookieLogoutView endi avval body'dan,
+    keyin cookie'dan o'qiydi. Mobile ham, web ham logout qila oladi.
+
+  NIMA UCHUN MUHIM:
+    Telefon o'g'irlansa, foydalanuvchi "chiqdim" deb hisoblaydi — lekin
+    o'g'ri qo'lidagi token 7 kun yaroqli. Bu yopilgan teshik endi
+    yopildi.
+
+
+
+─── BUG #3: MOBILE LOGOUT TO'LIQ EMAS EDI ───────────────────────────────────
+
+  MUAMMO:
+    bozor_mobile/.../auth_bloc.dart::_onLogout faqat SecureStorage'dagi
+    tokenlarni tozalardi. Quyidagilar tozalanmasdi:
+      • Serverga signal yuborilmasdi (refresh token blacklist bo'lmasdi)
+      • CartBloc state'i (singleton — eski mahsulotlar)
+      • AdminBloc state'i (singleton — eski admin ma'lumotlari)
+      • Hive cartBox (eski savatcha)
+      • Hive searchHistoryBox (eski qidiruv tarixi)
+
+    Natija: admin A logout → admin B kirsa, eski admin A ma'lumotlarini
+    qisman ko'rardi. Bu sizning ikkinchi muammo edi.
+
+  YECHIM:
+    Yangi: bozor_mobile/.../auth_repository.dart::logoutOnServer()
+      → POST /api/auth/logout/ body bilan
+    Yangi: bozor_mobile/.../local_storage.dart::clearAllUserData()
+      → Hive cart va search history tozalash
+    Yangi: bozor_mobile/.../cart_bloc.dart::ResetCart event
+      → singleton state'ni reset qilish
+    Yangi: bozor_mobile/.../admin_bloc.dart::ResetAdminData event
+      → singleton state'ni reset qilish
+    O'zgarish: auth_bloc.dart::_purgeAllSessionData() — barchasini birdan
+    bajaradigan universal helper. _onLogout va _onForceLogout ikkalasi
+    ham shu helper'ni chaqiradi.
+
+  NIMA UCHUN MUHIM:
+    "Logout = toza varaq" tamoyili. Aks holda foydalanuvchilar bir-birining
+    ma'lumotlarini ko'radi — bu maxfiylik buzilishi va GDPR-style
+    qoidalarga zid.
+
+
+
+─── BUG #4: SINGLETON BLOC'LAR LOGOUT'DAN KEYIN ESKI HOLATDA QOLISHI ────────
+
+  MUAMMO:
+    bozor_mobile/.../injection_container.dart da CartBloc va AdminBloc
+    registerLazySingleton sifatida ro'yxatdan o'tgan. Bu — ilovaning
+    butun ishlash vaqti davomida BIR INSTANCE.
+    Logout dan keyin yangi BLoC yaratilmaydi. State'da eski ma'lumotlar
+    qolaverardi.
+
+  YECHIM:
+    Bug #3 yechimining ichida — ResetCart va ResetAdminData event'lari
+    qo'shildi, AuthBloc._purgeAllSessionData() ulardan foydalanadi.
+
+  NIMA UCHUN MUHIM:
+    Singleton patterning xavfli tomoni — uni qachondir resetlash KERAK.
+    Aks holda u "memory leak" ga aylanadi (eski sessiya ma'lumotlari).
+
+
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  PHASE 0.1 — SENTRY (Xato kuzatish)                                         │
+│  Sana: 2026-05-30                                                            │
+│  Vaqt:  ~45 daqiqa                                                           │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+
+  MUAMMO (NEGA KERAK):
+    Production'da ilova ishlayotgan paytda xato sodir bo'ladi. Lekin kim
+    biladi qachon va qaerda? Foydalanuvchi shikoyat qilmagunchami? Bu
+    yondashuv halok:
+
+      • Foydalanuvchi 1 marta xato ko'radi → uzlatga ketadi → qaytmaydi
+      • Shikoyat qilgan 1 foydalanuvchi = jim ketgan 100 foydalanuvchi
+      • Bilmagan xato 24 soat davom etishi mumkin (oqshom + dam olish kuni)
+      • Stacktrace yo'q → debug qilish 10 marta uzoq
+
+    Sentry — yiqilishni avtomat tutib oluvchi xizmat. Har Exception'ni
+    real vaqtda dashboard'ga chiqaradi (stacktrace, request, user-agent,
+    qurilma ma'lumotlari bilan).
+
+
+  YECHIM:
+    Backend va mobile uchun parallel ravishda Sentry integratsiyasi.
+
+    BACKEND:
+      backend/requirements.txt:
+        Yangi: sentry-sdk[django]==2.18.0
+
+      backend/core/settings.py (oxirida):
+        SENTRY_DSN env'dan o'qiladi.
+        DEBUG=False bo'lsa va DSN bor bo'lsa — sentry_sdk.init() chaqiriladi.
+        Integrations:
+          - DjangoIntegration  (request kontekst)
+          - CeleryIntegration  (background tasks)
+          - LoggingIntegration (logger.error → Sentry event)
+
+      backend/.env.example:
+        SENTRY_DSN= placeholder + sentry.io ko'rsatma
+
+    MOBILE:
+      bozor_mobile/pubspec.yaml:
+        Yangi: sentry_flutter: ^8.10.1
+        Yangi: package_info_plus: ^8.0.0
+
+      bozor_mobile/lib/main.dart:
+        SentryFlutter.init() bilan o'rab olindi.
+        Faqat kReleaseMode va SENTRY_DSN bo'lsa faollashadi.
+        build vaqtida: --dart-define=SENTRY_DSN=https://...
+
+
+  XAVFSIZLIK MEXANIZMI:
+    • send_default_pii=False
+        → Foydalanuvchi telefon raqami, parol, tokenlari Sentry'ga BORMAYDI
+    • beforeSend hook (mobile)
+        → Authorization, Cookie, X-Guest-Session-Id breadcrumb'larda yashiriladi
+    • max_request_body_size='small'
+        → Katta payload'lar tashlanadi
+    • DEBUG=True'da Sentry o'chiriladi
+        → Lokal xato'lar Django default traceback orqali ko'rinadi
+
+
+  PERFORMANCE BUDJET:
+    • traces_sample_rate=0.1 → har 10 ta requestdan 1 tasi performance trace
+    • Sentry free reja: 5,000 event/oy
+    • Eslatma: ERROR yuqori darajada o'rnatish event tejaydi
+
+
+  FOYDALANUVCHI HARAKATI (sozlash 5 daqiqa):
+    1. https://sentry.io da bepul hisob ochish
+    2. New Project → Platform: Django → DSN nusxalash
+    3. backend/.env'ga qo'shish:
+         SENTRY_DSN=https://abc@o123.ingest.sentry.io/456
+    4. Yana 1 ta project: Platform: Flutter → boshqa DSN
+    5. Mobile build:
+         flutter build apk --release --dart-define=SENTRY_DSN=https://...
+
+  TEKSHIRISH:
+    Backend test:
+      python manage.py shell
+      >>> import sentry_sdk
+      >>> sentry_sdk.capture_message("Test xabar")
+      → Sentry dashboard'da ko'rinishi kerak
+
+    Mobile test:
+      App'da intentional bug yarating (masalan, throw Exception)
+      → Sentry'ga keladi
+
+
+  NIMA UCHUN BU MUHIM:
+    "O'zingdan bilmagan xato eng katta xato" — production'da xato yashirin
+    qolmasligi kerak. Sentry sizga 24/7 ko'ngli xafa bo'lmaydigan "QA"
+    bo'lib turadi. Yiqilish tezroq topilsa = tezroq tuzatish = mijoz
+    qaytadi.
+
+
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  PHASE 0.5 — TELEGRAM BOT (Admin alert kanali)                              │
+│  Sana: 2026-05-30                                                            │
+│  Vaqt:  ~40 daqiqa                                                           │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+
+  MUAMMO (NEGA KERAK):
+    Sayt egasi sifatida shoshilinch xabar oladigan kanal kerak. Server
+    o'lganda, balans tugaganda, mijoz shikoyat qilganda — DARHOL bilish
+    kerak. Boshqa kanallar:
+
+      • Email   — O'zbekistonda kam tekshiriladi, spam'ga tushadi
+      • SMS     — pul ketadi (har xabar), formati yo'q, rasm yo'q
+      • Push    — ilova o'rnatilgan bo'lishi shart, ilova sinsa yo'qoladi
+      • Qo'ng'iroq — kechqurun ham chalinadi, raqamli kontekst yo'q
+
+    Telegram — universal (O'zbekistonda hamma uchun), bepul, real-time,
+    formatlangan, sizning serveringizdan mustaqil.
+
+
+  YECHIM:
+    Markazlashgan ogohlantirish moduli — barcha kelajak alert manbalari
+    (Sentry, UptimeRobot, Eskiz, stock, dispute, ...) shu modul orqali
+    ishlaydi.
+
+    YANGI FAYLLAR:
+      backend/core/notifications.py
+          send_admin_alert(text, severity) — markaziy funksiya
+          AlertSeverity enum: INFO (🟢), WARNING (🟡), ERROR (🟠), CRITICAL (🔴)
+          Yengil yordamchilar: alert_info, alert_warning, alert_error,
+          alert_critical
+
+      backend/core/management/__init__.py
+          (bo'sh — package marker)
+
+      backend/core/management/commands/__init__.py
+          (bo'sh — package marker)
+
+      backend/core/management/commands/test_telegram.py
+          python manage.py test_telegram buyrug'i
+          Sozlash to'g'rimi tekshirish + 4 ta turli darajadagi test xabar
+
+    O'ZGARTIRILGAN FAYLLAR:
+      backend/core/settings.py
+          TELEGRAM_BOT_TOKEN, TELEGRAM_ADMIN_CHAT_ID env'dan o'qish
+
+      backend/.env.example
+          To'liq sozlash qo'llanmasi qo'shildi (BotFather → token → ...)
+
+
+  TEXNIK XUSUSIYATLAR (har biri muhim sabab uchun):
+
+    1. DEDUP (5 daqiqa cache):
+       MUAMMO:  Bir xato Production'da 1000 marta sodir bo'lsa → 1000 xabar
+                — telefon Telegram'dan portlaydi
+       YECHIM:  Hash(text[:200]) bo'yicha cache.add() — atomik check
+       NATIJA:  Bir xil xabar 5 daqiqada 1 marta yuboriladi
+
+    2. CHEKSIZ HALQA HIMOYASI:
+       MUAMMO:  Sentry → Telegram zanjirida halqa xavfi:
+                Telegram API yiqilsa → logger.error → Sentry → Telegram (yiq)
+       YECHIM:  Dedup mexanizmi shu halqani uzadi (bir xabar — bir marta)
+
+    3. TRUNCATION (4000 belgi limit):
+       MUAMMO:  Telegram 4096 belgi qabul qiladi, lekin uzun stacktrace
+                bizning xabarni keskin kesib qaytarmaydi
+       YECHIM:  Avtomat qisqartirish + "...(qisqartirildi)" markeri
+
+    4. TIMEOUT (5 soniya):
+       MUAMMO:  Telegram API sekin bo'lsa, biznes mantiq kutib qolardi
+       YECHIM:  5s dan ko'p kutmaymiz — server uchun muhim emas
+
+    5. SOZLANMAGAN BO'LSA SILENTLY SKIP:
+       MUAMMO:  Development'da har gal "Telegram sozlanmagan" xato chiqsa
+                ish to'xtab qolardi
+       YECHIM:  Sozlanmaganligi log'ga yoziladi, lekin server ishlayveradi
+
+    6. ENVIRONMENT LABEL (PROD/DEV):
+       MUAMMO:  Development xabarlari bilan production xabarlari aralashib
+                ketsa, qaysi joydan kelganini bilmas edingiz
+       YECHIM:  Har xabarda "PROD" yoki "DEV" yorlig'i
+
+    7. 4 SEVERITY DARAJASI:
+       INFO     🟢 — oddiy ma'lumot (daily digest, yangi feedback)
+       WARNING  🟡 — diqqat kerak (kam stock, balans yarim)
+       ERROR    🟠 — kechikkan amal (backup muvaffaqiyatsiz, dispute)
+       CRITICAL 🔴 — darhol harakat (server o'chdi, balans tugadi)
+
+
+  FOYDALANUVCHI HARAKATI (sozlash 3 daqiqa):
+    1. Telegram'da @BotFather ga /newbot yuborish
+    2. Bot nomi va username kiritish
+    3. Tokenni nusxalash → backend/.env ga:
+         TELEGRAM_BOT_TOKEN=7842914738:AAEXxxxxxxxx
+    4. Telegram'da yangi bot bilan /start
+    5. Brauzerda: https://api.telegram.org/bot<TOKEN>/getUpdates
+    6. "chat":{"id":12345} dan chat_id ni olish → .env ga:
+         TELEGRAM_ADMIN_CHAT_ID=12345
+    7. Tekshirish: python manage.py test_telegram
+       → Telegram'da 4 ta test xabar kelishi kerak
+
+
+  KELAJAKDA QAYERLARDA ISHLATILADI (boshqa task'larda):
+    • Phase 0.2  UptimeRobot   → server o'chsa Telegram
+    • Phase 0.4  Eskiz balans  → 500 SMS qolganda Telegram
+    • Phase 1.7  Rate limit    → DDoS shubhasi Telegram
+    • Phase 1.9  Daily digest  → har ertalab biznes hisobot
+    • Phase 4.4  Kam stock     → 5 dan past tushganda
+    • Phase 4.6  Feedback      → yangi shikoyat
+    • Phase 2.6  Dispute       → mijoz e'tirozi
+    • Phase 5.5  Weekly digest → dushanba kunlari
+
+
+  NIMA UCHUN BU FUNDAMENTAL:
+    Telegram bot — qolgan barcha alert task'lar uchun ASOSDIR. U
+    bo'lmasa, hech bir alert yo'q. Shuning uchun u erta phase'da
+    qilindi.
+
+
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  PHASE 0.2 — HEALTH CHECK + UPTIMEROBOT (Server o'lishini bilish)           │
+│  Sana: 2026-05-30                                                            │
+│  Vaqt:  ~50 daqiqa                                                           │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+
+  MUAMMO (NEGA KERAK):
+    Server o'lganda nima bo'ladi? Mijoz sayt ochmoqchi bo'ladi, "xato"
+    chiqadi → mijoz hayron → ketadi → sotuv yo'qotiladi. Siz bilmaysiz
+    — bilmagandan keyin tuzatib bo'lmaysiz.
+
+    Premortem'da ko'rsatilgan ssenariy:
+      "24 soat ishlamasdan qolish va bilmaganlik" — bu eng yomon holat.
+      Tunda yoki dam olish kunida server o'chsa, ertasi kuni ish kelguncha
+      mijozlar boshqa do'konga ketgan bo'ladi.
+
+    Bizga 2 narsa kerak:
+      1. Server o'zi javob bera olyaptimi? (Django jarayoni tirikmi?)
+      2. Server'ning bog'liqliklari ishlayaptimi? (DB, Cache, ...)
+
+
+  YECHIM:
+    2 rejimli health check endpoint + tashqi monitoring (UptimeRobot).
+
+    BACKEND (Django):
+      GET /healthz/         → SHALLOW (faqat process tirik)
+      GET /healthz/?deep=1  → DEEP (DB + Cache + Telegram alert)
+
+    TASHQI MONITORING (UptimeRobot):
+      Har 5 daqiqada /healthz/?deep=1 ga ping yuboradi.
+      503 yoki timeout → Telegram'ga "down" xabari.
+      Qaytadan 200 → Telegram'ga "up again" xabari.
+
+
+  YANGI VA O'ZGARTIRILGAN FAYLLAR:
+
+    Yangi: backend/core/health.py
+      • HealthCheckView (Django View, DRF emas)
+      • 2 rejim: shallow + deep
+      • Cache strategy: deep natija 30 soniya keshlanadi
+      • DB check: SELECT 1 + engine nomi + duration_ms
+      • Cache check: probe yozish + qayta o'qish (read-write consistency)
+      • Telegram alert: kritik fail bo'lsa
+      • Response: status (healthy/degraded/unhealthy), checks tafsilot,
+                  response_time_ms, uptime, version, environment
+
+    O'zgartirildi: backend/core/urls.py
+      • path("healthz/", HealthCheckView.as_view(), name="healthz")
+      • Top-level — /api/ ostida emas (Kubernetes konvensiyasi)
+
+
+  TEXNIK XUSUSIYATLAR:
+
+    1. 2 REJIM (SHALLOW vs DEEP):
+       SHALLOW (/healthz/)
+         ~5ms javob vaqti, DB ga umuman tegmaydi.
+         Render deploy uchun: yangi container "ready" deganini bilish
+         uchun tezroq tekshiruv kerak.
+       DEEP (/healthz/?deep=1)
+         ~50ms (kesh issiq) yoki ~100ms (kesh sovuq).
+         UptimeRobot uchun: haqiqiy bog'liqlik fail bo'lsa topadi.
+
+    2. CACHE 30 SONIYA:
+       MUAMMO:  UptimeRobot 5 daqiqa, Render Health 30s, manual debug —
+                har ping DB ni o'rtacha 20 marta/soatda ko'rar edi.
+       YECHIM:  Cache.set(...timeout=30). Birinchi tekshiruv DB ga boradi,
+                qolganlar cache'dan qaytadi.
+       NATIJA:  Soatiga max 2 DB hit (10 daqiqada 1 marta).
+       O'YIN:   Real xato 30s ichida topilmasligi mumkin, lekin uptime
+                monitoring 5 daqiqa intervalga ega — 30s farq nominal.
+
+    3. DEGRADED STATUS:
+       Cache yiqilsa: status=degraded (200 OK qaytadi).
+       Sabab: settings.py'da Redis yo'q bo'lsa LocMemCache fallback bor.
+              Cache butunlay o'lganda ham server ishlay oladi.
+       DB yiqilsa: status=unhealthy (503 qaytadi).
+       Sabab: DB siz hech narsa ishlamaydi.
+
+    4. 503 SERVICE UNAVAILABLE:
+       UptimeRobot, Render, va Kubernetes konvensiyasi:
+         2xx → OK (alert yo'q)
+         5xx → DOWN (alert yuboriladi)
+       503 = "vaqtinchalik ishlamayapti, qayta urinib ko'r"
+
+    5. CACHE FALLBACK XAVFSIZLIK:
+       Cache o'chgan bo'lsa, cache.get() xato beradi.
+       _read_cache() bu xato'ni log'ga yozadi va None qaytaradi
+       — health check ishlashda davom etadi.
+       Health check'ning O'ZI cache yiqilganida ishlamasligi
+       to'g'ri emas.
+
+    6. JARAYON UPTIME:
+       _PROCESS_START_TIME — modul import vaqti.
+       Har javobda uptime_seconds qaytariladi.
+       Foydasi: server tez-tez qayta ishga tushyaptimi bilamiz
+       (low uptime + ko'p qayta start = crashloop).
+
+    7. VERSION FIELD:
+       GIT_COMMIT_SHA env'dan birinchi 7 belgi.
+       CI/CD: GIT_COMMIT_SHA=$(git rev-parse HEAD) deploy paytida.
+       Foydasi: deploy haqiqatan ham o'tgansagan? Qaysi versiya
+       hozir ishlamoqda? Bug qaysi commit'da paydo bo'lgan?
+
+    8. TELEGRAM ALERT ICHKI ZAXIRA:
+       UptimeRobot o'zi yiqilsa, biz alert olmas edik.
+       Shuning uchun health check ham Telegram'ga critical alert yuboradi
+       (dedup bilan, Phase 0.5'dan foydalanadi).
+       Ikki yo'l: UptimeRobot → Telegram + Health → Telegram.
+
+
+  UPTIMEROBOT SOZLASH (5 daqiqada, foydalanuvchi qiladi):
+
+    1. https://uptimerobot.com da bepul hisob ochish
+       (50 ta monitor bepul, 5 daqiqa intervalda)
+
+    2. Add New Monitor:
+         Monitor Type:    HTTP(s)
+         Friendly Name:   Bozor Production
+         URL:             https://YOUR-APP.onrender.com/healthz/?deep=1
+         Monitoring Interval: 5 minutes
+         Monitor Timeout: 30 seconds
+
+    3. Advanced Settings (ixtiyoriy):
+         Keyword check:  type "exists"; keyword "healthy"
+         (UptimeRobot javobda "healthy" so'zini izlaydi)
+
+    4. Alert Contacts (Telegram bilan integratsiya):
+         My Settings → Alert Contacts → Add Alert Contact
+         Type: Telegram
+         Bot Token:  TELEGRAM_BOT_TOKEN (Phase 0.5 dagi token)
+         Chat ID:    TELEGRAM_ADMIN_CHAT_ID (Phase 0.5 dagi chat)
+         Test → Save
+
+    5. Monitor'ga alert contact'ni biriktirish:
+         Monitor → Edit → Alert Contacts To Notify → Telegram tanlash
+
+    6. Tekshirish:
+         Render dashboard'dan service'ni Suspend qilib ko'ring.
+         5 daqiqa ichida Telegram'ga "Monitor is DOWN" xabari kelishi kerak.
+         Resume qiling — "Monitor is back UP" xabari keladi.
+
+
+  BONUS: COLD START MUAMMOSINI YENGISH
+
+    Render free tier 15 daqiqa harakat bo'lmasa serverni uxlatadi.
+    UptimeRobot 5 daqiqada bir ping qiladi → server hech qachon uxlamaydi.
+
+    Hisob:
+      Render free reja: 750 soat/oy
+      Bir oyda:         720 soat (30 kun × 24 soat)
+      UptimeRobot ushlab tursa: 720 soat ishlatiladi
+      Qolgan kvota:    30 soat (buffer)
+
+    XAVF: agar Bozor'da boshqa juda ko'p traffic bo'lsa (10K+ DAU), free
+    tier kvotasini tezroq tugatishi mumkin. Bu — paid'ga ko'chish signali
+    (Phase 7).
+
+    FOYDA: cold start muammosi bartaraf bo'ldi. Real mijoz 8 soniya
+    kutmaydi. Bu Phase 0.6 (cold start UX) ehtiyojini sezilarli
+    kamaytiradi.
+
+
+  TEKSHIRISH (lokal):
+
+    cd backend && source venv/bin/activate
+    python manage.py runserver
+
+    # Shallow check:
+    curl http://localhost:8000/healthz/
+    # Kutilgan: {"status":"healthy","mode":"shallow",...}
+
+    # Deep check:
+    curl 'http://localhost:8000/healthz/?deep=1'
+    # Kutilgan: {"status":"healthy","mode":"deep","checks":{"db":{...},...}}
+
+    # Production'da:
+    curl https://YOUR-APP.onrender.com/healthz/?deep=1
+
+
+  NIMA UCHUN BU MUHIM:
+    Sukutda yopilishni oldini olish. Premortem'dagi ssenariy:
+      "24 soat ishlamasdan qolish" → endi bu 5 daqiqada topiladi.
+    Bu — operatsion vakolat. Texnologiya 20%, qolgan 80% — "men nima
+    ishlayotganini bilaman" yondashuvi. Bu task shu yondashuv ostidagi
+    eng birinchi qadam.
+
+
+
+══════════════════════════════════════════════════════════════════════════════
+  📋 QOLGAN ISHLAR — PHASE BO'YICHA
+══════════════════════════════════════════════════════════════════════════════
+
+
+╔══════════════════════════════════════════════════════════════════════════╗
+║  PHASE 0 — BLOKLOVCHILARNI NEYTRALIZATSIYA (1 hafta)                     ║
+║  Maqsad: free tier'da ham xavfsiz launch holatiga olib chiqish           ║
+║  Holat:  3/9 task tugadi                                                 ║
+╚══════════════════════════════════════════════════════════════════════════╝
+
+  [✅] 0.1  Sentry integratsiyasi                        — TUGADI 2026-05-30
+  [✅] 0.2  Health check + UptimeRobot                   — TUGADI 2026-05-30
+  [✅] 0.5  Telegram support bot                         — TUGADI 2026-05-30
+
+  [  ] 0.3  PostgreSQL backup → Backblaze B2
+            Nima uchun: bitta DB xatosi = umumiy ma'lumot yo'qolishi
+                        (xavotirsiz tushida ham bo'lishi mumkin)
+            Yangi: backend/core/management/commands/backup_db.py
+            Sozlash: GitHub Actions cron (har kuni 03:00) yoki Celery Beat
+
+  [  ] 0.4  Eskiz balans webhook alert
+            Nima uchun: SMS balans tugasa OTP login darhol ishlamaydi
+                        (yangi foydalanuvchilar ro'yxatdan o'tolmaydi)
+            O'zgartirish: backend/orders/sms.py — har yuborgandan keyin
+                          balansni o'qib, threshold dan past bo'lsa Telegram
+
+  [  ] 0.6  Cold start UX in mobile
+            Nima uchun: Render free 60s cold start — foydalanuvchi
+                        nima sodir bo'layotganini tushunsin
+            O'zgartirish: bozor_mobile/.../api_client.dart + home_page.dart
+                          Skeleton shimmer + "Server uyg'onmoqda ~30s" banner
+
+  [  ] 0.7  Ikkinchi super_admin akkaunt + procedure
+            Nima uchun: birinchi super_admin qulflanib qolsa, biznes
+                        to'xtaydi (ko'pchilik amal uchun super_admin kerak)
+            Yangi: backend/users/management/commands/create_backup_superuser.py
+            + Runbook hujjatga procedure
+
+  [  ] 0.8  RUNBOOK.md hujjati
+            Nima uchun: kritik vaziyatda panik bo'lmasdan amal qilish
+                        (DB down, Redis down, Eskiz balans, ...)
+            Yangi: RUNBOOK.md loyiha root'ida
+
+  [  ] 0.9  Production .env va deployment checklist
+            Nima uchun: yangi serverga ko'chish vaqtida sozlamalar
+                        unutilmasin
+            Yangi: backend/.env.production.example
+            + GitHub Secrets ro'yxati
+
+
+
+╔══════════════════════════════════════════════════════════════════════════╗
+║  PHASE 1 — OPERATSION GIGIENA (3-4 hafta)                                ║
+║  Maqsad: ratsional ish va xato tuzatish vaqtini qisqartirish             ║
+║  Holat:  0/9 task                                                        ║
+╚══════════════════════════════════════════════════════════════════════════╝
+
+  [  ] 1.1  Audit log (admin amallari uchun)
+            Nima uchun: ichki o'g'rilik / xato tuzatish / mijoz shikoyati
+                        vaqtida "kim qachon nima qildi" topish mumkin bo'lsin
+            Yangi: backend/users/models.py::AuditLog
+            Yangi: backend/core/middleware.py::AuditMiddleware
+            Yangi: backend/users/management/commands/purge_old_audit_logs.py
+            UI: AdminPanel'da yangi "Audit log" tab
+
+  [  ] 1.2  App version check + force update
+            Nima uchun: eski buggy mobile versiyalarni majburiy yangilash
+                        (security fix tarqatish uchun)
+            Yangi: backend/core/models.py::AppConfig (singleton)
+            Endpoint: GET /api/app-config/
+            Mobile: main.dart'da boshlanishda check
+
+  [  ] 1.3  Mobile Crashlytics (native crash)
+            Nima uchun: Flutter exception lar Sentry'ga keladi, lekin
+                        native Android crash (NDK) Sentry'ga kelmaydi
+            O'zgartirish: bozor_mobile/android/app/build.gradle.kts
+                          Sentry Gradle plugin
+
+  [  ] 1.4  Telefon duplikat tozalash komandasi
+            Nima uchun: find_user_by_phone bug fix qilingan, lekin asosi —
+                        bazada duplicate formatlar — hali qoladi
+            Yangi: backend/users/management/commands/audit_phone_duplicates.py
+            Funksiya: duplicate guruhlarni topish + (manual fix)
+
+  [  ] 1.5  Mobile offline cache (oxirgi ko'rilgan mahsulotlar)
+            Nima uchun: internet o'chsa ham asosiy sahifa ko'rinishi kerak
+                        (foydalanuvchi tajribasi yaxshilanadi)
+            O'zgartirish: bozor_mobile/.../home_repository.dart
+                          Hive'ga keshlash + offline fallback
+
+  [  ] 1.6  Mobile integration smoke test
+            Nima uchun: har release oldidan oqim ishlashini avtomat tekshirish
+            Yangi: bozor_mobile/test/integration_smoke_test.dart
+
+  [  ] 1.7  Rate limit alert (DDoS / scraping shubhasi)
+            Nima uchun: kim bo'lsa ham 429 ko'p olsa, admin bilishi kerak
+            Yangi: backend/core/middleware.py::RateLimitAlertMiddleware
+            Telegram orqali alert (Phase 0.5'dan foydalanadi)
+
+  [  ] 1.8  Migration safety check
+            Nima uchun: xavfli migration (RemoveField) commit qilinmasligi
+            Yangi: pre-commit hook yoki manual checklist
+
+  [  ] 1.9  Daily admin digest (Telegram)
+            Nima uchun: har ertalab biznes ahvolini bir qarashda ko'rish
+            Yangi: backend/orders/management/commands/send_daily_digest.py
+            Tarkib: buyurtmalar, kreditlar, kam stock, conversion, xatolar
+
+
+
+╔══════════════════════════════════════════════════════════════════════════╗
+║  PHASE 2 — KREDIT HIMOYASI + DELIVERY PROOF (1-2 oy)                     ║
+║  Maqsad: kreditli buyurtma + kuryer xatosi = brand obro'sini buzish      ║
+║          ssenariysini bartaraf qilish                                    ║
+║  Holat:  0/8 task                                                        ║
+╚══════════════════════════════════════════════════════════════════════════╝
+
+  [  ] 2.1  OrderHistory ga delivery proof field'lar
+            Yangi field'lar: delivery_photo, delivery_latitude, longitude,
+                             received_code_verified
+            Migration yozish
+
+  [  ] 2.2  Order ga qabul kodi field'i
+            Yangi: received_code, received_code_sent_at, dispute_deadline
+
+  [  ] 2.3  SHIPPING → DELIVERED transition'da SMS qabul kodi
+            Nima uchun: mijoz qo'lida kod bo'lishi = "mahsulot keldi"
+                        ning yagona isboti
+            O'zgartirish: orders/services.py::transition_order_status
+
+  [  ] 2.4  DELIVERED → RECEIVED kuryer tomonidan (kod bilan)
+            Nima uchun: kuryer KODNI BILSA KO'P "mahsulot mijozga
+                        topshirildi" dey oladi (kod = mijoz roziligi)
+            Yangi endpoint: POST /api/orders/<id>/courier-confirm/
+            Body: received_code, delivery_photo, latitude, longitude
+
+  [  ] 2.5  Avtomat credit_overdue ni 7 kun keyin
+            Nima uchun: mijoz e'tirozini ko'rib chiqish vaqti bo'lsin
+            O'zgartirish: mark_credit_overdue.py — dispute_deadline tekshirish
+
+  [  ] 2.6  Dispute model
+            Yangi model: OrderDispute (open, under_review, resolved_for_*)
+            Endpoint: mijoz POST + admin PATCH
+            UI: AdminPanel'da "Disputlar" sahifa
+
+  [  ] 2.7  Manual override credit_overdue admin UI
+            Nima uchun: kuryer xatosi mijozni "ban" hisobiga kiritmasin
+            O'zgartirish: AdminPanel'da har buyurtma uchun toggle
+            AuditLog'ga yoziladi
+
+  [  ] 2.8  Kuryer ilovasi UX (Flutter)
+            Yangi feature module: bozor_mobile/lib/features/courier/
+            Sahifalar: yo'ldagi buyurtmalar, yetkazib berish (camera + GPS + kod)
+
+
+
+╔══════════════════════════════════════════════════════════════════════════╗
+║  PHASE 3 — TARJIMA SIFATI (1 oy)                                         ║
+║  Maqsad: tarjima skandalini oldini olish                                 ║
+║  Holat:  0/6 task                                                        ║
+╚══════════════════════════════════════════════════════════════════════════╝
+
+  [  ] 3.1  Product modeliga translation_status field
+            Qiymatlar: auto, pending_review, human_approved, flagged_by_customer
+
+  [  ] 3.2  Risk so'zlar ro'yxati
+            Yangi: backend/products/translation_safety.py
+            RISKY_WORDS_UZ: siyosiy, diniy, tibbiy
+            Product.save() — risk so'z bo'lsa pending_review
+
+  [  ] 3.3  Translation review queue (admin)
+            Endpoint: GET /api/admin/translations/pending/
+            UI: yangi "Tarjima review" sahifa AdminPanel'da
+
+  [  ] 3.4  Mijoz tarjima xato bildirishi
+            Endpoint: POST /api/products/<id>/report-translation/
+            Mahsulot sahifasida "Bu tarjima xato" tugmasi
+            Telegram alert admin'ga
+
+  [  ] 3.5  Tarjima override admin UI
+            Har 3 til uchun alohida nom + tavsif maydonlari
+            human_approved bo'lsa qaytadan auto-tarjima qilinmaydi
+
+  [  ] 3.6  Tarjima audit
+            Phase 1.1'dagi AuditLog dan foydalanadi
+            Kim qachon qaysi tarjimani o'zgartirgani DB'da
+
+
+
+╔══════════════════════════════════════════════════════════════════════════╗
+║  PHASE 4 — MAHSULOT FUNKSIYALARI (2-3 oy)                                ║
+║  Maqsad: klassik e-commerce funksiyalarini to'ldirish                    ║
+║  Holat:  0/8 task                                                        ║
+╚══════════════════════════════════════════════════════════════════════════╝
+
+  [  ] 4.1  Refund modul (qisman bor, tugatish)
+            Mavjud: Payment.refund_reference, refunded_at, trigger_refund()
+            Qo'shish: RefundRequest model, admin endpoint'lar, mijoz endpoint,
+                      AdminPanel sahifa, audit log integratsiya
+
+  [  ] 4.2  Promo kod / Kupon tizimi
+            Yangi: PromoCode model + PromoCodeUsage model
+            Endpoint: POST /api/cart/apply-promo/
+            UI: AdminPanel'da CRUD
+
+  [  ] 4.3  Admin hisobotlarni PDF eksport
+            Library: reportlab yoki weasyprint
+            AdminReportView'ga ?export=pdf parametri
+
+  [  ] 4.4  Kam qolgan tovar Telegram alert
+            Stock < 5 → Telegram (Phase 0.5'dan foydalanadi)
+            Dedup: 24 soatda 1 marta har tovar uchun
+
+  [  ] 4.5  Bulk product eksport (CSV)
+            Endpoint: GET /api/admin/products/export/?format=csv
+            UI: AdminPanel'da yuklab olish tugmasi
+
+  [  ] 4.6  Mijoz feedback dashboard
+            Mavjud: Feedback model
+            UI: yangi tab, admin javob yozishi (SMS yoki Telegram)
+
+  [  ] 4.7  Abandoned cart recovery
+            Yangi: backend/cart/management/commands/notify_abandoned_carts.py
+            24+ soat turgan savatlar uchun SMS reminder
+            Haftada 1 marta (spam himoyasi)
+
+  [  ] 4.8  Search analytics
+            Manba: RecommendationEvent (search'ni yozadi)
+            UI: yangi "Mijozlar nimani qidirmoqda" sahifa
+
+
+
+╔══════════════════════════════════════════════════════════════════════════╗
+║  PHASE 5 — BUSINESS INTELLIGENCE (uzluksiz)                              ║
+║  Maqsad: tahliliy ko'zguda turish — qaror raqamlardan                    ║
+║  Holat:  0/5 task                                                        ║
+╚══════════════════════════════════════════════════════════════════════════╝
+
+  [  ] 5.1  Konversiya funnel dashboard
+            Manba: RecommendationEvent + Order
+            UI: kelgan / mahsulot ko'rgan / savat / checkout / buyurtma
+
+  [  ] 5.2  Top sellers + mahsulot ranking
+            Oxirgi 30 kun ichidagi top 50 mahsulot
+            Sotuv, daromad, qaytarish darajasi
+
+  [  ] 5.3  Customer LTV calculation
+            Endpoint: GET /api/admin/users/<id>/ltv/
+            Mijoz profilida ko'rsatish
+
+  [  ] 5.4  Stock alerts dashboard
+            Phase 4.4'dagi alert + dashboard
+            Tezda kam qolish ehtimoli (7 kunlik sotuv tezligi)
+
+  [  ] 5.5  Weekly admin digest (Telegram, dushanba)
+            Phase 1.9'dagi daily digest'ga qo'shimcha
+            Hafta solishtiruv
+
+
+
+╔══════════════════════════════════════════════════════════════════════════╗
+║  PHASE 6 — IDENTITY ARXITEKTURASI (post-launch, ihtiyoriy)               ║
+║  Maqsad: "telefon = shaxs" taxminini bo'shashtirish                      ║
+║  Holat:  0/4 task                                                        ║
+╚══════════════════════════════════════════════════════════════════════════╝
+
+  [  ] 6.1  Multi-device session tracking
+            Yangi: users/models.py::UserSession
+            Profile sahifada: "Mening qurilmalarim" + "Chiqish" tugmasi
+
+  [  ] 6.2  Yangi qurilma tasdiqlash (OTP)
+            Birinchi marta yangi device_id bilan kirishda OTP
+
+  [  ] 6.3  SIM swap aniqlash
+            30 kun login bo'lmagan foydalanuvchi qaytsa qo'shimcha tasdiq
+
+  [  ] 6.4  (Kelajak) Passport KYC kredit uchun
+            Hozircha skip — kredit faqat 7 kun disput bilan himoyalangan
+
+
+
+╔══════════════════════════════════════════════════════════════════════════╗
+║  PHASE 7 — PULLIK HOSTING MIGRATSIYASI (1 hafta, launch oldidan)         ║
+║  Maqsad: free tier'dan paid'ga muammosiz ko'chish                        ║
+║  Holat:  0/7 task                                                        ║
+╚══════════════════════════════════════════════════════════════════════════╝
+
+  [  ] 7.1  Hosting tanlash
+            Variantlar (sizning byudjet ~100,000 UZS/oy):
+              • Hetzner CPX11   $5/oy ≈ 65,000 UZS  ★ tavsiya
+              • DigitalOcean    $6/oy ≈ 78,000 UZS
+              • Railway         $5-8/oy ≈ 65-105,000 UZS
+              • Render Starter  $7/oy ≈ 91,000 UZS
+
+  [  ] 7.2  PostgreSQL data migration
+            pg_dump → yangi serverda psql restore
+
+  [  ] 7.3  Redis migration
+            Faqat config — cache qayta tuziladi
+
+  [  ] 7.4  DNS sozlash
+            Domen sotib olish + A record yangi IP'ga
+
+  [  ] 7.5  SSL (Let's Encrypt yoki Caddy)
+
+  [  ] 7.6  Smoke tests (to'liq oqim + yuk testi 100 paralel user)
+
+  [  ] 7.7  Rollback plan
+            Render server tirik, B2 backup mavjud → 30 daqiqada qaytarish
+
+
+
+══════════════════════════════════════════════════════════════════════════════
+  📊 STATISTIKA
+══════════════════════════════════════════════════════════════════════════════
+
+  Phase 0:  9 task   ║▓▓▓░░░░░░║  3/9   (33%)
+  Phase 1:  9 task   ║░░░░░░░░░║  0/9   (0%)
+  Phase 2:  8 task   ║░░░░░░░░░║  0/8   (0%)
+  Phase 3:  6 task   ║░░░░░░░░░║  0/6   (0%)
+  Phase 4:  8 task   ║░░░░░░░░░║  0/8   (0%)
+  Phase 5:  5 task   ║░░░░░░░░░║  0/5   (0%)
+  Phase 6:  4 task   ║░░░░░░░░░║  0/4   (0%)
+  Phase 7:  7 task   ║░░░░░░░░░║  0/7   (0%)
+                                 ──────────
+  JAMI:    56 task   ║░░░░░░░░░║  3/56  (5.4%)
+
+
+
+══════════════════════════════════════════════════════════════════════════════
+  🎯 KEYINGI 3 TA TASK (TAVSIYA)
+══════════════════════════════════════════════════════════════════════════════
+
+  1. 0.4  Eskiz balans webhook alert              ~20 daqiqa
+          → SMS balans tugashi haqida xabar (Phase 0.5 bilan)
+
+  2. 0.3  PostgreSQL backup → B2                  ~1 soat
+          → Eng katta xavfsizlik fiqsiyasi (xavotirsiz uxlash uchun)
+
+  3. 0.6  Cold start UX in mobile                 ~45 daqiqa
+          → Render free 60s wait paytida "Server uyg'onmoqda" xabar
+          → 0.2 dagi UptimeRobot warm-up sezilarli kamaytirgan, lekin
+            real foydalanuvchi tajribasi uchun hali ham foydali
+
+
+══════════════════════════════════════════════════════════════════════════════
+  📝 ESLATMA
+══════════════════════════════════════════════════════════════════════════════
+
+Plan fayli (markdown):
+  /Users/xursand/.claude/plans/zippy-twirling-crane.md
+
+Bu fayl (TXT, yangilanib turadi):
+  /Users/xursand/Desktop/BOZOR_PLAN.txt
+
+Loyiha:
+  /Users/xursand/Online Magazin API/
+
+Phase 0.1 (Sentry) sozlash:
+  https://sentry.io → New Project → DSN → .env
+
+Phase 0.5 (Telegram) sozlash:
+  Telegram'da @BotFather → /newbot → token → .env
+  python manage.py test_telegram
+
+Har task tugagandan keyin bu fayl yangilanadi.
+═══════════════════════════════════════════════════════════════════════════════

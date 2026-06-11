@@ -1,0 +1,4 @@
+# Cloudflare Origin sertifikatlari — MAXFIY, git'ga kirmasin.
+# Bu papka git'da bo'lsin (compose mount qiladi), lekin sertifikatlar yo'q.
+*
+!.gitignore

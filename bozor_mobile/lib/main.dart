@@ -160,6 +160,14 @@ class BozorApp extends StatelessWidget {
               BlocProvider<AuthBloc>.value(value: di.sl<AuthBloc>()),
               BlocProvider<CartBloc>.value(value: di.sl<CartBloc>()),
               BlocProvider<FavoritesCubit>.value(value: di.sl<FavoritesCubit>()),
+              // ⭐ MUHIM: HomeBloc va CatalogBloc ham singleton sifatida butun
+              // widget tree'ga taqdim etiladi. Bu BlocListener til o'zgarishida
+              // yuborgan event aynan sahifa ko'rayotgan bir xil instance'ga
+              // yetib borishini kafolatlaydi. Avval factory edi — har chaqiruvda
+              // yangi instance yaratilib, listener va UI turli instance'larni
+              // ko'rib qolardi, shuning uchun til almashtirish ishlamagan.
+              BlocProvider<HomeBloc>.value(value: di.sl<HomeBloc>()),
+              BlocProvider<CatalogBloc>.value(value: di.sl<CatalogBloc>()),
             ],
             child: MaterialApp.router(
         title: 'Bozor Mobile',

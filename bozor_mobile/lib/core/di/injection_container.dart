@@ -129,9 +129,13 @@ Future<void> init() async {
 
   // ── Blocs ─────────────────────────────────────────────────────────────────
   // AuthBloc — singleton (yuqorida), AppRouter — singleton (yuqorida)
-  // Qolgan BLoC'lar factory (har sahifa uchun yangi instance)
-  sl.registerFactory<HomeBloc>(    () => HomeBloc(repository:    sl()));
-  sl.registerFactory<CatalogBloc>( () => CatalogBloc(repository: sl()));
+  // HomeBloc va CatalogBloc — SINGLETON: til o'zgarganda BlocListener
+  // aynan sahifa ko'rayotgan bir xil instance'ga event yuborishi kerak.
+  // registerFactory ishlatilsa — har chaqiruvda yangi instance yaratiladi,
+  // va BlocListener boshqa, sahifa boshqa instance'ga qarab qoladi → til
+  // almashtirish ishlamaydi. LazySingleton bu muammoni hal qiladi.
+  sl.registerLazySingleton<HomeBloc>(    () => HomeBloc(repository:    sl()));
+  sl.registerLazySingleton<CatalogBloc>( () => CatalogBloc(repository: sl()));
   sl.registerFactory<ProductDetailBloc>(
     () => ProductDetailBloc(repository: sl()),
   );

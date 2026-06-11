@@ -90,6 +90,14 @@ class Order(models.Model):
     # ko'rsatiladi. Brute-force xavfini kamaytirish uchun `secrets` kutubxonasi
     # ishlatiladi (cryptographic RNG).
     RECEIVED_CODE_LENGTH = 6
+    # Kod amal qilish muddati. Xorazm yetkazib berish odatda 1 kun ichida
+    # tugaydi — 24 soat yetarli oyna. Bundan keyin kod rad etiladi va admin
+    # yangi kod yaratishi kerak.
+    RECEIVED_CODE_TTL_HOURS = 24
+    # Bir buyurtma uchun ketma-ket noto'g'ri urinishlar limiti. Limit yetganda
+    # 1 soatga blok. Cache key: bozor:code_fails:{order_id}.
+    RECEIVED_CODE_MAX_ATTEMPTS = 5
+    RECEIVED_CODE_LOCKOUT_SECONDS = 3600
 
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -150,6 +158,25 @@ class Order(models.Model):
         blank=True,
         help_text="Qabul kodi SMS'da yuborilgan vaqt",
     )
+    # ── ULTRA-SECURE: one-time use ─────────────────────────────────────────────
+    # Kod muvaffaqiyatli ishlatilgan vaqt. NOT NULL bo'lsa — kod ishlatilgan,
+    # qayta qabul qilinmaydi (courier_confirm_delivery boshida tekshiriladi).
+    # Eski yetkazib berishlarda NULL — backward compat (eski buyurtmalarda
+    # status RECEIVED bo'lsa-yu used_at NULL bo'lsa, status guard'i ishlaydi).
+    received_code_used_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        db_index=True,
+        help_text="Kod muvaffaqiyatli ishlatilgan vaqt — qayta ishlatib bo'lmaydi",
+    )
+    # Kod amal qilish muddati (soat). DEFAULT_CODE_TTL_HOURS bilan bog'liq.
+    # SHIPPING -> DELIVERED da hisoblanadi: now + 24 soat.
+    received_code_expires_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        db_index=True,
+        help_text="Kod muddati tugash vaqti (24 soat). Bundan keyin kod rad etiladi.",
+    )
     # `dispute_deadline` — DELIVERED'dan keyin +DISPUTE_WINDOW_DAYS kun.
     # Bu muddat o'tmaguncha kreditga `overdue` belgilanmaydi (Phase 2.5).
     # `mark_credit_overdue` cron query'si uchun `db_index=True`.
@@ -201,6 +228,27 @@ class Order(models.Model):
         """
         base = base_time or timezone.now()
         return base + timedelta(days=self.DISPUTE_WINDOW_DAYS)
+
+    def compute_received_code_expiry(self, *, base_time=None):
+        """SHIPPING -> DELIVERED transition'ida: base_time + RECEIVED_CODE_TTL_HOURS.
+
+        Kod shu vaqtdan keyin rad etiladi (kuryer kiritsa-da). Admin yangi
+        kod yaratishi yoki resend qilishi kerak.
+        """
+        base = base_time or timezone.now()
+        return base + timedelta(hours=self.RECEIVED_CODE_TTL_HOURS)
+
+    @property
+    def is_received_code_used(self) -> bool:
+        """Kod allaqachon muvaffaqiyatli ishlatilganmi (one-time use)."""
+        return self.received_code_used_at is not None
+
+    @property
+    def is_received_code_expired(self) -> bool:
+        """Kod muddati o'tganmi (24 soatdan keyin)."""
+        if self.received_code_expires_at is None:
+            return False
+        return timezone.now() >= self.received_code_expires_at
 
     class Meta:
         # ── #17 & #22 FIX: DB Indexes ────────────────────────────────────────

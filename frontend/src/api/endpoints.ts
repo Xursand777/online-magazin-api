@@ -77,8 +77,51 @@ export const syncLocalCart = (data: {
 // ORDERS
 export const getOrders = () => apiClient.get('/orders/');
 export const getOrderDetail = (id: number | string) => apiClient.get(`/orders/${id}/`);
-export const createOrderFromCart = (data: object) => apiClient.post('/orders/from-cart/', data);
-export const createQuickOrder = (data: object) => apiClient.post('/orders/quick/', data);
+
+/**
+ * Brauzer/mobile uchun UUID v4 generatsiyasi (RFC 4122).
+ * `crypto.randomUUID()` — zamonaviy brauzerlarda mavjud (Chrome 92+,
+ * Safari 15.4+, Firefox 95+, Node 18+). Fallback — Math.random
+ * (mobile webview eski versiyalari uchun).
+ *
+ * Bu funksiya idempotency key sifatida ishlatiladi: har "Buyurtma berish"
+ * form submit'i uchun BITTA UUID generatsiya qilinadi va shu UUID
+ * X-Idempotency-Key header'ida yuboriladi. Slow internet retry'larda
+ * o'sha UUID qayta ishlatiladi — backend ESKI buyurtmani qaytaradi,
+ * yangi yaratmaydi.
+ */
+export const generateIdempotencyKey = (): string => {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  // Fallback (eski webview): UUID v4 format
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    const v = c === 'x' ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
+};
+
+/**
+ * Buyurtma yaratish — savat asosida.
+ * idempotencyKey: slow internet retry himoyasi uchun (zarur).
+ *   Klient o'zining UUID v4 key'ini generatsiya qilib uzatadi.
+ *   Backend bu key bilan birinchi marta kelgan so'rovga buyurtma yaratadi,
+ *   keyingi takroriy so'rovlarga ESKI buyurtmani qaytaradi (yangi yaratmaydi).
+ */
+export const createOrderFromCart = (data: object, idempotencyKey?: string) =>
+  apiClient.post('/orders/from-cart/', data, {
+    headers: idempotencyKey ? { 'X-Idempotency-Key': idempotencyKey } : undefined,
+  });
+
+/**
+ * Buyurtma yaratish — quick buy (savatsiz, 1 ta mahsulot).
+ * idempotencyKey: slow internet retry himoyasi (yuqoridagi kabi).
+ */
+export const createQuickOrder = (data: object, idempotencyKey?: string) =>
+  apiClient.post('/orders/quick/', data, {
+    headers: idempotencyKey ? { 'X-Idempotency-Key': idempotencyKey } : undefined,
+  });
 export const cancelOrder = (id: number | string, data: { cancellation_reason: string }) =>
   apiClient.post(`/orders/${id}/cancel/`, data);
 export const getCreditStatus = () => apiClient.get('/orders/credit-status/');

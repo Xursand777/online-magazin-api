@@ -1,8 +1,8 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useCartStore } from '../store/cartStore';
 import { useAuthStore } from '../store/authStore';
-import { createOrderFromCart, getCreditStatus, getProfile } from '../api/endpoints';
+import { createOrderFromCart, generateIdempotencyKey, getCreditStatus, getProfile } from '../api/endpoints';
 import { toast } from '../utils/toast';
 import { useTranslation } from '../i18n/useTranslation';
 
@@ -44,6 +44,18 @@ const Checkout = () => {
   const [loading, setLoading] = useState(false);
   const [cartReady, setCartReady] = useState(false);
   const [creditStatus, setCreditStatus] = useState<CreditStatus | null>(null);
+
+  // ── IDEMPOTENCY KEY (slow internet himoyasi) ─────────────────────────────
+  // Foydalanuvchi "Buyurtma berish" tugmasini bosgan paytda UUID generatsiya
+  // qilinadi va ref'da saqlanadi. Slow internet timeout sodir bo'lsa,
+  // qayta urinishda XUDDI SHU UUID ishlatiladi → backend ESKI buyurtmani
+  // qaytaradi, yangi yaratmaydi.
+  //
+  // Muvaffaqiyatli buyurtmadan keyin ref tozalanmaydi (sahifa /profile'ga
+  // navigate bo'ladi). Agar foydalanuvchi back tugmasi bilan qaytib kelib
+  // yangi buyurtma bersa, useEffect cleanup yo'q — lekin biz handleSubmit
+  // boshida YANGI key generatsiya qilamiz (faqat agar oldingisi yo'q bo'lsa).
+  const idempotencyKeyRef = useRef<string | null>(null);
 
   const [formData, setFormData] = useState({
     receiver_name: '',
@@ -128,15 +140,21 @@ const Checkout = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formData.receiver_name || !formData.receiver_phone || !formData.delivery_address) {
+
+    // ── ULTRA-SECURE: telefon ALWAYS user.phone'dan olinadi.
+    // Frontend formData.receiver_phone backend tomondan e'tiborga olinmaydi,
+    // lekin biz UI tutarli bo'lishi uchun bu yerda ham user.phone'ni
+    // ishlatamiz.
+    const authoritativePhone = user?.phone || '';
+
+    if (!formData.receiver_name || !authoritativePhone || !formData.delivery_address) {
       toast.error(t.checkout.allFieldsRequired);
       return;
     }
 
-    const cleanPhone = formData.receiver_phone.replace(/\s+/g, '');
-    const phoneRegex = /^\+998[0-9]{9}$/;
-    if (!phoneRegex.test(cleanPhone)) {
-      toast.error(t.auth?.errors?.phoneRequired || "Telefon raqami +998XXXXXXXXX formatida bo'lishi kerak");
+    const phoneRegex = /^\+998(33|88|90|91|93|94|95|97|98|99)\d{7}$/;
+    if (!phoneRegex.test(authoritativePhone)) {
+      toast.error("Ro'yxatdan o'tgan telefon raqamingiz noto'g'ri formatda. Profilingizni yangilang.");
       return;
     }
 
@@ -163,20 +181,42 @@ const Checkout = () => {
 
     const payload: Record<string, unknown> = {
       ...formData,
+      receiver_phone: authoritativePhone,   // backend baribir user.phone'ga almashtiradi
       payment_method: safePaymentMethod,
     };
     if (safePaymentMethod !== 'credit') {
       delete payload.credit_days;
     }
 
+    // Idempotency key: birinchi marta bosishda generatsiya, qayta urinishlarda
+    // o'sha kalit ishlatiladi. Bu slow internet timeout'da takroriy buyurtmani
+    // oldini oladi (backend cached response qaytaradi).
+    if (!idempotencyKeyRef.current) {
+      idempotencyKeyRef.current = generateIdempotencyKey();
+    }
+    const idemKey = idempotencyKeyRef.current;
+
     setLoading(true);
     try {
-      const res = await createOrderFromCart(payload);
+      const res = await createOrderFromCart(payload, idemKey);
+      // Muvaffaqiyatli — keyingi yangi buyurtma uchun key tozalanadi
+      idempotencyKeyRef.current = null;
       toast.success(t.checkout.orderSuccess);
       await useCartStore.getState().fetchCart();
       navigate(`/profile`, { state: { newOrderId: res.data.id } });
     } catch (err: any) {
-      toast.error(getCheckoutErrorMessage(err, t.checkout.orderError));
+      // 409 Conflict (idempotency_in_progress) bo'lsa — boshqa so'rov
+      // ishlamoqda, biroz kutib qayta urinish kerak. Key tozalanmaydi.
+      const code = err?.response?.data?.code;
+      const status = err?.response?.status;
+      if (status === 409 && code === 'idempotency_in_progress') {
+        toast.error("So'rov ishlamoqda. Bir necha soniyada qayta urinib ko'ring.");
+      } else {
+        // Boshqa xato — keyingi urinishda YANGI key (forma o'zgargan bo'lishi
+        // mumkin: validatsiya xato bo'lib qolgan field tuzatildi).
+        idempotencyKeyRef.current = null;
+        toast.error(getCheckoutErrorMessage(err, t.checkout.orderError));
+      }
     } finally {
       setLoading(false);
     }
@@ -209,16 +249,24 @@ const Checkout = () => {
                 />
               </div>
               <div className="flex flex-col md:col-span-2">
-                <label className="font-label-md text-label-md text-on-surface-variant mb-xs" htmlFor="receiver_phone">{t.checkout.receiverPhone} *</label>
+                <label className="font-label-md text-label-md text-on-surface-variant mb-xs flex items-center gap-xs" htmlFor="receiver_phone">
+                  {t.checkout.receiverPhone} *
+                  <span className="material-symbols-outlined text-[16px] text-primary" title="Ro'yxatdan o'tgan telefon raqami — xavfsizlik uchun o'zgartirib bo'lmaydi">lock</span>
+                </label>
                 <input
-                  className="border border-outline-variant rounded-lg px-sm py-sm focus:ring-primary focus:border-primary bg-surface-bright outline-none"
+                  className="border border-outline-variant rounded-lg px-sm py-sm bg-surface-container outline-none cursor-not-allowed text-on-surface-variant"
                   id="receiver_phone"
-                  placeholder="+998901234567"
-                  required
                   type="tel"
-                  value={formData.receiver_phone}
-                  onChange={(e) => setFormData({...formData, receiver_phone: e.target.value})}
+                  value={user?.phone || formData.receiver_phone}
+                  readOnly
+                  disabled
+                  aria-readonly="true"
+                  title="Ro'yxatdan o'tgan telefon raqami — xavfsizlik uchun o'zgartirib bo'lmaydi"
                 />
+                <p className="text-xs text-on-surface-variant mt-xs flex items-center gap-xs">
+                  <span className="material-symbols-outlined text-[14px]">verified</span>
+                  Ro'yxatdan o'tgan raqamingiz. Xavfsizlik uchun o'zgartirib bo'lmaydi.
+                </p>
               </div>
             </div>
             

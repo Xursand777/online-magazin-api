@@ -1,7 +1,25 @@
 from django.conf import settings
+from django.core.validators import RegexValidator
 from django.db import models
 from django.contrib.auth.models import AbstractUser
 from django.utils.translation import gettext_lazy as _
+
+
+# ── ULTRA-SECURE: O'zbekiston telefon raqami validatori ─────────────────────
+# DB darajasida (model field validator) — har qanday yo'l bilan noto'g'ri
+# raqam saqlash imkonsiz: full_clean() chaqiruvchi har serializer, admin form,
+# DRF — barchasi shu validator orqali o'tadi. Operator prefiksi cheklangan:
+#   33, 88                          — Humans, Beeline biznes
+#   90, 91, 93, 94, 95, 97, 98, 99  — Mobile operatorlar
+# Boshqa har qanday format → ValidationError.
+UZ_PHONE_VALIDATOR = RegexValidator(
+    regex=r'^\+998(33|88|90|91|93|94|95|97|98|99)\d{7}$',
+    message=(
+        "Telefon raqami O'zbekiston standartiga mos kelmaydi. "
+        "Format: +998XXXXXXXXX (90, 91, 93, 94, 95, 97, 98, 99, 33, 88)."
+    ),
+    code='invalid_uz_phone',
+)
 
 
 class UserRole(models.TextChoices):
@@ -13,7 +31,13 @@ class UserRole(models.TextChoices):
 
 class User(AbstractUser):
     username = models.CharField(max_length=150, blank=True, null=True)
-    phone    = models.CharField(_("Phone number"), max_length=15, unique=True)
+    phone    = models.CharField(
+        _("Phone number"),
+        max_length=15,
+        unique=True,
+        validators=[UZ_PHONE_VALIDATOR],
+        help_text="O'zbekiston telefon raqami: +998XXXXXXXXX",
+    )
 
     is_verified = models.BooleanField(
         default=False,

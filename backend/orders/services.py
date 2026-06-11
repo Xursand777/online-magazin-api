@@ -580,8 +580,16 @@ def transition_order_status(*, order, new_status, actor_type, actor=None, note='
         now = timezone.now()
         order.received_code = order.generate_received_code()
         order.received_code_sent_at = now
+        order.received_code_expires_at = order.compute_received_code_expiry(base_time=now)
+        order.received_code_used_at = None  # yangi kod — used emas
         order.dispute_deadline = order.compute_dispute_deadline(base_time=now)
-        update_fields.extend(['received_code', 'received_code_sent_at', 'dispute_deadline'])
+        update_fields.extend([
+            'received_code',
+            'received_code_sent_at',
+            'received_code_expires_at',
+            'received_code_used_at',
+            'dispute_deadline',
+        ])
 
     order.save(update_fields=update_fields)
 
@@ -622,52 +630,139 @@ def courier_confirm_delivery(
     longitude=None,
 ):
     """
-    Phase 2.4 — Kuryer yetkazib berishni qabul kodi + dalil bilan tasdiqlaydi.
+    Phase 2.8 (ultra-secure) — Kuryer yetkazib berishni qabul kodi bilan tasdiqlaydi.
 
-    Oqim:
-      1. Order DELIVERED holatida ekanligi tekshiriladi.
-      2. Order'ning `received_code` belgilanganligi tekshiriladi
-         (Phase 2.3 da SHIPPING->DELIVERED da o'rnatiladi).
-      3. Mijozning ayttirgan kodi vs DB'dagi kod taqqoslanadi:
-         * Noto'g'ri — audit yozuvi (`received_code_verified=False`,
-           rasm SAQLANMAYDI — Cloudinary kvotasini tejash uchun) +
-           ValidationError. Audit yozuvi alohida transaksiyada saqlanadi,
-           shuning uchun `raise` rollback qilmaydi.
-         * To'g'ri — DELIVERED -> RECEIVED transition + OrderHistory
-           yozuviga rasm/GPS/`received_code_verified=True` qo'shiladi
-           (atomic transaksiya).
+    XAVFSIZLIK QATLAMLARI (5 ta mustaqil himoya):
+    ────────────────────────────────────────────
+      1. Status guard           — order.status == DELIVERED bo'lishi shart
+      2. Brute-force lockout    — 5 ta noto'g'ri urinish = 1 soat blok
+                                  (cache: bozor:code_fails:{order_id})
+      3. One-time use guard     — kod muvaffaqiyatli ishlatilgan bo'lsa rad
+                                  (received_code_used_at IS NOT NULL → reject)
+      4. TTL guard              — kod 24 soatdan eskirsa rad
+                                  (received_code_expires_at < now → reject)
+      5. Code presence guard    — received_code DB'da bo'lishi shart
+
+    BRUTE-FORCE LOCKOUT:
+      cache.add() atomik mexanizm orqali har order uchun fail counter.
+      5 ga yetganda — 1 soat blok, kuryer admin bilan bog'lanishi kerak.
+      3 ta urinishda super_admin Telegram alert oladi (potentsial fraud).
+      Muvaffaqiyatli kod kiritilganda counter tozalanadi.
+
+    ONE-TIME USE GARANTIYASI:
+      Muvaffaqiyatli verifikatsiya paytida received_code_used_at = now()
+      o'rnatiladi. Bu maydon NOT NULL bo'lsa — kod qayta ishlatib bo'lmaydi
+      (yangi confirm urinishlari darhol rad etiladi).
+      Status DELIVERED -> RECEIVED ham o'zgaradi, lekin biz QO'SHIMCHA
+      himoya sifatida used_at maydonini ham tekshiramiz (defense in depth).
+
+    HAR YANGI BUYURTMA - YANGI KOD:
+      Har order.refresh_from_db() bilan SHIPPING -> DELIVERED transition'da
+      `generate_received_code()` yangi kriptografik tasodifiy kod yaratadi
+      (secrets.randbelow, 10^6 keyspace). Eski buyurtmalar kodi bilan
+      hech qanday bog'liqlik yo'q — har biri mustaqil keyspace.
 
     Args:
         order: Yetkazib berilishi tasdiqlanayotgan buyurtma.
         actor: Tasdiqlovchi xodim (kuryer yoki admin).
         received_code: Mijoz tomonidan kuryerga ayttirilgan kod.
-        delivery_photo: Kuryer olgan rasm (Cloudinary'ga yuklanadi).
-        latitude, longitude: GPS koordinatalar (None bo'lishi mumkin).
+        delivery_photo: Kuryer olgan rasm (ixtiyoriy).
+        latitude, longitude: GPS koordinatalar (ixtiyoriy).
 
     Returns:
         Order — yangilangan, status=RECEIVED.
 
     Raises:
-        serializers.ValidationError — noto'g'ri holat yoki kod.
+        serializers.ValidationError — har bir xavfsizlik qatlami buzilsa,
+        aniq error code bilan ('locked', 'code_expired', 'code_used',
+        'wrong_code', 'no_code', 'wrong_status').
     """
+    from django.core.cache import cache
+
     # DIQQAT: bu funksiya `@transaction.atomic` BILAN o'ralganmas.
     # Sabab: noto'g'ri kod uchun audit yozuvi `raise` orqali rollback
     # bo'lmasligi kerak (fraud kuzatuvi yo'qoladi).
-    order.refresh_from_db(fields=['status', 'received_code', 'updated_at'])
+    order.refresh_from_db(fields=[
+        'status', 'received_code', 'received_code_used_at',
+        'received_code_expires_at', 'updated_at',
+    ])
 
+    # ── 1) STATUS GUARD ─────────────────────────────────────────────────────
     if order.status != Order.STATUS_DELIVERED:
         raise serializers.ValidationError(
-            {'error': f"Buyurtma {order.status} holatida — DELIVERED kerak edi."}
-        )
-    if not order.received_code:
-        raise serializers.ValidationError(
-            {'error': "Bu buyurtma uchun qabul kodi yaratilmagan. Admin'ga murojaat qiling."}
+            {
+                'error': f"Buyurtma {order.status} holatida — DELIVERED kerak edi.",
+                'code': 'wrong_status',
+            }
         )
 
+    # ── 2) BRUTE-FORCE LOCKOUT ──────────────────────────────────────────────
+    # Har order uchun mustaqil counter — bir buyurtma bloklanishi
+    # boshqa buyurtmalarga ta'sir qilmaydi.
+    fail_key = f'bozor:code_fails:{order.id}'
+    try:
+        fails = cache.get(fail_key) or 0
+    except Exception:
+        # Cache yo'q bo'lsa — xavfsizlik tomonida xato qilamiz: bloklamaymiz.
+        # (Bu noyob holat, lekin SMS yetkazib berishni butunlay to'xtatib
+        # qo'ymaslik kerak.)
+        fails = 0
+
+    if fails >= Order.RECEIVED_CODE_MAX_ATTEMPTS:
+        # 1 soat blokda. Admin bilan bog'lanish kerak.
+        raise serializers.ValidationError(
+            {
+                'error': (
+                    f"Juda ko'p noto'g'ri urinish ({Order.RECEIVED_CODE_MAX_ATTEMPTS} ta). "
+                    f"1 soatdan keyin qayta urining yoki admin bilan bog'laning."
+                ),
+                'code': 'too_many_attempts',
+            }
+        )
+
+    # ── 3) ONE-TIME USE GUARD ───────────────────────────────────────────────
+    # Defense in depth: status RECEIVED ga o'tgan bo'lsa-da, qo'shimcha
+    # tekshiruv. Manual DB tahriri yoki status drift xavfsiz qoladi.
+    if order.received_code_used_at is not None:
+        raise serializers.ValidationError(
+            {
+                'error': "Bu kod allaqachon ishlatilgan. Qayta ishlatib bo'lmaydi.",
+                'code': 'code_used',
+            }
+        )
+
+    # ── 4) CODE PRESENCE GUARD ──────────────────────────────────────────────
+    if not order.received_code:
+        raise serializers.ValidationError(
+            {
+                'error': "Bu buyurtma uchun qabul kodi yaratilmagan. Admin'ga murojaat qiling.",
+                'code': 'no_code',
+            }
+        )
+
+    # ── 5) TTL GUARD (24 soat) ──────────────────────────────────────────────
+    if order.is_received_code_expired:
+        raise serializers.ValidationError(
+            {
+                'error': (
+                    f"Qabul kodi muddati o'tdi ({Order.RECEIVED_CODE_TTL_HOURS} soat). "
+                    f"Admin yangi kod yaratishi kerak."
+                ),
+                'code': 'code_expired',
+            }
+        )
+
+    # ── 6) KOD TAQQOSLASH ───────────────────────────────────────────────────
     if received_code != order.received_code:
-        # Noto'g'ri urinish — audit yozuvi (rasmsiz, GPS bor bo'lsa saqlanadi).
+        # Noto'g'ri urinish — counter +1, audit yozuvi (rasmsiz).
         # Mustaqil transaksiya: ValidationError outer scope'da rollback
-        # bo'lsa ham, audit yozuvi saqlanib qoladi.
+        # bo'lsa ham, audit yozuvi va counter saqlanib qoladi.
+        new_fails = fails + 1
+        try:
+            cache.set(fail_key, new_fails, timeout=Order.RECEIVED_CODE_LOCKOUT_SECONDS)
+        except Exception:
+            pass  # cache xato — bloklamaymiz, lekin audit qilamiz
+
         with transaction.atomic():
             OrderHistory.objects.create(
                 order=order,
@@ -675,17 +770,46 @@ def courier_confirm_delivery(
                 to_status=order.status,  # status o'zgarmaydi
                 actor_type=OrderHistory.ACTOR_USER,
                 actor=actor,
-                note="Kuryer noto'g'ri qabul kodi kiritdi",
+                note=f"Kuryer noto'g'ri qabul kodi kiritdi (urinish {new_fails}/{Order.RECEIVED_CODE_MAX_ATTEMPTS})",
                 delivery_latitude=latitude,
                 delivery_longitude=longitude,
                 received_code_verified=False,
             )
-        raise serializers.ValidationError({'error': "Qabul kodi noto'g'ri."})
 
-    # ── Kod to'g'ri — atomic transaksiya ichida transition + proof ─────────
+        # 3-urinishda admin Telegram alert — potentsial fraud signali.
+        if new_fails >= 3:
+            try:
+                from core.notifications import alert_warning
+                alert_warning(
+                    f"⚠️ *Shubhali kod urinishi*\n"
+                    f"Buyurtma: `#{order.id}`\n"
+                    f"Kuryer: `{getattr(actor, 'phone', '?')}`\n"
+                    f"Urinish: `{new_fails}/{Order.RECEIVED_CODE_MAX_ATTEMPTS}`\n"
+                    f"Brute-force ehtimoli — tekshirib ko'ring."
+                )
+            except Exception:
+                pass
+
+        # Qancha urinish qolganini mijozga aytamiz (kuryerga tushunarli)
+        remaining = Order.RECEIVED_CODE_MAX_ATTEMPTS - new_fails
+        raise serializers.ValidationError(
+            {
+                'error': (
+                    f"Qabul kodi noto'g'ri. "
+                    f"Qolgan urinish: {remaining}."
+                    if remaining > 0
+                    else "Qabul kodi noto'g'ri. Limit tugadi — 1 soatga bloklandi."
+                ),
+                'code': 'wrong_code',
+                'attempts_left': remaining,
+            }
+        )
+
+    # ── 7) KOD TO'G'RI — atomik transition + one-time mark ──────────────────
     # `transition_order_status` payment status, SMS signal, history yozuvi —
     # hammasini boshqaradi. So'ngra yaratilgan history yozuviga proof
-    # fieldlarni qo'shamiz (xuddi shu atomic blok ichida).
+    # fieldlarni qo'shamiz va order.received_code_used_at ni o'rnatamiz
+    # (one-time use kafolat).
     with transaction.atomic():
         order = transition_order_status(
             order=order,
@@ -694,6 +818,11 @@ def courier_confirm_delivery(
             actor=actor,
             note="Yetkazib berish kuryer tomonidan qabul kodi bilan tasdiqlandi",
         )
+
+        # ONE-TIME USE: kodni "used" deb belgilash. Bundan keyin shu kod
+        # bilan hech qachon yana confirm qilib bo'lmaydi (used_at IS NOT NULL).
+        order.received_code_used_at = timezone.now()
+        order.save(update_fields=['received_code_used_at', 'updated_at'])
 
         last_history = order.history.order_by('-id').first()
         if last_history and last_history.to_status == Order.STATUS_RECEIVED:
@@ -705,6 +834,13 @@ def courier_confirm_delivery(
                 'delivery_photo', 'delivery_latitude',
                 'delivery_longitude', 'received_code_verified',
             ])
+
+    # Muvaffaqiyatli — fail counter tozalanadi (keyingi buyurtmalar uchun ham
+    # toza boshlash; key allaqachon order-specific edi).
+    try:
+        cache.delete(fail_key)
+    except Exception:
+        pass
 
     return order
 
@@ -958,6 +1094,101 @@ import logging as _disp_logging
 _disp_logger = _disp_logging.getLogger(__name__)
 
 
+# ── Phase 2.8 — Disput muddati FALLBACK (NULL bo'lganda) ────────────────────
+#
+# MUAMMO: NIMA UCHUN ESKI BUYURTMALARDA MIJOZ 6 OYDAN KEYIN SHIKOYAT OCHARDI?
+# ───────────────────────────────────────────────────────────────────────────
+#   Phase 2.2 (2025) da Order modeliga `dispute_deadline` maydoni qo'shildi:
+#   SHIPPING → DELIVERED transition'da `now + 7 kun` qiymati yoziladi.
+#
+#   Lekin u maydon migration bilan qo'shilganda — ESKI buyurtmalardagi
+#   qiymat NULL bo'lib qoldi. Faqat YANGI buyurtmalarga yoziladi.
+#
+#   create_order_dispute'dagi tekshiruv:
+#       if order.dispute_deadline and timezone.now() > order.dispute_deadline:
+#           raise "Disput muddati o'tdi"
+#
+#   Mantiqiy zanjir:
+#     • dispute_deadline IS NULL  → birinchi shart `order.dispute_deadline`
+#       Falsy bo'lib `and` zanjiri True bo'lmaydi
+#     • Natija: tekshiruv O'TKAZIB YUBORILADI
+#     • Eski buyurtmaga 6 oy, 1 yil, 2 yil keyin ham disput OCHISH MUMKIN
+#
+#   REAL ZARAR STSENARIY:
+#     6 oy oldin yetkazilgan iPhone — mijoz "qutib bo'lgan" deydi
+#     Biz uchun rasm/GPS dalil 6 oylik (Cloudinary auto-delete bo'lgan
+#     bo'lishi mumkin), kuryer ham boshqa joyda — refund qilishga majbur
+#     bo'lamiz.
+#
+# YECHIM — FALLBACK ALGORITMI:
+# ───────────────────────────────────────────────────────────────────────────
+#   1. dispute_deadline mavjud bo'lsa — uni ishlatamiz (yangi xulq)
+#   2. NULL bo'lsa — buyurtma tarixidan RECEIVED/DELIVERED vaqtini topamiz
+#      va shu vaqtga FALLBACK_DISPUTE_DAYS (30 kun) qo'shamiz
+#   3. Tarix yo'q bo'lsa (g'ayritabiiy) — order.updated_at + 30 kun
+#   4. Bo'lmasa — order.created_at + 30 kun (oxirgi himoya)
+#
+#   30 kun TANLOVI:
+#     • Standart Phase 2.2 disput oynasi — 7 kun
+#     • Eski buyurtmalar uchun yumshoqroq qoida — 30 kun (insof)
+#     • 30 kundan ortiq bo'lsa: rasm/GPS dalil ham yo'q, ob'ektiv tahlil
+#       imkonsiz — disput rad etiladi
+#
+#   Bu yondashuv MIGRATIONS'siz ishlaydi — DB'dagi NULL'lar saqlanadi,
+#   faqat application darajasidagi fallback. Yangi buyurtmalar uchun real
+#   `dispute_deadline` ishlatiladi (7 kun, qattiqroq).
+#
+# ───────────────────────────────────────────────────────────────────────────
+_FALLBACK_DISPUTE_DAYS = 30
+
+
+def _resolve_dispute_deadline(order) -> 'datetime.datetime':
+    """Disput muddatini aniqlash — NULL bo'lsa fallback.
+
+    Tartib:
+      1. order.dispute_deadline (Phase 2.2) — eng aniq, ustuvor
+      2. OrderHistory'dan RECEIVED yoki DELIVERED transition vaqti + 30 kun
+      3. order.updated_at + 30 kun  (history yo'q bo'lsa)
+      4. order.created_at + 30 kun  (oxirgi himoya)
+
+    Args:
+        order: Order obyekti.
+
+    Returns:
+        datetime — shu vaqtgacha disput ochish mumkin.
+    """
+    if order.dispute_deadline:
+        return order.dispute_deadline
+
+    # ── FALLBACK: tarixdan RECEIVED/DELIVERED vaqtini olamiz ────────────────
+    # RECEIVED ustuvor (mijoz haqiqatan qo'liga olgan vaqt).
+    # DELIVERED — kuryer eshikda turgan vaqt (RECEIVED'ga yetmagan eski
+    # buyurtmalar uchun).
+    base_time = None
+    history = list(
+        order.history
+        .filter(to_status__in=[Order.STATUS_RECEIVED, Order.STATUS_DELIVERED])
+        .order_by('-id')[:5]  # eng yangi 5 ta
+    )
+    # Avval RECEIVED'ni qidiramiz
+    for h in history:
+        if h.to_status == Order.STATUS_RECEIVED:
+            base_time = h.created_at
+            break
+    # Bo'lmasa DELIVERED
+    if base_time is None:
+        for h in history:
+            if h.to_status == Order.STATUS_DELIVERED:
+                base_time = h.created_at
+                break
+
+    # Hech narsa topilmasa — order.updated_at (oxirgi modifikatsiya)
+    if base_time is None:
+        base_time = order.updated_at or order.created_at
+
+    return base_time + timedelta(days=_FALLBACK_DISPUTE_DAYS)
+
+
 def create_order_dispute(
     *,
     order,
@@ -1000,9 +1231,32 @@ def create_order_dispute(
             {'error': "Faqat yetkazilgan buyurtmaga shikoyat qilish mumkin."}
         )
 
-    if order.dispute_deadline and timezone.now() > order.dispute_deadline:
+    # ── Phase 2.8 — Disput muddati NULL bo'lsa fallback (eski buyurtmalar) ──
+    # Phase 2.2 dan oldingi buyurtmalarda dispute_deadline NULL.
+    # _resolve_dispute_deadline:
+    #   • dispute_deadline mavjud → uni ishlatadi (yangi xulq)
+    #   • NULL → OrderHistory'dan RECEIVED/DELIVERED vaqti + 30 kun
+    # Mijoz hech qachon 30 kundan ortiq vaqtdan keyin disput ocha olmaydi.
+    effective_deadline = _resolve_dispute_deadline(order)
+    if timezone.now() > effective_deadline:
+        # Aniq sabab xabari — yangi va eski buyurtmalar uchun har xil
+        if order.dispute_deadline:
+            error_msg = (
+                "Disput muddati o'tdi (7 kun). "
+                "Qo'llab-quvvatlash xizmatiga murojaat qiling."
+            )
+        else:
+            error_msg = (
+                f"Bu buyurtma uchun disput muddati o'tdi "
+                f"(yetkazilgandan {_FALLBACK_DISPUTE_DAYS} kun). "
+                f"Qo'llab-quvvatlash xizmatiga murojaat qiling."
+            )
         raise serializers.ValidationError(
-            {'error': "Disput muddati o'tdi. Qo'llab-quvvatlash xizmatiga murojaat qiling."}
+            {
+                'error': error_msg,
+                'code': 'dispute_window_closed',
+                'deadline': effective_deadline.isoformat(),
+            }
         )
 
     if order.disputes.filter(status__in=OrderDispute.ACTIVE_STATUSES).exists():

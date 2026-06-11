@@ -143,10 +143,17 @@ class OrderSerializer(serializers.ModelSerializer):
 class QuickOrderSerializer(serializers.Serializer):
     product_id = serializers.IntegerField()
     variant_id = serializers.IntegerField(required=False, allow_null=True)
-    quantity = serializers.IntegerField(default=1, min_value=1)
+    quantity = serializers.IntegerField(default=1, min_value=1, max_value=100)
 
     receiver_name = serializers.CharField(max_length=255)
-    receiver_phone = serializers.CharField(max_length=20)
+    # ── ULTRA-SECURE: receiver_phone backend tomondan request.user.phone'dan
+    # o'rnatiladi. Frontend yuborgan qiymat e'tiborga olinmaydi. Eski mobile
+    # API'lar mos kelishi uchun maydon required=False qilingan (yuborilsa
+    # ham, view tomonidan o'chiriladi va user.phone bilan almashtiriladi).
+    receiver_phone = serializers.CharField(
+        max_length=20, required=False, allow_blank=True,
+        help_text="E'TIBORGA OLINMAYDI — server ro'yxatdan o'tgan raqamni ishlatadi.",
+    )
     delivery_address = serializers.CharField()
     payment_method = serializers.ChoiceField(choices=Order.PAYMENT_METHOD_CHOICES, default=Order.PAYMENT_METHOD_CASH)
     credit_days = serializers.IntegerField(
@@ -164,7 +171,12 @@ class QuickOrderSerializer(serializers.Serializer):
 
 class OrderFromCartSerializer(serializers.Serializer):
     receiver_name = serializers.CharField(max_length=255)
-    receiver_phone = serializers.CharField(max_length=20)
+    # ── ULTRA-SECURE: receiver_phone view tomonidan request.user.phone'dan
+    # majburiy o'rnatiladi. Backwards compat uchun required=False.
+    receiver_phone = serializers.CharField(
+        max_length=20, required=False, allow_blank=True,
+        help_text="E'TIBORGA OLINMAYDI — server ro'yxatdan o'tgan raqamni ishlatadi.",
+    )
     delivery_address = serializers.CharField()
     payment_method = serializers.ChoiceField(choices=Order.PAYMENT_METHOD_CHOICES, default=Order.PAYMENT_METHOD_CASH)
     credit_days = serializers.IntegerField(

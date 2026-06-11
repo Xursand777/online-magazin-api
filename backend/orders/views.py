@@ -41,80 +41,146 @@ from .services import (
     transition_order_status,
     update_order_dispute,
 )
+from .idempotency import (
+    IdempotencyConflict,
+    acquire_idempotency_lock,
+    get_idempotency_key,
+    release_idempotency_lock,
+    save_idempotency_response,
+)
 
 
 class QuickOrderView(views.APIView):
     permission_classes = (IsAuthenticated,)
 
-    @transaction.atomic
     def post(self, request, *args, **kwargs):
-        serializer = QuickOrderSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        data = serializer.validated_data
+        # ── IDEMPOTENCY GATE — slow internet retry himoyasi ──────────────────
+        # Frontend X-Idempotency-Key header'da UUID v4 yuboradi. Klient
+        # eski versiyasi bo'lsa header yo'q — bu holatda eski xulq saqlanadi
+        # (yangi buyurtma yaratiladi). Yangi klientlar dublikatdan himoyalangan.
+        idem_key = get_idempotency_key(request)
+        if idem_key:
+            try:
+                acquired, cached = acquire_idempotency_lock(request.user.id, idem_key)
+            except IdempotencyConflict as exc:
+                return Response(
+                    {'error': exc.message, 'code': 'idempotency_in_progress'},
+                    status=status.HTTP_409_CONFLICT,
+                    headers={'Retry-After': '3'},
+                )
+            if not acquired and cached:
+                # Buyurtma allaqachon yaratilgan — cached response qaytaramiz
+                return Response(cached, status=status.HTTP_201_CREATED)
 
-        product = get_object_or_404(Product, id=data['product_id'], is_active=True)
-        variant = None
-        if data.get('variant_id'):
-            variant = get_object_or_404(ProductVariant, id=data['variant_id'], product=product)
+        try:
+            with transaction.atomic():
+                serializer = QuickOrderSerializer(data=request.data)
+                serializer.is_valid(raise_exception=True)
+                data = serializer.validated_data
 
-        order = create_order_with_items(
-            user=request.user,
-            receiver_name=data['receiver_name'],
-            receiver_phone=data['receiver_phone'],
-            delivery_address=data['delivery_address'],
-            payment_method=data['payment_method'],
-            credit_days=data.get('credit_days'),
-            items=[
-                {
-                    'product': product,
-                    'variant': variant,
-                    'quantity': data['quantity'],
-                }
-            ],
-        )
+                product = get_object_or_404(Product, id=data['product_id'], is_active=True)
+                variant = None
+                if data.get('variant_id'):
+                    variant = get_object_or_404(ProductVariant, id=data['variant_id'], product=product)
 
-        record_product_event(request, product, 'order', variant=variant)
-        return Response(OrderSerializer(order, context={'request': request}).data, status=status.HTTP_201_CREATED)
+                # receiver_phone HAR DOIM request.user.phone'dan — frontend e'tibordan chetda
+                order = create_order_with_items(
+                    user=request.user,
+                    receiver_name=data['receiver_name'],
+                    receiver_phone=request.user.phone,
+                    delivery_address=data['delivery_address'],
+                    payment_method=data['payment_method'],
+                    credit_days=data.get('credit_days'),
+                    items=[
+                        {
+                            'product': product,
+                            'variant': variant,
+                            'quantity': data['quantity'],
+                        }
+                    ],
+                )
+                response_data = OrderSerializer(order, context={'request': request}).data
+
+            # Transaction COMMIT bo'lgandan keyin event yozish va cache saqlash
+            record_product_event(request, product, 'order', variant=variant)
+            if idem_key:
+                save_idempotency_response(request.user.id, idem_key, response_data)
+
+            return Response(response_data, status=status.HTTP_201_CREATED)
+
+        except Exception:
+            # Buyurtma yaratishda xato — lock'ni darhol bo'shatamiz, klient
+            # to'g'rilab qayta urina oladi (yangi UUID bilan).
+            if idem_key:
+                release_idempotency_lock(request.user.id, idem_key)
+            raise
 
 
 class OrderFromCartView(views.APIView):
     permission_classes = (IsAuthenticated,)
 
-    @transaction.atomic
     def post(self, request, *args, **kwargs):
+        # ── IDEMPOTENCY GATE — slow internet retry himoyasi ──────────────────
+        idem_key = get_idempotency_key(request)
+        if idem_key:
+            try:
+                acquired, cached = acquire_idempotency_lock(request.user.id, idem_key)
+            except IdempotencyConflict as exc:
+                return Response(
+                    {'error': exc.message, 'code': 'idempotency_in_progress'},
+                    status=status.HTTP_409_CONFLICT,
+                    headers={'Retry-After': '3'},
+                )
+            if not acquired and cached:
+                return Response(cached, status=status.HTTP_201_CREATED)
 
+        try:
+            with transaction.atomic():
+                cart = get_or_create_cart(request)
+                cart_items = list(cart.items.select_related('product', 'variant'))
+                if not cart_items:
+                    from rest_framework.exceptions import ValidationError
+                    raise ValidationError({'error': "Savat bo'sh."})
 
-        cart = get_or_create_cart(request)
-        cart_items = list(cart.items.select_related('product', 'variant'))
-        if not cart_items:
-            return Response({'error': "Savat bo'sh."}, status=status.HTTP_400_BAD_REQUEST)
+                serializer = OrderFromCartSerializer(data=request.data)
+                serializer.is_valid(raise_exception=True)
+                data = serializer.validated_data
 
-        serializer = OrderFromCartSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        data = serializer.validated_data
+                # receiver_phone HAR DOIM request.user.phone'dan
+                order = create_order_with_items(
+                    user=request.user,
+                    receiver_name=data['receiver_name'],
+                    receiver_phone=request.user.phone,
+                    delivery_address=data['delivery_address'],
+                    payment_method=data['payment_method'],
+                    credit_days=data.get('credit_days'),
+                    items=[
+                        {
+                            'product': item.product,
+                            'variant': item.variant,
+                            'quantity': item.quantity,
+                        }
+                        for item in cart_items
+                    ],
+                )
+                response_data = OrderSerializer(order, context={'request': request}).data
+                # Savatni transaksiya ichida tozalaymiz — agar order yaratish
+                # qaytarib olinsa (rollback), savat ham tiklanadi.
+                items_to_track = [(item.product, item.variant) for item in cart_items]
+                cart.items.all().delete()
 
-        order = create_order_with_items(
-            user=request.user,
-            receiver_name=data['receiver_name'],
-            receiver_phone=data['receiver_phone'],
-            delivery_address=data['delivery_address'],
-            payment_method=data['payment_method'],
-            credit_days=data.get('credit_days'),
-            items=[
-                {
-                    'product': item.product,
-                    'variant': item.variant,
-                    'quantity': item.quantity,
-                }
-                for item in cart_items
-            ],
-        )
+            # COMMIT'dan keyin event yozish va cache saqlash
+            for product, variant in items_to_track:
+                record_product_event(request, product, 'order', variant=variant)
+            if idem_key:
+                save_idempotency_response(request.user.id, idem_key, response_data)
 
-        for item in cart_items:
-            record_product_event(request, item.product, 'order', variant=item.variant)
+            return Response(response_data, status=status.HTTP_201_CREATED)
 
-        cart.items.all().delete()
-        return Response(OrderSerializer(order, context={'request': request}).data, status=status.HTTP_201_CREATED)
+        except Exception:
+            if idem_key:
+                release_idempotency_lock(request.user.id, idem_key)
+            raise
 
 
 class OrderListView(generics.ListAPIView):
@@ -852,21 +918,121 @@ class AdminPOSOrderView(views.APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # MUDDATLI TO'LOV — FAQAT USTALAR UCHUN (POS authoritative check).
-        # skip_credit_check=True bo'lganda ham bu check majburiy — admin
-        # bo'lsa-da, sotuvchi bo'lsa-da, ustasi bo'lmagan mijozga kredit
-        # berib bo'lmaydi. Bu biznes-kritik qoida.
-        if payment_method == Order.PAYMENT_METHOD_CREDIT and user and not user.can_use_credit:
-            return Response(
-                {
-                    "error": (
-                        "Muddatli to'lov faqat ustalar uchun. "
-                        "Bu mijoz Ustalar ro'yxatida emas."
-                    ),
-                    "code": "master_required",
-                },
-                status=status.HTTP_400_BAD_REQUEST,
+        # ── POS MUDDATLI TO'LOV — ULTRA-SECURE 4 QATLAMLI HIMOYA ─────────────
+        # skip_credit_check=True POS'da admin tomondan ataylab o'tkazib
+        # yuboriladi (admin oddiy sotuv jarayonini boshqaradi), AMMO biznes-
+        # kritik kredit qoidalari hech qachon o'tkazib yuborilmasligi kerak.
+        # Bu yerda 4 qatlam — sayt va POS bir xil qattiq qoidalarga buyincha:
+        #
+        #   1. MASTER GUARD     — ustadan boshqa hech kim kredit ololmaydi
+        #   2. BAN GUARD        — 3 marta o'tkazib yuborgan mijoz doimiy blok
+        #   3. OVERDUE GUARD    — muddati o'tgan to'lanmagan kredit bor —
+        #                          avval uni to'lash kerak
+        #   4. ACTIVE GUARD     — hozir aktiv to'lanmagan kredit bor —
+        #                          bir vaqtda bitta kredit qoidasi
+        #
+        # Har biriga uniq error code → admin UI aniq sabab ko'rsatadi.
+        # ────────────────────────────────────────────────────────────────────
+        if payment_method == Order.PAYMENT_METHOD_CREDIT and user:
+            from .services import mark_overdue_credits
+
+            # 1) MASTER GUARD
+            if not user.can_use_credit:
+                return Response(
+                    {
+                        "error": (
+                            "Muddatli to'lov faqat ustalar uchun. "
+                            "Bu mijoz Ustalar ro'yxatida emas."
+                        ),
+                        "code": "master_required",
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            # 2) BAN GUARD — refresh from DB (cached user obyekt eskirgan
+            # bo'lishi mumkin: cron unbanga olib kelgan bo'lsa)
+            user.refresh_from_db(fields=['credit_ban', 'overdue_credit_count'])
+            if user.credit_ban:
+                return Response(
+                    {
+                        "error": (
+                            "Bu mijoz kredit ban'da — 3 marta to'lov muddatini "
+                            "o'tkazib yuborgan. Avval Super Admin ban'ni "
+                            "olib tashlashi kerak."
+                        ),
+                        "code": "credit_banned",
+                        "overdue_count": user.overdue_credit_count,
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            # 3) OVERDUE GUARD — disput muddati hisobga olingan overdue mark
+            # (mark_overdue_credits Phase 2.5 dispute_deadline'ni hurmat
+            # qiladi — bu yerda double-purpose: ham mark, ham hisob yangilash)
+            try:
+                mark_result = mark_overdue_credits(user)
+                if mark_result['banned']:
+                    return Response(
+                        {
+                            "error": (
+                                "Bu mijozning to'lov muddati 3 marta o'tib ketdi. "
+                                "Kredit imkoniyati doimiy bloklandi."
+                            ),
+                            "code": "credit_banned",
+                        },
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+                if mark_result['count'] > 0:
+                    return Response(
+                        {
+                            "error": (
+                                "Bu mijozning muddati o'tgan to'lanmagan "
+                                "kredit buyurtmasi mavjud. Avval uni to'laydi, "
+                                "keyin yangi kredit beriladi."
+                            ),
+                            "code": "credit_overdue",
+                            "new_overdue_count": mark_result['count'],
+                        },
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+            except Exception as exc:
+                # mark_overdue_credits race-safe — lekin kutilmagan xato
+                # bo'lsa, xavfsizlik tomondan blok qilamiz (fail-safe).
+                import logging
+                logging.getLogger('orders.pos').exception(
+                    "POS overdue check xato: %s", exc,
+                )
+                return Response(
+                    {
+                        "error": "Kredit holatini tekshirib bo'lmadi. Qayta urinib ko'ring.",
+                        "code": "credit_check_failed",
+                    },
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                )
+
+            # 4) ACTIVE GUARD — hali muddati kelmagan, lekin to'lanmagan
+            active_credit = (
+                Order.objects
+                .filter(user=user, is_credit=True, credit_paid=False)
+                .exclude(status__in=Order.CANCELLATION_STATUSES)
+                .order_by('credit_due_date')
+                .first()
             )
+            if active_credit:
+                return Response(
+                    {
+                        "error": (
+                            f"Bu mijozning to'lanmagan kredit buyurtmasi bor "
+                            f"(#{active_credit.id}, muddat: "
+                            f"{active_credit.credit_due_date}). "
+                            f"Avval uni to'laydi, keyin yangisi beriladi."
+                        ),
+                        "code": "credit_active",
+                        "active_order_id": active_credit.id,
+                        "active_due_date": str(active_credit.credit_due_date),
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
 
         credit_days = None
         if payment_method == Order.PAYMENT_METHOD_CREDIT:
