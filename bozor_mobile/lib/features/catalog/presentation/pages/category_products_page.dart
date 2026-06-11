@@ -4,7 +4,18 @@ import '../../../../core/di/injection_container.dart';
 import '../../../../core/widgets/product_card.dart';
 import '../bloc/catalog_bloc.dart';
 
-class CategoryProductsPage extends StatelessWidget {
+/// Kategoriya mahsulotlari sahifasi.
+///
+/// ⭐ ARXITEKTURA ESLATMASI:
+/// Bu sahifa singleton CatalogBloc'dan ALOHIDA, o'ziga tegishli yangi
+/// CatalogBloc instance yaratadi va uni o'zi dispose qiladi.
+/// Sababi:
+///   • Singleton CatalogBloc — barcha kategoriyalar ro'yxatini saqlaydi.
+///   • Bu sahifa faqat bitta kategoriya mahsulotlarini ko'rsatishi kerak.
+///   • Singleton'ga FilterByCategory yuborsak, CatalogPage'dagi kategoriyalar
+///     ro'yxati o'chiriladi (state overwrite bo'ladi).
+///   • StatefulWidget dispose'da BLoC yopiladi — memory leak yo'q.
+class CategoryProductsPage extends StatefulWidget {
   final int categoryId;
   final String categoryName;
 
@@ -15,10 +26,35 @@ class CategoryProductsPage extends StatelessWidget {
   });
 
   @override
+  State<CategoryProductsPage> createState() => _CategoryProductsPageState();
+}
+
+class _CategoryProductsPageState extends State<CategoryProductsPage> {
+  // O'ziga tegishli local instance — singleton EMAS.
+  // DI'da registerFactory bo'lgani uchun sl<CatalogBloc>() har safar YANGI instance qaytaradi.
+  // Shuning uchun bu yerda factory pattern xavfsiz: singleton buzilmaydi.
+  late final CatalogBloc _localBloc;
+
+  @override
+  void initState() {
+    super.initState();
+    // DI'dagi factory orqali yangi instance
+    _localBloc = CatalogBloc(repository: sl());
+    _localBloc.add(FilterByCategory(widget.categoryId));
+  }
+
+  @override
+  void dispose() {
+    // Faqat lokal instance yopiladi — singleton ta'sir qilmaydi
+    _localBloc.close();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    return BlocProvider(
-      create: (context) => sl<CatalogBloc>()..add(FilterByCategory(categoryId)),
-      child: _CategoryProductsView(categoryName: categoryName),
+    return BlocProvider.value(
+      value: _localBloc,
+      child: _CategoryProductsView(categoryName: widget.categoryName),
     );
   }
 }
@@ -63,7 +99,7 @@ class _CategoryProductsView extends StatelessWidget {
             padding: const EdgeInsets.all(16),
             gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
               crossAxisCount: 2,
-              mainAxisExtent: 320, // Ixcham va chiroyli balandlik
+              mainAxisExtent: 320,
               crossAxisSpacing: 16,
               mainAxisSpacing: 16,
             ),

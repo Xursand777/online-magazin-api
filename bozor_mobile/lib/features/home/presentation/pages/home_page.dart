@@ -18,8 +18,18 @@ class HomePage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return BlocProvider(
-      create: (context) => sl<HomeBloc>()..add(LoadHomeData()),
+    // ⭐ MUHIM: BlocProvider.value — singleton yopilmaydi.
+    // BlocProvider(create:...) singleton'ni dispose qilib qo'yadi va
+    // keyingi kirganda "Bad state: Cannot add new events after calling close"
+    // xatosi chiqadi. .value faqat mavjud instanceni taqdim etadi.
+    final homeBloc = sl<HomeBloc>();
+    // Event bir marta yuboriladi — agar state bo'sh bo'lsa yuklanadi,
+    // aks holda (SWR cache) kesh qaytaradi va fon'da yangilanadi.
+    if (!homeBloc.state.isLoading && homeBloc.state.banners.isEmpty) {
+      homeBloc.add(LoadHomeData());
+    }
+    return BlocProvider.value(
+      value: homeBloc,
       child: const HomeView(),
     );
   }

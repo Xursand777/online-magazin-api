@@ -13,8 +13,16 @@ class CatalogPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return BlocProvider(
-      create: (context) => sl<CatalogBloc>()..add(LoadCatalogData()),
+    // ⭐ MUHIM: BlocProvider.value — singleton yopilmaydi.
+    // BlocProvider(create:...) singleton'ni dispose qilib qo'yadi va
+    // keyingi kirganda "Bad state: Cannot add new events after calling close"
+    // xatosi chiqadi. .value faqat mavjud instanceni taqdim etadi.
+    final catalogBloc = sl<CatalogBloc>();
+    if (!catalogBloc.state.isLoading && catalogBloc.state.categories.isEmpty) {
+      catalogBloc.add(LoadCatalogData());
+    }
+    return BlocProvider.value(
+      value: catalogBloc,
       child: const CatalogView(),
     );
   }
