@@ -3,6 +3,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'api_constants.dart';
 import 'cold_start_tracker.dart';
 import '../auth/auth_token_service.dart';
+import '../i18n/language_holder.dart';
 
 class ApiClient {
   final Dio                dio;
@@ -24,6 +25,10 @@ class ApiClient {
         onRequest: (options, handler) async {
           // Barcha so'rovlarga mobile client belgisi
           options.headers['X-Client-Type'] = 'mobile';
+          // ⭐ i18n — joriy tilni backend'ga yuboramiz.
+          // Backend serializer'lari Accept-Language o'qib `name_ru`/`name_en`
+          // maydonlarini qaytaradi (HYBRID i18n pattern).
+          options.headers['Accept-Language'] = LanguageHolder.currentCode;
           final token = await tokenService.getAccessToken();
           if (token != null) {
             options.headers['Authorization'] = 'Bearer $token';

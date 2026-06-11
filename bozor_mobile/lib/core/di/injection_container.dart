@@ -37,6 +37,7 @@ import '../../features/profile/data/repositories/master_credit_repository.dart';
 import '../../features/profile/presentation/cubit/my_orders_cubit.dart';
 import '../../features/profile/presentation/cubit/favorites_cubit.dart';
 import '../../features/profile/presentation/cubit/master_credit_cubit.dart';
+import '../i18n/language_cubit.dart';
 
 final sl = GetIt.instance;
 
@@ -163,6 +164,8 @@ Future<void> init() async {
   sl.registerLazySingleton<MasterCreditCubit>(
     () => MasterCreditCubit(repository: sl()),
   );
+  // ⭐ i18n — Til cubit'i (Hive persisted, ApiClient bilan sinx)
+  sl.registerLazySingleton<LanguageCubit>(() => LanguageCubit());
 
   // CartBloc — singleton (savatcha butun ilova bo'yicha bir xil)
   sl.registerLazySingleton<CartBloc>(

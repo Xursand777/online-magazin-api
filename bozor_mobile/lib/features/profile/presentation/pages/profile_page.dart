@@ -658,19 +658,12 @@ class _AuthenticatedProfileState extends State<_AuthenticatedProfile> {
                     "qo'shiladi.",
               ),
             ),
-            // Sozlamalar — i18n, push notifications va boshqalar
+            // Sozlamalar — endi to'liq ishlaydi (til tanlash + bo'lajak features)
             _menuTile(
               theme,
               icon: Icons.settings_outlined,
               title: 'Sozlamalar',
-              onTap: () => showComingSoonSheet(
-                context,
-                icon: Icons.settings_rounded,
-                title: "Sozlamalar",
-                description: "Til tanlash (o'zbek/rus/ingliz), bildirishnomalar, "
-                    "qorong'u rejim va boshqa sozlamalar tez orada "
-                    "qo'shiladi.",
-              ),
+              onTap: () => context.push('/settings'),
             ),
             const SizedBox(height: 32),
             ElevatedButton.icon(

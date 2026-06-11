@@ -44,6 +44,7 @@ import '../widgets/main_screen.dart';
 import '../../features/profile/presentation/pages/my_orders_page.dart';
 import '../../features/profile/presentation/pages/favorites_page.dart';
 import '../../features/profile/presentation/pages/profile_edit_page.dart';
+import '../../features/settings/presentation/pages/settings_page.dart';
 import '../../features/profile/presentation/cubit/my_orders_cubit.dart';
 
 // ── Auth Notifier ──────────────────────────────────────────────────────────
@@ -286,6 +287,10 @@ class AppRouter {
           ),
         ),
         // /favorites endi shell branch (tab) — pastdagi navigation'da
+        GoRoute(
+          path: '/settings',
+          builder: (context, _) => const SettingsPage(),
+        ),
         GoRoute(
           path: '/profile-edit',
           builder: (context, _) => const ProfileEditPage(),

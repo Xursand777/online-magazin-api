@@ -8,6 +8,8 @@ import 'core/theme/app_theme.dart';
 import 'core/router/app_router.dart';
 import 'core/storage/local_storage.dart';
 import 'core/di/injection_container.dart' as di;
+import 'core/i18n/app_languages.dart';
+import 'core/i18n/language_cubit.dart';
 import 'core/network/api_constants.dart';
 import 'core/widgets/app_version_gate.dart';
 import 'core/widgets/cold_start_banner.dart';
@@ -140,16 +142,23 @@ class BozorApp extends StatelessWidget {
     // Ilova ochilganda /api/app-config/ chaqirilib, joriy versiya min'dan
     // past bo'lsa "Yangilash" ekrani ko'rsatiladi. maintenance_mode=True
     // bo'lsa "Texnik xizmat" ekrani. Aks holda asosiy ilova.
-    return AppVersionGate(
-      language: 'uz',  // TODO: language store qo'shilganda dynamic qilish
-      child: MultiBlocProvider(
-      providers: [
-        // Singleton BLoC'lar — BlocProvider.value ishlatiladi (yopmaydi)
-        BlocProvider<AuthBloc>.value(value: di.sl<AuthBloc>()),
-        BlocProvider<CartBloc>.value(value: di.sl<CartBloc>()),
-        BlocProvider<FavoritesCubit>.value(value: di.sl<FavoritesCubit>()),
-      ],
-      child: MaterialApp.router(
+    // ⭐ LanguageCubit'ni eng yuqorida BlocProvider — barcha widget'lar
+    //    tildagi o'zgarishlarni `context.tr()` orqali ko'radi.
+    //    LanguageHolder ham sinx (ApiClient Accept-Language).
+    return BlocProvider<LanguageCubit>(
+      create: (_) => di.sl<LanguageCubit>()..load(),
+      child: BlocBuilder<LanguageCubit, AppLanguage>(
+        builder: (context, lang) {
+          return AppVersionGate(
+            language: lang.apiCode,
+            child: MultiBlocProvider(
+            providers: [
+              // Singleton BLoC'lar — BlocProvider.value ishlatiladi (yopmaydi)
+              BlocProvider<AuthBloc>.value(value: di.sl<AuthBloc>()),
+              BlocProvider<CartBloc>.value(value: di.sl<CartBloc>()),
+              BlocProvider<FavoritesCubit>.value(value: di.sl<FavoritesCubit>()),
+            ],
+            child: MaterialApp.router(
         title: 'Bozor Mobile',
         theme:      AppTheme.lightTheme,
         darkTheme:  AppTheme.darkTheme,
@@ -191,5 +200,8 @@ class BozorApp extends StatelessWidget {
       ),
     ),  // MultiBlocProvider
     );  // AppVersionGate
+        }, // BlocBuilder builder
+      ), // BlocBuilder
+    ); // LanguageCubit BlocProvider
   }
 }

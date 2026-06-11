@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import '../../features/cart/presentation/bloc/cart_bloc.dart';
 import '../../features/profile/presentation/cubit/favorites_cubit.dart';
 import '../../features/profile/presentation/cubit/favorites_state.dart';
+import '../i18n/language_extension.dart';
 
 /// Asosiy ilova tab konteyneri — Material 3 NavigationBar bilan 5 ta tab:
 ///   1. Home — bosh sahifa
@@ -38,15 +39,15 @@ class MainScreen extends StatelessWidget {
         backgroundColor: theme.colorScheme.surface,
         indicatorColor: theme.colorScheme.primary.withValues(alpha: 0.1),
         destinations: [
-          const NavigationDestination(
-            icon: Icon(Icons.home_outlined),
-            selectedIcon: Icon(Icons.home),
-            label: 'Home',
+          NavigationDestination(
+            icon: const Icon(Icons.home_outlined),
+            selectedIcon: const Icon(Icons.home),
+            label: context.tr('nav.home'),
           ),
-          const NavigationDestination(
-            icon: Icon(Icons.grid_view_outlined),
-            selectedIcon: Icon(Icons.grid_view),
-            label: 'Catalog',
+          NavigationDestination(
+            icon: const Icon(Icons.grid_view_outlined),
+            selectedIcon: const Icon(Icons.grid_view),
+            label: context.tr('nav.catalog'),
           ),
           // ⭐ Favorites tab — sevimlilar soni bilan (badge real-time)
           BlocBuilder<FavoritesCubit, FavoritesState>(
@@ -68,7 +69,7 @@ class MainScreen extends StatelessWidget {
                   label: Text(count.toString()),
                   child: const Icon(Icons.favorite),
                 ),
-                label: 'Sevimli',
+                label: context.tr('nav.favorites'),
               );
             },
           ),
@@ -89,14 +90,14 @@ class MainScreen extends StatelessWidget {
                   label: Text(count.toString()),
                   child: const Icon(Icons.shopping_cart),
                 ),
-                label: 'Cart',
+                label: context.tr('nav.cart'),
               );
             },
           ),
-          const NavigationDestination(
-            icon: Icon(Icons.person_outline),
-            selectedIcon: Icon(Icons.person),
-            label: 'Profile',
+          NavigationDestination(
+            icon: const Icon(Icons.person_outline),
+            selectedIcon: const Icon(Icons.person),
+            label: context.tr('nav.profile'),
           ),
         ],
       ),
