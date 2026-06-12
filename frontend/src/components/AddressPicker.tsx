@@ -43,7 +43,6 @@ import {
 } from '../utils/leaflet';
 import {
   getCurrentPosition,
-  queryGeolocationPermission,
   type GeolocationError,
 } from '../utils/geolocation';
 import GeoPermissionModal from './GeoPermissionModal';
@@ -222,7 +221,27 @@ const AddressPicker = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showMap]);
 
-  // ── Joylashuvni aniqlash — Permissions API bilan ──────────────────────────
+  // ── Joylashuvni aniqlash ───────────────────────────────────────────────────
+  //
+  // PROFESSIONAL PATTERN (Google Maps, Uber, Yandex.Maps kabi):
+  //
+  //   1. Foydalanuvchi "Joylashuvni aniqlash" bosadi
+  //   2. getCurrentPosition() DARHOL chaqiriladi
+  //   3. Brauzer o'zining NATIVE dialog'ini ko'rsatadi:
+  //      "Bu sayt joylashuvingizni bilmoqchi — Ruxsat ber / Rad et"
+  //   4a. Ruxsat berilsa → koordinatalar olinadi → manzil to'ldiriladi ✅
+  //   4b. Rad etilsa yoki avval bloklangan → PERMISSION_DENIED xatosi keladi
+  //        → GeoPermissionModal ochiladi (brauzerda qanday yoqish ko'rsatiladi)
+  //
+  // ESKI NOTO'G'RI YONDASHUV:
+  //   queryGeolocationPermission() avval tekshirilib, 'denied' bo'lsa modal
+  //   ochilar, brauzer dialog'i HECH QACHON chiqmasdi. Bu foydalanuvchini
+  //   chalkashtirar edi — brauzer dialog'ini ko'rmasdan tushunarsiz modal.
+  //
+  // YANGI TO'G'RI YONDASHUV:
+  //   Har doim getCurrentPosition() bilan boshlaymiz → brauzer o'z dialog'ini
+  //   ko'rsatadi → natijaga qarab harakat qilamiz.
+
   const applyCoordinatesToForm = async (latitude: number, longitude: number) => {
     const addr = await reverseGeocode(latitude, longitude, language);
     if (!addr) {
@@ -239,6 +258,7 @@ const AddressPicker = ({
   };
 
   const handleGeolocate = async () => {
+    // Geolocation API umuman bormi? (eski brauzerlar, HTTP konteksti)
     if (!navigator.geolocation) {
       toast.error(t.profile.toastGeoNotSupported);
       return;
@@ -246,45 +266,46 @@ const AddressPicker = ({
 
     setIsLocating(true);
     try {
-      const permission = await queryGeolocationPermission();
-      if (permission === 'denied') {
-        setIsLocating(false);
+      // ⭐ DARHOL getCurrentPosition() → brauzer o'zi native dialog ko'rsatadi.
+      // queryGeolocationPermission() oldindan tekshirmаymiz — shunda brauzer
+      // foydalanuvchiga "Ruxsat ber / Rad et" dialog'ini ko'rsatadi.
+      const coords = await getCurrentPosition({
+        enableHighAccuracy: true,
+        timeout: 15_000, // 15s — foydalanuvchi dialog'da "Allow" bosishini kutadi
+        maximumAge: 0,
+      });
+      await applyCoordinatesToForm(coords.latitude, coords.longitude);
+    } catch (err) {
+      const geoErr = err as GeolocationError;
+      if (geoErr.kind === 'denied') {
+        // Foydalanuvchi "Rad et" bosdi YOKI avval bloklagan →
+        // endi brauzer sozlamalarini ko'rsatuvchi modal chiqadi.
         setGeoModalOpen(true);
-        return;
-      }
-      try {
-        const coords = await getCurrentPosition({
-          enableHighAccuracy: true,
-          timeout: 10_000,
-          maximumAge: 0,
-        });
-        await applyCoordinatesToForm(coords.latitude, coords.longitude);
-      } catch (err) {
-        const geoErr = err as GeolocationError;
-        if (geoErr.kind === 'denied') {
-          setGeoModalOpen(true);
-        } else if (geoErr.kind === 'unsupported') {
-          toast.error(t.profile.toastGeoNotSupported);
-        } else {
-          toast.error(t.profile.toastGeoLocationError);
-        }
+      } else if (geoErr.kind === 'unsupported') {
+        toast.error(t.profile.toastGeoNotSupported);
+      } else {
+        // timeout yoki POSITION_UNAVAILABLE — vaqtinchalik muammo
+        toast.error(t.profile.toastGeoLocationError);
       }
     } finally {
       setIsLocating(false);
     }
   };
 
+  // Modal'dagi "Qayta urinish" tugmasi uchun — foydalanuvchi brauzer
+  // sozlamalarida ruxsat bergan, endi qayta urinadi.
   const handleGeolocateRetry = async () => {
     setIsLocating(true);
     try {
       const coords = await getCurrentPosition({
         enableHighAccuracy: true,
-        timeout: 10_000,
+        timeout: 15_000,
         maximumAge: 0,
       });
       await applyCoordinatesToForm(coords.latitude, coords.longitude);
     } catch (err) {
       const geoErr = err as GeolocationError;
+      // Hali ham denied — modal'da xato ko'rsatiladi (throw qilinadi)
       if (geoErr.kind === 'denied') throw err;
       toast.error(t.profile.toastGeoLocationError);
     } finally {
