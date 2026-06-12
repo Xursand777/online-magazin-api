@@ -181,26 +181,25 @@ const AddressPicker = ({
           handleMapClick(lat, lng);
         });
 
-        // Map ochilganda avtomat geolocate qilamiz — agar ruxsat bor bo'lsa
-        // ('granted' yoki 'prompt'). Denied bo'lsa default ko'rinish saqlanadi.
-        queryGeolocationPermission().then((perm) => {
-          if (perm === 'denied' || perm === 'unsupported') return;
-          // navigator.geolocation to'g'ridan-to'g'ri (modal kerakmas — map UX)
-          if (navigator.geolocation) {
-            navigator.geolocation.getCurrentPosition(
-              (position) => {
-                if (!active) return;
-                const { latitude, longitude } = position.coords;
-                map.setView([latitude, longitude], 15);
-                marker = L.marker([latitude, longitude], { icon: customMarkerIcon }).addTo(map);
-                markerRef.current = marker;
-                handleMapClick(latitude, longitude);
-              },
-              () => {},
-              { timeout: 5000 },
-            );
-          }
-        });
+        // Map ochilganda avtomat geolocate — brauzer native dialog ko'rsatadi.
+        // Ruxsat berilsa → markerga ko'chiramiz. Rad etilsa → xato yo'q, sukut.
+        // Bu avtomatik (foydalanuvchi bosmagan) — shuning uchun modal kerak emas.
+        if (navigator.geolocation) {
+          navigator.geolocation.getCurrentPosition(
+            (position) => {
+              if (!active) return;
+              const { latitude, longitude } = position.coords;
+              map.setView([latitude, longitude], 15);
+              marker = L.marker([latitude, longitude], { icon: customMarkerIcon }).addTo(map);
+              markerRef.current = marker;
+              handleMapClick(latitude, longitude);
+            },
+            () => {
+              // Ruxsat rad etilsa yoki xato — shunchaki sukut (modal kerakmas)
+            },
+            { timeout: 8000, enableHighAccuracy: true },
+          );
+        }
       })
       .catch((err) => {
         console.error(err);
