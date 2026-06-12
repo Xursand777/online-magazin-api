@@ -52,6 +52,25 @@ class ProductModel {
   final int? stock;            // joriy variant/mahsulot stock'i
   final VariantAttrs? variant; // color/quality/size/model
 
+  // ── Usta chegirmasi (master discount) ──────────────────────────────────────
+  // Backend `master_price`'ni FAQAT autentifikatsiya qilingan VA is_master=True
+  // VA amaldagi master foiz > 0 bo'lgan foydalanuvchilarga qaytaradi.
+  // Boshqa hollarda null — UI oddiy narxni ko'rsatadi.
+  //
+  // QO'LLANISHI:
+  //   • Mahsulot listingida masterPrice != null bo'lsa, oddiy narx line-through
+  //     bilan ko'rsatiladi, masterPrice esa primary rangda alohida ko'rsatiladi
+  //     "USTA" badge bilan.
+  //   • Foiz mahsulot darajasidagi masterFactor (masterPrice / price) orqali
+  //     variantlarga ham qo'llanadi — server bilan bir xil natija.
+  //
+  // SUPER ADMIN FOIZNI O'ZGARTIRSA:
+  //   • Backend GlobalSetting.save() chaqirilganda cache invalidate qilinadi
+  //   • Mobile keyingi GET /api/products/ ga yangilangan masterPrice keladi
+  //   • UI darhol yangi chegirmani ko'rsatadi (qayta build kerak emas — Bloc/Cubit
+  //     yangi javobni state'ga emit qiladi).
+  final double? masterPrice;
+
   ProductModel({
     required this.id,
     required this.name,
@@ -66,6 +85,7 @@ class ProductModel {
     this.variantId,
     this.stock,
     this.variant,
+    this.masterPrice,
   });
 
   factory ProductModel.fromJson(Map<String, dynamic> json) {
@@ -100,7 +120,24 @@ class ProductModel {
       variantId: _toIntOrNull(json['variant_id']),
       stock: _toIntOrNull(json['stock']),
       variant: variant,
+      // ── Master discount ──
+      masterPrice: _toDoubleOrNull(json['master_price']),
     );
+  }
+
+  /// Faqat is_master=True bo'lgan va amaldagi foiz > 0 bo'lgan foydalanuvchilar
+  /// uchun true qaytaradi. Backend `null` qaytarsa (autentifikatsiyasiz, usta
+  /// emas yoki sust usta) — bu false.
+  bool get hasMasterPrice => masterPrice != null && masterPrice! > 0 && masterPrice! < price;
+
+  /// Usta chegirmasi miqdori (so'mda). hasMasterPrice = false bo'lsa 0.
+  double get masterSavings => hasMasterPrice ? (price - masterPrice!) : 0;
+
+  /// Usta chegirmasi foizi (%, 1 kasrli aniqlikda). hasMasterPrice = false → 0.
+  /// Misol: 5% bazaviy foiz LEVEL 3 da → 3.75% effective.
+  double get masterDiscountPercent {
+    if (!hasMasterPrice || price <= 0) return 0;
+    return ((1 - masterPrice! / price) * 1000).round() / 10;
   }
 
   /// Variant bo'yicha unikal kalit (ListView key uchun).
@@ -163,5 +200,7 @@ class ProductModel {
         if (variantId != null) 'variant_id': variantId,
         if (stock != null) 'stock': stock,
         if (variant != null) 'variant': variant!.toJson(),
+        // Master discount
+        if (masterPrice != null) 'master_price': masterPrice,
       };
 }

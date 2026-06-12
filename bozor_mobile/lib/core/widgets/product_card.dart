@@ -3,9 +3,9 @@ import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 import 'package:cached_network_image/cached_network_image.dart';
-import 'package:intl/intl.dart';
 import '../models/product_model.dart';
 import 'cart_action_button.dart';
+import 'product_price.dart';
 import '../../features/profile/presentation/cubit/favorites_cubit.dart';
 import '../../features/profile/presentation/cubit/favorites_state.dart';
 
@@ -141,34 +141,20 @@ class ProductCard extends StatelessWidget {
                       ),
                     ),
                     const SizedBox(height: 6),
-                    // Eski narx — har doim 14px joy (bo'sh bo'lsa ham)
+                    // ── Narx blok — USTA chegirmasi / oddiy chegirma / oddiy narx ──
+                    // ProductPrice widget AuthBloc'dan isMaster'ni o'qiydi va
+                    // mahsulot masterPrice borligini ko'rib mos varianti
+                    // ko'rsatadi. Super admin foizni o'zgartirsa, keyingi
+                    // GET /api/products/ javobida yangi masterPrice keladi va
+                    // bu widget BlocBuilder orqali avtomat yangilanadi.
                     SizedBox(
-                      height: 14,
-                      child: product.oldPrice != null
-                          ? Text(
-                              "${NumberFormat('#,###', 'uz_UZ').format(product.oldPrice).replaceAll(',', ' ')} so'm",
-                              style: theme.textTheme.labelSmall?.copyWith(
-                                color: theme.colorScheme.outline,
-                                decoration: TextDecoration.lineThrough,
-                                fontSize: 10,
-                              ),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                            )
-                          : null, // bo'sh, lekin joy band
-                    ),
-                    // Joriy narx — fixed height
-                    SizedBox(
-                      height: 22,
-                      child: Text(
-                        "${NumberFormat('#,###', 'uz_UZ').format(product.price).replaceAll(',', ' ')} so'm",
-                        style: theme.textTheme.titleSmall?.copyWith(
-                          color: theme.colorScheme.onSurface,
-                          fontWeight: FontWeight.w800,
-                          fontSize: 14,
+                      height: 38,
+                      child: Align(
+                        alignment: Alignment.centerLeft,
+                        child: ProductPrice(
+                          product: product,
+                          size: ProductPriceSize.compact,
                         ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
                       ),
                     ),
                     const SizedBox(height: 6),

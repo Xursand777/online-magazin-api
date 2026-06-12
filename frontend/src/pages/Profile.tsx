@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 
@@ -15,6 +15,8 @@ import {
 import { toast } from '../utils/toast';
 import { useTranslation } from '../i18n/useTranslation';
 import { useLanguageStore } from '../store/languageStore';
+import AddressPicker from '../components/AddressPicker';
+import { parseStructuredAddress } from '../utils/address';
 
 interface ProfileOrderItem {
   id: number;
@@ -61,46 +63,6 @@ interface ProfileOrder {
 }
 
 const formatPrice = (v: string | number) => Number(v).toLocaleString('uz-UZ') + ' UZS';
-
-const loadLeaflet = (): Promise<any> => {
-  return new Promise((resolve, reject) => {
-    if ((window as any).L) {
-      resolve((window as any).L);
-      return;
-    }
-
-    const existingLink = document.querySelector('link[href*="leaflet.css"]');
-    if (!existingLink) {
-      const link = document.createElement('link');
-      link.rel = 'stylesheet';
-      link.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
-      document.head.appendChild(link);
-    }
-
-    const existingScript = document.querySelector('script[src*="leaflet.js"]');
-    if (existingScript) {
-      const checkInterval = setInterval(() => {
-        if ((window as any).L) {
-          clearInterval(checkInterval);
-          resolve((window as any).L);
-        }
-      }, 100);
-      return;
-    }
-
-    const script = document.createElement('script');
-    script.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
-    script.onload = () => {
-      if ((window as any).L) {
-        resolve((window as any).L);
-      } else {
-        reject(new Error('Leaflet script loaded but window.L is not defined'));
-      }
-    };
-    script.onerror = () => reject(new Error('Failed to load Leaflet script'));
-    document.head.appendChild(script);
-  });
-};
 
 interface MasterStatusData {
   is_master: boolean;
@@ -214,241 +176,31 @@ const Profile = () => {
   const [isEditing, setIsEditing] = useState(false);
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
+  // Strukturalangan manzil maydonlari — AddressPicker boshqaradi.
+  // Parent state shu yerda saqlanadi → updateProfile chaqirilganda
+  // delivery_address ni concat qilib backend'ga yuboramiz.
   const [viloyat, setViloyat] = useState('');
   const [tumanShahar, setTumanShahar] = useState('');
   const [mahalla, setMahalla] = useState('');
   const [domUy, setDomUy] = useState('');
-  const [isLocating, setIsLocating] = useState(false);
-
-  const [showMap, setShowMap] = useState(false);
-  const [isMapLoading, setIsMapLoading] = useState(false);
-  const mapContainerRef = useRef<HTMLDivElement>(null);
-  const mapInstanceRef = useRef<any>(null);
-  const markerRef = useRef<any>(null);
 
   const updateUserStore = useAuthStore((state) => state.updateUser);
-
-  const parseAddress = (fullAddress: string) => {
-    if (!fullAddress) return { viloyat: '', tumanShahar: '', mahalla: '', domUy: '' };
-    const parts = fullAddress.split(',').map(p => p.trim());
-    if (parts.length >= 4) {
-      return {
-        viloyat: parts[0],
-        tumanShahar: parts[1],
-        mahalla: parts[2],
-        domUy: parts.slice(3).join(', ')
-      };
-    }
-    return {
-      viloyat: parts[0] || '',
-      tumanShahar: parts[1] || '',
-      mahalla: parts[2] || '',
-      domUy: ''
-    };
-  };
 
   const startEditing = () => {
     setFirstName(profileData?.first_name || user?.first_name || '');
     setLastName(profileData?.last_name || '');
-    const parsed = parseAddress(profileData?.delivery_address || '');
+    const parsed = parseStructuredAddress(profileData?.delivery_address || '');
     setViloyat(parsed.viloyat);
     setTumanShahar(parsed.tumanShahar);
     setMahalla(parsed.mahalla);
     setDomUy(parsed.domUy);
-    setShowMap(false);
     setIsEditing(true);
   };
 
-  useEffect(() => {
-    if (!showMap || !mapContainerRef.current) return;
-
-    let active = true;
-    setIsMapLoading(true);
-
-    loadLeaflet()
-      .then((L) => {
-        if (!active || !mapContainerRef.current) return;
-        setIsMapLoading(false);
-
-        if (mapInstanceRef.current) {
-          mapInstanceRef.current.remove();
-        }
-
-        const defaultCoords: [number, number] = [41.311081, 69.240562];
-
-        const map = L.map(mapContainerRef.current, {
-          zoomControl: true,
-        }).setView(defaultCoords, 12);
-
-        mapInstanceRef.current = map;
-
-        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-          attribution: '&copy; OpenStreetMap contributors',
-        }).addTo(map);
-
-        const customMarkerIcon = L.divIcon({
-          html: `<span class="material-symbols-outlined" style="color: #22c55e; font-size: 38px; transform: translate(-19px, -38px); display: block; filter: drop-shadow(0px 2px 4px rgba(0,0,0,0.3)); font-weight: bold;">pin_drop</span>`,
-          className: 'custom-map-marker-pin',
-          iconSize: [0, 0],
-          iconAnchor: [0, 0]
-        });
-
-        let marker: any = null;
-
-        const handleMapClick = async (lat: number, lng: number) => {
-          if (!active) return;
-
-          if (marker) {
-            marker.setLatLng([lat, lng]);
-          } else {
-            marker = L.marker([lat, lng], { icon: customMarkerIcon }).addTo(map);
-            markerRef.current = marker;
-          }
-
-          try {
-            const response = await fetch(
-              `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json&addressdetails=1&accept-language=uz`
-            );
-            if (!response.ok) throw new Error("Reverse geocoding failed");
-            const data = await response.json();
-
-            if (data && data.address) {
-              const addr = data.address;
-
-              let detectedViloyat = addr.state || addr.region || addr.province || '';
-              if (!detectedViloyat && (addr.city === 'Toshkent' || addr.city === 'Tashkent')) {
-                detectedViloyat = 'Toshkent shahri';
-              }
-              if (detectedViloyat.toLowerCase().includes('tashkent') || detectedViloyat.toLowerCase().includes('toshkent')) {
-                detectedViloyat = 'Toshkent shahri';
-              }
-
-              let detectedTuman = addr.city_district || addr.district || addr.county || addr.town || addr.city || '';
-              if (detectedTuman === detectedViloyat) {
-                detectedTuman = addr.city_district || addr.district || '';
-              }
-
-              const detectedMahalla = addr.suburb || addr.neighbourhood || addr.residential || addr.village || addr.hamlet || '';
-              const road = addr.road || addr.street || '';
-              const houseNo = addr.house_number || addr.building || '';
-              const detectedDom = [road, houseNo].filter(Boolean).join(' ');
-
-              setViloyat(detectedViloyat);
-              setTumanShahar(detectedTuman);
-              setMahalla(detectedMahalla);
-              setDomUy(detectedDom);
-            }
-          } catch (err) {
-            console.error(err);
-            toast.error(t.profile.toastAddressError);
-          }
-        };
-
-        map.on('click', (e: any) => {
-          const { lat, lng } = e.latlng;
-          handleMapClick(lat, lng);
-        });
-
-        if (navigator.geolocation) {
-          navigator.geolocation.getCurrentPosition(
-            (position) => {
-              if (!active) return;
-              const { latitude, longitude } = position.coords;
-              map.setView([latitude, longitude], 15);
-              marker = L.marker([latitude, longitude], { icon: customMarkerIcon }).addTo(map);
-              markerRef.current = marker;
-              handleMapClick(latitude, longitude);
-            },
-            () => {},
-            { timeout: 5000 }
-          );
-        }
-      })
-      .catch((err) => {
-        console.error(err);
-        if (active) {
-          setIsMapLoading(false);
-          toast.error(t.profile.toastMapError);
-        }
-      });
-
-    return () => {
-      active = false;
-      if (mapInstanceRef.current) {
-        mapInstanceRef.current.remove();
-        mapInstanceRef.current = null;
-      }
-      markerRef.current = null;
-    };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [showMap]);
-
-  const handleGeolocate = () => {
-    if (!navigator.geolocation) {
-      toast.error(t.profile.toastGeoNotSupported);
-      return;
-    }
-
-    setIsLocating(true);
-    navigator.geolocation.getCurrentPosition(
-      async (position) => {
-        const { latitude, longitude } = position.coords;
-        try {
-          const response = await fetch(
-            `https://nominatim.openstreetmap.org/reverse?lat=${latitude}&lon=${longitude}&format=json&addressdetails=1&accept-language=uz`
-          );
-          if (!response.ok) throw new Error("Reverse geocoding failed");
-          const data = await response.json();
-
-          if (data && data.address) {
-            const addr = data.address;
-
-            let detectedViloyat = addr.state || addr.region || addr.province || '';
-            if (!detectedViloyat && (addr.city === 'Toshkent' || addr.city === 'Tashkent')) {
-              detectedViloyat = 'Toshkent shahri';
-            }
-            if (detectedViloyat.toLowerCase().includes('tashkent') || detectedViloyat.toLowerCase().includes('toshkent')) {
-              detectedViloyat = 'Toshkent shahri';
-            }
-
-            let detectedTuman = addr.city_district || addr.district || addr.county || addr.town || addr.city || '';
-            if (detectedTuman === detectedViloyat) {
-              detectedTuman = addr.city_district || addr.district || '';
-            }
-
-            const detectedMahalla = addr.suburb || addr.neighbourhood || addr.residential || addr.village || addr.hamlet || '';
-            const road = addr.road || addr.street || '';
-            const houseNo = addr.house_number || addr.building || '';
-            const detectedDom = [road, houseNo].filter(Boolean).join(' ');
-
-            setViloyat(detectedViloyat);
-            setTumanShahar(detectedTuman);
-            setMahalla(detectedMahalla);
-            setDomUy(detectedDom);
-
-            toast.success(t.profile.toastGeoSuccess);
-          } else {
-            toast.warning(t.profile.toastGeoFailed);
-          }
-        } catch (err) {
-          console.error(err);
-          toast.error(t.profile.toastGeoError);
-        } finally {
-          setIsLocating(false);
-        }
-      },
-      (error) => {
-        console.error(error);
-        setIsLocating(false);
-        if (error.code === error.PERMISSION_DENIED) {
-          toast.error(t.profile.toastGeoPermissionDenied);
-        } else {
-          toast.error(t.profile.toastGeoLocationError);
-        }
-      },
-      { enableHighAccuracy: true, timeout: 10000 }
-    );
-  };
+  // ── Manzil bilan ishlash AddressPicker komponentiga ko'chirildi ─────────
+  // Xarita yuklash, geolokatsiya, permission modal, reverse geocoding —
+  // hammasi AddressPicker ichida. Profile bu yerda faqat 4 ta strukturalangan
+  // state'ni ushlab turadi va updateProfile'ga concat qilib yuboradi.
 
   const updateProfileMutation = useMutation({
     mutationFn: (data: { first_name: string; last_name: string; delivery_address: string }) =>
@@ -674,107 +426,22 @@ const Profile = () => {
                     </div>
 
                     <div className="border-t border-outline-variant/30 pt-6">
-                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-4">
-                        <div>
-                          <h3 className="text-base font-bold text-on-surface">{t.profile.deliveryAddress}</h3>
-                          <p className="text-xs text-on-surface-variant mt-0.5">{t.profile.mapHint}</p>
-                        </div>
-
-                        <div className="flex gap-2 shrink-0 flex-wrap">
-                          <button
-                            type="button"
-                            onClick={() => setShowMap(!showMap)}
-                            className={`flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold transition-all border shrink-0 ${
-                              showMap
-                                ? 'bg-[#22c55e] text-white border-[#22c55e] shadow-sm'
-                                : 'bg-[#22c55e]/10 hover:bg-[#22c55e]/20 text-[#22c55e] border-[#22c55e]/20'
-                            }`}
-                          >
-                            <span className="material-symbols-outlined text-[18px]">map</span>
-                            {showMap ? t.profile.closeMap : t.profile.selectFromMap}
-                          </button>
-
-                          <button
-                            type="button"
-                            onClick={handleGeolocate}
-                            disabled={isLocating}
-                            className="flex items-center justify-center gap-2 bg-[#22c55e]/10 hover:bg-[#22c55e]/20 text-[#22c55e] disabled:opacity-60 px-4 py-2.5 rounded-xl text-sm font-bold transition-all border border-[#22c55e]/20 shrink-0"
-                          >
-                            {isLocating ? (
-                              <>
-                                <span className="material-symbols-outlined text-[18px] animate-spin">progress_activity</span>
-                                {t.profile.detecting}
-                              </>
-                            ) : (
-                              <>
-                                <span className="material-symbols-outlined text-[18px]">my_location</span>
-                                {t.profile.detectLocation}
-                              </>
-                            )}
-                          </button>
-                        </div>
-                      </div>
-
-                      {showMap && (
-                        <div className="mb-6 relative">
-                          <div className="text-xs text-on-surface-variant mb-2 flex items-center gap-1.5 bg-surface-container-low/50 p-2.5 rounded-lg border border-outline-variant/30">
-                            <span className="material-symbols-outlined text-[16px] text-[#22c55e]">info</span>
-                            <span>{t.profile.mapHint}</span>
-                          </div>
-                          <div className="relative w-full h-[320px] rounded-xl border border-outline-variant/60 shadow-[0_4px_20px_rgba(0,0,0,0.05)] overflow-hidden">
-                            {isMapLoading && (
-                              <div className="absolute inset-0 bg-surface-container-lowest/80 z-[1000] flex flex-col items-center justify-center gap-3">
-                                <span className="material-symbols-outlined text-3xl text-[#22c55e] animate-spin">progress_activity</span>
-                                <span className="text-xs font-semibold text-on-surface-variant">{t.profile.mapLoading}</span>
-                              </div>
-                            )}
-                            <div ref={mapContainerRef} className="w-full h-full z-10" />
-                          </div>
-                        </div>
-                      )}
-
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                        <div>
-                          <label className="block text-sm font-semibold text-on-surface-variant mb-2">{t.profile.region}</label>
-                          <input
-                            type="text"
-                            value={viloyat}
-                            onChange={(e) => setViloyat(e.target.value)}
-                            className="w-full rounded-xl border border-outline-variant/50 bg-surface-container-low/50 p-3 outline-none focus:border-[#22c55e] focus:ring-1 focus:ring-[#22c55e] transition-all text-sm font-medium"
-                            placeholder={t.profile.regionPlaceholder}
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-sm font-semibold text-on-surface-variant mb-2">{t.profile.district}</label>
-                          <input
-                            type="text"
-                            value={tumanShahar}
-                            onChange={(e) => setTumanShahar(e.target.value)}
-                            className="w-full rounded-xl border border-outline-variant/50 bg-surface-container-low/50 p-3 outline-none focus:border-[#22c55e] focus:ring-1 focus:ring-[#22c55e] transition-all text-sm font-medium"
-                            placeholder={t.profile.districtPlaceholder}
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-sm font-semibold text-on-surface-variant mb-2">{t.profile.neighborhood}</label>
-                          <input
-                            type="text"
-                            value={mahalla}
-                            onChange={(e) => setMahalla(e.target.value)}
-                            className="w-full rounded-xl border border-outline-variant/50 bg-surface-container-low/50 p-3 outline-none focus:border-[#22c55e] focus:ring-1 focus:ring-[#22c55e] transition-all text-sm font-medium"
-                            placeholder={t.profile.neighborhoodPlaceholder}
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-sm font-semibold text-on-surface-variant mb-2">{t.profile.house}</label>
-                          <input
-                            type="text"
-                            value={domUy}
-                            onChange={(e) => setDomUy(e.target.value)}
-                            className="w-full rounded-xl border border-outline-variant/50 bg-surface-container-low/50 p-3 outline-none focus:border-[#22c55e] focus:ring-1 focus:ring-[#22c55e] transition-all text-sm font-medium"
-                            placeholder={t.profile.housePlaceholder}
-                          />
-                        </div>
-                      </div>
+                      {/* AddressPicker — Profile va Checkout uchun yagona komponent.
+                          Strukturalangan manzil obyektini value sifatida olib,
+                          o'zgarishlarda strukturalangan + string formatini parent'ga
+                          uzatadi. accentColor=#22c55e — Profile yashil brendiga mos. */}
+                      <AddressPicker
+                        value={{ viloyat, tumanShahar, mahalla, domUy }}
+                        onChange={({ structured }) => {
+                          setViloyat(structured.viloyat);
+                          setTumanShahar(structured.tumanShahar);
+                          setMahalla(structured.mahalla);
+                          setDomUy(structured.domUy);
+                        }}
+                        required={false}
+                        showHeading={true}
+                        accentColor="#22c55e"
+                      />
                     </div>
 
                     <div className="flex gap-3 pt-4 border-t border-outline-variant/30">
@@ -1148,6 +815,7 @@ const Profile = () => {
           )}
         </section>
       </div>
+
     </main>
   );
 };

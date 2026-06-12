@@ -229,39 +229,165 @@ class _ProductDetailView extends StatelessWidget {
 
   Widget _buildPrice(ProductDetailLoaded state, ThemeData theme) {
     final fmt = NumberFormat('#,###', 'uz_UZ');
-    String f(num v) => '${fmt.format(v).replaceAll(',', ' ')} so\'m';
+    String f(num v) =>
+        '${fmt.format(v.round()).replaceAll(',', ' ')} so\'m';
 
     final price = state.currentPrice;
     final discount = state.currentDiscountPrice;
+    // Joriy variantning amaldagi narxi (chegirma bor bo'lsa chegirmali)
+    final effectivePrice = discount ?? price;
 
-    if (discount != null && discount < price) {
-      return Wrap(
-        crossAxisAlignment: WrapCrossAlignment.end,
-        spacing: 12,
-        children: [
-          Text(f(discount),
-              style: theme.textTheme.headlineMedium?.copyWith(
-                color: theme.colorScheme.primary,
-                fontWeight: FontWeight.bold,
-              )),
-          Padding(
-            padding: const EdgeInsets.only(bottom: 6),
-            child: Text(
-              f(price),
-              style: theme.textTheme.titleMedium?.copyWith(
-                color: theme.colorScheme.outline,
-                decoration: TextDecoration.lineThrough,
+    // ── USTA NARXI — sayt bilan bir xil proportional logika ──────────────
+    // Backend FAQAT mahsulot darajasidagi masterPrice qaytaradi. Variantlar
+    // uchun foiz tutarli bo'lishi uchun: masterFactor = masterPrice / price
+    // hisoblanadi va joriy variant narxiga qo'llanadi. Bu sayt bilan IDENTIK.
+    return BlocBuilder<AuthBloc, AuthState>(
+      buildWhen: (prev, curr) {
+        final prevMaster = prev is AuthAuthenticated && prev.isMaster;
+        final currMaster = curr is AuthAuthenticated && curr.isMaster;
+        return prevMaster != currMaster;
+      },
+      builder: (context, authState) {
+        final isMaster = authState is AuthAuthenticated && authState.isMaster;
+        final productMasterPrice = state.product.masterPrice;
+        final productEffective = state.product.isDiscount &&
+                state.product.discountPrice != null
+            ? state.product.discountPrice!
+            : state.product.price;
+
+        // USTA narxi mavjudligi — mahsulot darajasida
+        final hasMaster = isMaster &&
+            productMasterPrice != null &&
+            productMasterPrice > 0 &&
+            productEffective > 0 &&
+            productMasterPrice < productEffective;
+
+        if (hasMaster) {
+          // masterFactor = nisbat (masalan 0.95 = 5% chegirma)
+          final masterFactor = productMasterPrice / productEffective;
+          // Joriy variant narxiga shu nisbatni qo'llaymiz
+          final variantMaster = (effectivePrice * masterFactor).round();
+          // Foiz (1 kasrli aniqlik — 3.75% kabi level proportional)
+          final pctNum = ((1 - masterFactor) * 1000).round() / 10;
+          final pctText = pctNum == pctNum.roundToDouble()
+              ? pctNum.toInt().toString()
+              : pctNum.toStringAsFixed(1);
+          final savings = (effectivePrice - variantMaster).round();
+
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Wrap(
+                crossAxisAlignment: WrapCrossAlignment.end,
+                spacing: 10,
+                runSpacing: 6,
+                children: [
+                  Text(
+                    f(variantMaster),
+                    style: theme.textTheme.headlineMedium?.copyWith(
+                      color: theme.colorScheme.primary,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 6),
+                    child: Text(
+                      f(effectivePrice),
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        color: theme.colorScheme.outline,
+                        decoration: TextDecoration.lineThrough,
+                      ),
+                    ),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 10, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: theme.colorScheme.primary
+                            .withValues(alpha: 0.15),
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border.all(
+                          color: theme.colorScheme.primary
+                              .withValues(alpha: 0.25),
+                          width: 0.5,
+                        ),
+                      ),
+                      child: Text(
+                        'USTA -$pctText%',
+                        style: TextStyle(
+                          color: theme.colorScheme.primary,
+                          fontWeight: FontWeight.w800,
+                          fontSize: 11,
+                          letterSpacing: 0.3,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
               ),
-            ),
-          ),
-        ],
-      );
-    }
-    return Text(f(price),
-        style: theme.textTheme.headlineMedium?.copyWith(
-          color: theme.colorScheme.primary,
-          fontWeight: FontWeight.bold,
-        ));
+              const SizedBox(height: 6),
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.primary.withValues(alpha: 0.10),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.construction,
+                        size: 16, color: theme.colorScheme.primary),
+                    const SizedBox(width: 6),
+                    Text(
+                      'Usta chegirmasi: ${f(savings)} tejaysiz',
+                      style: theme.textTheme.labelMedium?.copyWith(
+                        color: theme.colorScheme.primary,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          );
+        }
+
+        // ── Oddiy chegirma (master emas) ──
+        if (discount != null && discount < price) {
+          return Wrap(
+            crossAxisAlignment: WrapCrossAlignment.end,
+            spacing: 12,
+            children: [
+              Text(f(discount),
+                  style: theme.textTheme.headlineMedium?.copyWith(
+                    color: theme.colorScheme.primary,
+                    fontWeight: FontWeight.bold,
+                  )),
+              Padding(
+                padding: const EdgeInsets.only(bottom: 6),
+                child: Text(
+                  f(price),
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    color: theme.colorScheme.outline,
+                    decoration: TextDecoration.lineThrough,
+                  ),
+                ),
+              ),
+            ],
+          );
+        }
+
+        // ── Chegirmasiz oddiy narx ──
+        return Text(f(price),
+            style: theme.textTheme.headlineMedium?.copyWith(
+              color: theme.colorScheme.primary,
+              fontWeight: FontWeight.bold,
+            ));
+      },
+    );
   }
 
   Widget _buildStockBadge(ProductDetailLoaded state, ThemeData theme) {

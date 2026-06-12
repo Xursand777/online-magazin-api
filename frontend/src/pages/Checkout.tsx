@@ -5,6 +5,8 @@ import { useAuthStore } from '../store/authStore';
 import { createOrderFromCart, generateIdempotencyKey, getCreditStatus, getProfile } from '../api/endpoints';
 import { toast } from '../utils/toast';
 import { useTranslation } from '../i18n/useTranslation';
+import AddressPicker from '../components/AddressPicker';
+import { formatStructuredAddress, parseStructuredAddress, type StructuredAddress } from '../utils/address';
 
 const formatPrice = (v: string | number) =>
   Number(v).toLocaleString('uz-UZ') + ' UZS';
@@ -64,6 +66,31 @@ const Checkout = () => {
     payment_method: 'cash' as 'cash' | 'card' | 'credit',
     credit_days: 10,
   });
+
+  // ── STRUKTURALANGAN MANZIL — AddressPicker bilan sinxron ────────────────
+  // Profile.delivery_address backend'dan string sifatida keladi. Uni 4 ta
+  // strukturalangan maydonga ajratib, AddressPicker'ga uzatamiz. Foydalanuvchi
+  // o'zgartirsa (input typing yoki xarita/geolokatsiya), structured + full
+  // qaytadi va formData.delivery_address yangilanadi.
+  //
+  // AVTOMAT TO'LDIRISH:
+  //   1. Sahifa ochiladi → getProfile() chaqiriladi
+  //   2. profile.delivery_address (eski saqlangan) formData.delivery_address ga keladi
+  //   3. structuredAddress useEffect orqali parse qilinadi va inputlarga to'ldiriladi
+  //   4. Foydalanuvchi tahrir qilmasdan tugatishi mumkin — eski manzil ishlatiladi
+  const [structuredAddress, setStructuredAddress] = useState<StructuredAddress>(() =>
+    parseStructuredAddress(''),
+  );
+
+  // Profile'dan delivery_address kelgan vaqtda structured'ni ham yangilash
+  useEffect(() => {
+    const parsed = parseStructuredAddress(formData.delivery_address);
+    const currentFull = formatStructuredAddress(structuredAddress);
+    if (formData.delivery_address && formData.delivery_address !== currentFull) {
+      setStructuredAddress(parsed);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [formData.delivery_address]);
 
   useEffect(() => {
     if (!isAuthenticated) {
@@ -148,6 +175,14 @@ const Checkout = () => {
     const authoritativePhone = user?.phone || '';
 
     if (!formData.receiver_name || !authoritativePhone || !formData.delivery_address) {
+      toast.error(t.checkout.allFieldsRequired);
+      return;
+    }
+
+    // Manzil strukturalangan — kamida viloyat + tuman/shahar + uy/ko'cha
+    // bo'lishi shart. AddressPicker'da required=true bo'lsa-da, qo'shimcha
+    // himoya: foydalanuvchi inputlarni bo'shatib qoldirgan bo'lsa.
+    if (!structuredAddress.viloyat.trim() || !structuredAddress.tumanShahar.trim() || !structuredAddress.domUy.trim()) {
       toast.error(t.checkout.allFieldsRequired);
       return;
     }
@@ -270,16 +305,30 @@ const Checkout = () => {
               </div>
             </div>
             
-            <div className="flex flex-col mb-md">
-              <label className="font-label-md text-label-md text-on-surface-variant mb-xs" htmlFor="address">{t.checkout.deliveryAddress} *</label>
-              <textarea 
-                className="border border-outline-variant rounded-lg px-sm py-sm focus:ring-primary focus:border-primary bg-surface-bright outline-none resize-none" 
-                id="address"
-                placeholder={t.checkout.addressPlaceholder}
-                rows={3}
-                required
-                value={formData.delivery_address}
-                onChange={(e) => setFormData({...formData, delivery_address: e.target.value})}
+            {/* ── YETKAZIB BERISH MANZILI — AddressPicker ────────────────────
+                Profile sahifasi bilan IDENTIK komponent. Foydalanuvchi:
+                  • 4 ta strukturalangan maydon (viloyat, tuman, mahalla, uy)
+                  • "Kartadan tanlash" — Leaflet xarita orqali
+                  • "Joylashuvni aniqlash" — GPS + permission modal
+
+                AVVAL SAQLANGAN MANZIL AUTO-FILL:
+                  Profile.delivery_address eski saqlangan bo'lsa, getProfile()
+                  yuqorida formData.delivery_address ga yozadi va structuredAddress
+                  useEffect orqali avtomat to'ldiriladi. Foydalanuvchi qayta
+                  yozish/tanlashga majbur emas — eski manzil tayyor turadi.
+
+                Manzil o'zgarganda formData.delivery_address ham yangilanadi
+                (string format) — bu handleSubmit ga jo'natiladi. */}
+            <div className="mb-md">
+              <AddressPicker
+                value={structuredAddress}
+                onChange={({ structured, full }) => {
+                  setStructuredAddress(structured);
+                  setFormData((prev) => ({ ...prev, delivery_address: full }));
+                }}
+                required={true}
+                showHeading={false}
+                accentColor="#22c55e"
               />
             </div>
           </section>

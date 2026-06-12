@@ -5,8 +5,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
-import 'package:intl/intl.dart';
 import '../../../../core/models/product_model.dart';
+import '../../../../core/widgets/product_price.dart';
 import '../bloc/search_bloc.dart';
 
 /// Search dropdown overlay — saytdagi kabi inline.
@@ -443,27 +443,11 @@ class _ResultTile extends StatelessWidget {
                     text: _highlight(product.name, query, theme),
                   ),
                   const SizedBox(height: 2),
-                  Row(
-                    children: [
-                      if (product.oldPrice != null) ...[
-                        Text(
-                          _fmt(product.oldPrice!),
-                          style: theme.textTheme.labelSmall?.copyWith(
-                            color: theme.colorScheme.outline,
-                            decoration: TextDecoration.lineThrough,
-                          ),
-                        ),
-                        const SizedBox(width: 6),
-                      ],
-                      Text(
-                        _fmt(product.price),
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          color: theme.colorScheme.primary,
-                          fontWeight: FontWeight.bold,
-                          fontSize: 13,
-                        ),
-                      ),
-                    ],
+                  // ProductPrice — USTA chegirmasini ham hisobga oladi.
+                  ProductPrice(
+                    product: product,
+                    size: ProductPriceSize.compact,
+                    showBadge: false, // overlay kichik, badge joy egallaydi
                   ),
                 ],
               ),
@@ -507,7 +491,4 @@ class _ResultTile extends StatelessWidget {
     }
     return TextSpan(children: spans, style: baseStyle);
   }
-
-  static String _fmt(num v) =>
-      '${NumberFormat('#,###', 'uz_UZ').format(v).replaceAll(',', ' ')} so\'m';
 }
