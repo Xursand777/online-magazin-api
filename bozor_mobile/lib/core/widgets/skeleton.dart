@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'product_grid_config.dart';
 
 /// Asosiy shimmer effekti — gradient'ni o'ng tomonga harakatlantiradi.
 ///
@@ -201,12 +202,9 @@ class _ProductGridSkeleton extends StatelessWidget {
     return GridView.builder(
       shrinkWrap: true,
       physics: const NeverScrollableScrollPhysics(),
-      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 2,
-        crossAxisSpacing: 12,
-        mainAxisSpacing: 12,
-        childAspectRatio: 0.7,
-      ),
+      // Bir xil grid delegate — ProductCard bilan kelishilgan
+      // childAspectRatio (0.62) va maxCrossAxisExtent (220).
+      gridDelegate: productGridDelegate,
       itemCount: itemCount,
       itemBuilder: (_, __) => const ProductCardSkeleton(),
     );

@@ -23,6 +23,8 @@ import { getProfile } from './api/endpoints';
 // AdminPanel eng katta komponent (~500KB). Odatdagi foydalanuvchilar uni
 // HECH QACHON yuklamaydi — bu initial load vaqtini ~40% kamaytiradi.
 const AdminPanel = lazy(() => import('./pages/AdminPanel'));
+// CourierRouteMap — lazy, Leaflet va xarita kodi alohida chunk'da
+const CourierRouteMap = lazy(() => import('./pages/CourierRouteMap'));
 
 const ScrollToTop = () => {
   const { pathname, search } = useLocation();
@@ -93,6 +95,17 @@ function App() {
             element={
               <Suspense fallback={<AdminFallback />}>
                 <AdminPanel />
+              </Suspense>
+            }
+          />
+          {/* Phase 3.0 — Kuryer real-time navigatsiya xaritasi.
+              Permission backend tomonidan tekshiriladi (CanConfirmDelivery).
+              ProtectedRoute — autentifikatsiya kerak. */}
+          <Route
+            path="/courier/route/:orderId"
+            element={
+              <Suspense fallback={<AdminFallback />}>
+                <CourierRouteMap />
               </Suspense>
             }
           />

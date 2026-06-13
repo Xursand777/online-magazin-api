@@ -59,6 +59,14 @@ dependencies:
   package_info_plus: ^8.0.0  # Sentry release identifier uchun
   url_launcher: ^6.3.0  # Phase 1.2: force-update Play Store URL ochish uchun
 
+  # ⭐ Geo paketlar — saytdagi Leaflet + Geolocation + Permission API
+  # ekvivalentlari. Profile va Checkout sahifalarida "Kartadan tanlash"
+  # va "Joylashuvni aniqlash" tugmalari ishlatadi.
+  geolocator: ^13.0.1          # GPS koordinatalar (saytdagi navigator.geolocation)
+  flutter_map: ^8.0.0          # OpenStreetMap xarita (saytdagi Leaflet)
+  latlong2: ^0.9.1             # LatLng tipi (flutter_map uchun zarur)
+  permission_handler: ^11.3.1  # Native permission UI + Settings ochish
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

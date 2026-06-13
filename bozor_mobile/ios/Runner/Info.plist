@@ -45,5 +45,12 @@
 	<true/>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
+
+	<!-- Geolocation — yetkazib berish manzilini avtomat aniqlash uchun. -->
+	<!-- iOS App Store talab qiladi: foydalanuvchiga ko'rsatiladigan aniq sabab. -->
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Joriy joylashuvingizni aniqlab, yetkazib berish manzilini avtomat to'ldirish uchun ruxsat kerak. Joylashuv faqat ilova ochiq paytda ishlatiladi va saqlanmaydi.</string>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>Joriy joylashuvingizni aniqlab, yetkazib berish manzilini avtomat to'ldirish uchun ruxsat kerak.</string>
 </dict>
 </plist>

@@ -3,6 +3,7 @@ import 'package:go_router/go_router.dart';
 import '../../../../core/di/injection_container.dart';
 import '../../../../core/models/product_model.dart';
 import '../../../../core/widgets/product_card.dart';
+import '../../../../core/widgets/product_grid_config.dart';
 import '../../data/repositories/home_repository.dart';
 
 class SeeAllProductsPage extends StatefulWidget {
@@ -134,14 +135,9 @@ class _SeeAllProductsPageState extends State<SeeAllProductsPage> {
                 ),
               ),
               SliverPadding(
-                padding: const EdgeInsets.all(16),
+                padding: productGridPadding,
                 sliver: SliverGrid.builder(
-                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                    crossAxisCount: 2,
-                    mainAxisExtent: 320, // Ixcham va chiroyli balandlik
-                    crossAxisSpacing: 16,
-                    mainAxisSpacing: 16,
-                  ),
+                  gridDelegate: productGridDelegate,
                   itemCount: products.length,
                   itemBuilder: (context, index) {
                     return ProductCard(product: products[index]);

@@ -4,6 +4,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 import '../../../../core/i18n/language_extension.dart';
 import '../../../../core/widgets/product_card.dart';
+import '../../../../core/widgets/product_grid_config.dart';
 import '../cubit/favorites_cubit.dart';
 import '../cubit/favorites_state.dart';
 
@@ -61,17 +62,11 @@ class _FavoritesPageState extends State<FavoritesPage> {
             return RefreshIndicator(
               onRefresh: () => context.read<FavoritesCubit>().loadFavorites(),
               child: GridView.builder(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                  crossAxisCount: 2,
-                  mainAxisExtent: 320, // Uniform fixed card height (matching Home grid)
-                  crossAxisSpacing: 16,
-                  mainAxisSpacing: 16,
-                ),
+                padding: productGridPadding,
+                gridDelegate: productGridDelegate,
                 itemCount: favorites.length,
                 itemBuilder: (context, index) {
                   final product = favorites[index];
-                  // Pass product to card. The card will reactively update favorite status
                   return ProductCard(product: product);
                 },
               ),
@@ -86,14 +81,9 @@ class _FavoritesPageState extends State<FavoritesPage> {
 
   Widget _buildSkeletonGrid() {
     return GridView.builder(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+      padding: productGridPadding,
       physics: const NeverScrollableScrollPhysics(),
-      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 2,
-        mainAxisExtent: 320,
-        crossAxisSpacing: 16,
-        mainAxisSpacing: 16,
-      ),
+      gridDelegate: productGridDelegate,
       itemCount: 6,
       itemBuilder: (context, index) {
         return Container(

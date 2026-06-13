@@ -4,6 +4,7 @@ import 'package:intl/intl.dart';
 import '../../../../core/di/injection_container.dart';
 import '../../../../core/i18n/language_extension.dart';
 import '../../../../core/widgets/product_card.dart';
+import '../../../../core/widgets/product_grid_config.dart';
 import '../../../../core/widgets/skeleton.dart';
 import '../bloc/home_bloc.dart';
 import 'package:cached_network_image/cached_network_image.dart';
@@ -322,15 +323,14 @@ class HomeView extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
+        // ── Responsive grid — productGridDelegate'dan foydalanadi
+        // (max 220px keng card, childAspectRatio: 0.62).
+        // Har ekranda 2-4 ustun avtomat hisoblanadi. Hech qanday
+        // mainAxisExtent qattiq belgilanmaydi → overflow yo'q.
         GridView.builder(
           shrinkWrap: true,
           physics: const NeverScrollableScrollPhysics(),
-          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: 2,
-            mainAxisExtent: 320, // Ixcham va chiroyli balandlik
-            crossAxisSpacing: 16,
-            mainAxisSpacing: 16,
-          ),
+          gridDelegate: productGridDelegate,
           itemCount: displayProducts.length,
           itemBuilder: (context, index) {
             return ProductCard(product: displayProducts[index]);

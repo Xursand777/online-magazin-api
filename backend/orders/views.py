@@ -84,11 +84,15 @@ class QuickOrderView(views.APIView):
                     variant = get_object_or_404(ProductVariant, id=data['variant_id'], product=product)
 
                 # receiver_phone HAR DOIM request.user.phone'dan — frontend e'tibordan chetda
+                # Phase 3.0: delivery_lat/lng/notes ham qabul qilinadi (xaritadan)
                 order = create_order_with_items(
                     user=request.user,
                     receiver_name=data['receiver_name'],
                     receiver_phone=request.user.phone,
                     delivery_address=data['delivery_address'],
+                    delivery_lat=data.get('delivery_lat'),
+                    delivery_lng=data.get('delivery_lng'),
+                    delivery_notes=data.get('delivery_notes', ''),
                     payment_method=data['payment_method'],
                     credit_days=data.get('credit_days'),
                     items=[
@@ -147,11 +151,15 @@ class OrderFromCartView(views.APIView):
                 data = serializer.validated_data
 
                 # receiver_phone HAR DOIM request.user.phone'dan
+                # Phase 3.0: delivery_lat/lng/notes ham qabul qilinadi
                 order = create_order_with_items(
                     user=request.user,
                     receiver_name=data['receiver_name'],
                     receiver_phone=request.user.phone,
                     delivery_address=data['delivery_address'],
+                    delivery_lat=data.get('delivery_lat'),
+                    delivery_lng=data.get('delivery_lng'),
+                    delivery_notes=data.get('delivery_notes', ''),
                     payment_method=data['payment_method'],
                     credit_days=data.get('credit_days'),
                     items=[
@@ -226,6 +234,64 @@ class UserCancelOrderView(views.APIView):
             note=serializer.validated_data['cancellation_reason'],
         )
         return Response(OrderSerializer(order, context={'request': request}).data)
+
+
+# ── Phase 3.0 — Kuryer Real-time Navigatsiya ────────────────────────────────
+class CourierRouteTargetView(views.APIView):
+    """
+    GET /api/orders/<pk>/route-target/
+
+    Kuryer xaritasi (CourierRouteMap) uchun manzil va koordinata.
+    Front-end shu ma'lumotni olib OSRM'dan yo'l olib chizadi.
+
+    Permission: kuryer / admin / super_admin.
+
+    Response:
+      {
+        "order_id": 123,
+        "status": "SHIPPING",
+        "destination": {                # NULL bo'lishi mumkin (eski buyurtma)
+          "lat": 41.549900,
+          "lng": 60.633300,
+          "address": "Xorazm vil., Urganch sh., A.Temur 12"
+        },
+        "notes": "Domofon 47, qizil eshik, 3-qavat",
+        "receiver_name": "Eshmatov T.",
+        "receiver_phone": "+998 91 234 56 78"
+      }
+
+    "destination=null" bo'lsa — mijoz koordinata yuborganmagan. Klient
+    xaritani ko'rsatmaydi, matn manzil bo'yicha boring deydi.
+    """
+    permission_classes = (IsAuthenticated, CanConfirmDelivery)
+
+    def get(self, request, pk, *args, **kwargs):
+        order = get_object_or_404(
+            Order.objects.only(
+                'id', 'status', 'receiver_name', 'receiver_phone',
+                'delivery_address', 'delivery_lat', 'delivery_lng',
+                'delivery_notes',
+            ),
+            pk=pk,
+        )
+
+        destination = None
+        if order.delivery_lat is not None and order.delivery_lng is not None:
+            destination = {
+                'lat': float(order.delivery_lat),
+                'lng': float(order.delivery_lng),
+                'address': order.delivery_address,
+            }
+
+        return Response({
+            'order_id': order.id,
+            'status': order.status,
+            'destination': destination,
+            'address_text': order.delivery_address,
+            'notes': order.delivery_notes or '',
+            'receiver_name': order.receiver_name,
+            'receiver_phone': order.receiver_phone,
+        })
 
 
 # ── Phase 2.4 — Kuryer yetkazib berishni qabul kodi bilan tasdiqlaydi ───────

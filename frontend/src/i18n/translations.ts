@@ -242,6 +242,52 @@ const translations = {
         manual: "Manzilni qo'lda kiritish",
         checking: "Tekshirilmoqda…",
         reloadHint: "Ruxsat berganingizdan keyin sahifani qayta yuklash kerak bo'lishi mumkin.",
+        // Reason'ga qarab modal mazmuni
+        reasons: {
+          previouslyDenied: {
+            title: "Joylashuv avval bloklangan",
+            subtitle: "Siz bu sayt uchun joylashuvni avval rad etgansiz. Brauzer endi sizdan qayta so'ramaydi — sozlamalardan ruxsatni o'zingiz tiklashingiz kerak.",
+            banner: "Brauzeringiz \"Block\" tanloingizni eslab qoldi. Pastdagi qadamlarni bajaring va qayta urinib ko'ring.",
+          },
+          justDenied: {
+            title: "Joylashuv rad etildi",
+            subtitle: "Brauzer dialog'ida \"Bloklash\" tanlandi. Joylashuvni ishlatish uchun qayta urinish kerak.",
+            banner: "Brauzer keyingi safarni eslab qolishi mumkin. Sozlamalardan ham ruxsat bera olasiz.",
+          },
+          insecureContext: {
+            title: "Sayt xavfsiz aloqada emas",
+            subtitle: "Geolokatsiya faqat HTTPS sayt'larda ishlaydi. Joriy sayt HTTP orqali ochilgan.",
+            banner: "Bu — brauzer xavfsizlik qoidasi. Bizning sayt HTTPS bo'lishi shart, lekin siz hozir HTTP orqali ochgansiz.",
+            steps: [
+              "URL'ni tekshiring — boshida \"https://\" bo'lishi kerak",
+              "Agar \"http://\" bo'lsa, manzilni \"https://\" ga o'zgartirib qayta yuklang",
+              "Mobile internet'da ba'zan operator HTTP'ga o'zgartirib yuboradi — WiFi orqali urinib ko'ring",
+              "Muammo davom etsa, qo'llab-quvvatlash xizmatiga murojaat qiling",
+            ],
+          },
+          systemBlock: {
+            title: "Tizim joylashuvni bermayapti",
+            subtitle: "Brauzer ruxsat bergan, lekin operatsion tizim (OS) yoki qurilma GPS signalini topa olmadi.",
+            banner: "Bu ko'pincha kompyuter sozlamalarida joylashuv xizmati o'chirilgan bo'lganda yuz beradi.",
+            steps: [
+              "macOS: System Settings → Privacy & Security → Location Services → brauzeringiz uchun yoqing",
+              "Windows: Settings → Privacy → Location → Location services'ni ON qiling",
+              "Android: Settings → Location → ON; brauzer ilovasiga ham ruxsat bering",
+              "iPhone: Settings → Privacy & Security → Location Services → Safari yoki brauzeringiz",
+              "Sozlash tugaganidan keyin sahifani qayta yuklang",
+            ],
+          },
+          unsupported: {
+            title: "Brauzer qo'llab-quvvatlamaydi",
+            subtitle: "Sizning brauzer geolokatsiya API'ini ishlatmaydi. Ehtimol brauzer eski yoki maxsus rejimda (incognito sandbox).",
+            banner: "Yangiroq brauzerdan foydalaning yoki manzilni qo'lda kiriting.",
+            steps: [
+              "Chrome, Safari, Firefox yoki Edge ning oxirgi versiyasini yangilang",
+              "Incognito/maxfiy rejim ba'zi brauzerlarda geolokatsiyani bloklaydi — oddiy oynada ochib ko'ring",
+              "Korporativ tarmoq bo'lsa, administrator bloklagan bo'lishi mumkin",
+            ],
+          },
+        },
         instructions: {
           chromeDesktop: [
             "Manzil qatori chap tomonidagi qulf 🔒 yoki sozlama belgisini bosing",
@@ -680,6 +726,51 @@ const translations = {
         manual: "Ввести адрес вручную",
         checking: "Проверка…",
         reloadHint: "После выдачи разрешения может потребоваться обновить страницу.",
+        reasons: {
+          previouslyDenied: {
+            title: "Геолокация ранее заблокирована",
+            subtitle: "Вы уже отклонили доступ для этого сайта. Браузер больше не будет спрашивать — нужно вручную разрешить в настройках.",
+            banner: "Браузер запомнил ваш выбор \"Блокировать\". Выполните шаги ниже и попробуйте ещё раз.",
+          },
+          justDenied: {
+            title: "Доступ отклонён",
+            subtitle: "В диалоге браузера было выбрано \"Блокировать\". Чтобы использовать геолокацию, попробуйте снова.",
+            banner: "Браузер может запомнить ваш выбор. Можете также разрешить через настройки.",
+          },
+          insecureContext: {
+            title: "Сайт открыт небезопасно",
+            subtitle: "Геолокация работает только на HTTPS-сайтах. Текущий сайт открыт через HTTP.",
+            banner: "Это правило безопасности браузера. Наш сайт должен быть на HTTPS, но сейчас открыт по HTTP.",
+            steps: [
+              "Проверьте URL — должен начинаться с \"https://\"",
+              "Если \"http://\", измените на \"https://\" и обновите страницу",
+              "В мобильном интернете оператор иногда меняет на HTTP — попробуйте через WiFi",
+              "Если проблема не решается, обратитесь в поддержку",
+            ],
+          },
+          systemBlock: {
+            title: "Система не даёт геолокацию",
+            subtitle: "Браузер разрешил, но ОС или устройство не смогли получить GPS-сигнал.",
+            banner: "Часто это происходит, когда служба геолокации отключена в настройках компьютера.",
+            steps: [
+              "macOS: System Settings → Privacy & Security → Location Services → включите для вашего браузера",
+              "Windows: Settings → Privacy → Location → включите Location services",
+              "Android: Settings → Location → ON; дайте разрешение приложению браузера",
+              "iPhone: Settings → Privacy & Security → Location Services → Safari или ваш браузер",
+              "После настройки обновите страницу",
+            ],
+          },
+          unsupported: {
+            title: "Браузер не поддерживает",
+            subtitle: "Ваш браузер не использует API геолокации. Возможно, он устарел или работает в специальном режиме (incognito sandbox).",
+            banner: "Используйте более новый браузер или введите адрес вручную.",
+            steps: [
+              "Обновите Chrome, Safari, Firefox или Edge до последней версии",
+              "Incognito/приватный режим в некоторых браузерах блокирует геолокацию — попробуйте в обычном окне",
+              "В корпоративной сети администратор мог заблокировать функцию",
+            ],
+          },
+        },
         instructions: {
           chromeDesktop: [
             "Нажмите значок замка 🔒 слева от адресной строки",
@@ -1118,6 +1209,51 @@ const translations = {
         manual: "Enter address manually",
         checking: "Checking…",
         reloadHint: "After allowing permission you may need to reload the page.",
+        reasons: {
+          previouslyDenied: {
+            title: "Location was previously blocked",
+            subtitle: "You previously denied location access for this site. The browser won't ask again — you need to manually allow it in settings.",
+            banner: "The browser remembered your \"Block\" choice. Follow the steps below and try again.",
+          },
+          justDenied: {
+            title: "Permission denied",
+            subtitle: "You chose \"Block\" in the browser dialog. To use location, please try again.",
+            banner: "The browser may remember your choice. You can also allow it via settings.",
+          },
+          insecureContext: {
+            title: "Site is not secure",
+            subtitle: "Geolocation only works on HTTPS sites. The current site is loaded over HTTP.",
+            banner: "This is a browser security rule. Our site must be on HTTPS, but you opened it via HTTP.",
+            steps: [
+              "Check the URL — it must start with \"https://\"",
+              "If \"http://\", change to \"https://\" and reload",
+              "On mobile data the carrier may downgrade to HTTP — try WiFi",
+              "If the issue persists, contact support",
+            ],
+          },
+          systemBlock: {
+            title: "System won't provide location",
+            subtitle: "The browser allowed it, but the OS or device couldn't get a GPS signal.",
+            banner: "Often happens when location services are disabled on the computer.",
+            steps: [
+              "macOS: System Settings → Privacy & Security → Location Services → enable for your browser",
+              "Windows: Settings → Privacy → Location → turn ON Location services",
+              "Android: Settings → Location → ON; grant the browser app permission",
+              "iPhone: Settings → Privacy & Security → Location Services → Safari or your browser",
+              "Reload the page after configuring",
+            ],
+          },
+          unsupported: {
+            title: "Browser not supported",
+            subtitle: "Your browser doesn't use the Geolocation API. It may be outdated or running in a special mode (incognito sandbox).",
+            banner: "Use a newer browser or enter your address manually.",
+            steps: [
+              "Update Chrome, Safari, Firefox or Edge to the latest version",
+              "Incognito/private mode in some browsers blocks geolocation — try a normal window",
+              "On a corporate network, the admin may have blocked the feature",
+            ],
+          },
+        },
         instructions: {
           chromeDesktop: [
             "Click the lock 🔒 icon on the left of the address bar",

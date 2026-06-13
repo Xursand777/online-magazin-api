@@ -3,6 +3,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 import '../../../../core/di/injection_container.dart';
 import '../../../../core/widgets/product_card.dart';
+import '../../../../core/widgets/product_grid_config.dart';
 import '../bloc/paginated_search_bloc.dart';
 
 /// "Barchasini ko'rish" sahifasi — infinite scroll bilan to'liq natijalar.
@@ -178,16 +179,11 @@ class _SearchResultsViewState extends State<_SearchResultsView> {
             ),
           ),
         ),
-        // Grid
+        // Grid — bir xil responsive delegate (home/favorites/category bilan)
         SliverPadding(
-          padding: const EdgeInsets.symmetric(horizontal: 16),
+          padding: productGridPadding,
           sliver: SliverGrid(
-            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-              crossAxisCount: 2,
-              mainAxisExtent: 320,
-              crossAxisSpacing: 12,
-              mainAxisSpacing: 12,
-            ),
+            gridDelegate: productGridDelegate,
             delegate: SliverChildBuilderDelegate(
               (context, i) => ProductCard(product: state.products[i]),
               childCount: state.products.length,

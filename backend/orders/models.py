@@ -147,6 +147,34 @@ class Order(models.Model):
     #   Ishlatilish: POST /api/orders/<id>/courier-confirm/ (Phase 2.4).
     #   Bo'sh string emas null — SQLite/Postgres uniqueness va NULL-checklar
     #   uchun aniq holatga ega bo'lish.
+    # ── Phase 3.0 — Kuryer Real-time Navigatsiyasi ─────────────────────────
+    # Mijoz AddressPicker xaritasida AYNAN o'z eshigiga qo'ygan koordinata.
+    # Kuryer navigatsiya xaritasi (CourierRouteMap) shu nuqtagacha yo'l chizadi.
+    # Eski buyurtmalarda NULL — kuryer matn manzili bo'yicha boradi.
+    delivery_lat = models.DecimalField(
+        max_digits=9, decimal_places=6, null=True, blank=True,
+        validators=[
+            MinValueValidator(Decimal('-90')),
+            MaxValueValidator(Decimal('90')),
+        ],
+        help_text="Mijoz xaritada tanlagan aniq koordinata: kenglik (lat)",
+    )
+    delivery_lng = models.DecimalField(
+        max_digits=10, decimal_places=6, null=True, blank=True,
+        validators=[
+            MinValueValidator(Decimal('-180')),
+            MaxValueValidator(Decimal('180')),
+        ],
+        help_text="Mijoz xaritada tanlagan aniq koordinata: uzunlik (lng)",
+    )
+    delivery_notes = models.TextField(
+        blank=True, default='',
+        help_text=(
+            "Kuryer uchun qo'shimcha eslatma: domofon kodi, qavat, belgilar, "
+            "alohida ko'rsatmalar. Oxirgi 50 metr muammosini hal qiladi."
+        ),
+    )
+
     received_code = models.CharField(
         max_length=6,
         null=True,

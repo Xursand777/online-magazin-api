@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import '../../../../core/di/injection_container.dart';
 import '../../../../core/widgets/product_card.dart';
+import '../../../../core/widgets/product_grid_config.dart';
 import '../bloc/catalog_bloc.dart';
 
 /// Kategoriya mahsulotlari sahifasi.
@@ -96,13 +97,8 @@ class _CategoryProductsView extends StatelessWidget {
           }
 
           return GridView.builder(
-            padding: const EdgeInsets.all(16),
-            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-              crossAxisCount: 2,
-              mainAxisExtent: 320,
-              crossAxisSpacing: 16,
-              mainAxisSpacing: 16,
-            ),
+            padding: productGridPadding,
+            gridDelegate: productGridDelegate,
             itemCount: state.products.length,
             itemBuilder: (context, index) {
               return ProductCard(product: state.products[index]);

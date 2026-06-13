@@ -4,6 +4,8 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../../core/di/injection_container.dart';
+import '../../../../core/utils/address.dart';
+import '../../../../core/widgets/address_picker.dart';
 import '../cubit/profile_edit_cubit.dart';
 
 /// Profile tahrirlash sahifasi — ism, familya va yagona manzil.
@@ -41,7 +43,10 @@ class _ProfileEditView extends StatefulWidget {
 class _ProfileEditViewState extends State<_ProfileEditView> {
   final _firstNameController = TextEditingController();
   final _lastNameController = TextEditingController();
-  final _addressController = TextEditingController();
+
+  /// Strukturalangan manzil — AddressPicker'ga uzatiladi va undan keladi.
+  /// Cubit'ga deliveryAddress (full string) sifatida saqlanadi.
+  StructuredAddress _address = StructuredAddress.empty;
 
   /// Controller'lar Cubit state bilan FAQAT BIR MARTA sinxronlanadi
   /// (loadProfile keldi). Foydalanuvchi yozayotgan paytda overwrite qilmaymiz.
@@ -51,7 +56,6 @@ class _ProfileEditViewState extends State<_ProfileEditView> {
   void dispose() {
     _firstNameController.dispose();
     _lastNameController.dispose();
-    _addressController.dispose();
     super.dispose();
   }
 
@@ -67,7 +71,8 @@ class _ProfileEditViewState extends State<_ProfileEditView> {
         if (!_initialized && state.initialProfile != null) {
           _firstNameController.text = state.firstName;
           _lastNameController.text = state.lastName;
-          _addressController.text = state.deliveryAddress;
+          // Backend bitta string saqlaydi — uni 4 maydonga parse qilamiz
+          _address = StructuredAddress.parse(state.deliveryAddress);
           _initialized = true;
         }
         // Saqlanganda — SnackBar va sahifani yopish
@@ -209,29 +214,32 @@ class _ProfileEditViewState extends State<_ProfileEditView> {
 
           const SizedBox(height: 28),
 
-          // ── MENING MANZILIM (YAGONA) ────────────────────────────────────
+          // ── MENING MANZILIM (4 maydonli AddressPicker) ──────────────────
           _sectionTitle(theme, "MENING MANZILIM"),
           const SizedBox(height: 6),
           Text(
-            "Yetkazib berish manzili. Bir marta saqlasangiz, "
-            "buyurtmani rasmiylashtirishda avtomatik to'ldiriladi.",
+            "Bir marta to'ldiring — buyurtmani rasmiylashtirishda avtomatik to'ldiriladi.",
             style: theme.textTheme.bodySmall?.copyWith(
               color: theme.colorScheme.onSurfaceVariant,
               height: 1.4,
             ),
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 14),
 
-          // Manzil — multi-line, optional (lekin checkout uchun zarur)
-          _EditField(
-            controller: _addressController,
-            icon: Icons.location_on_outlined,
-            label: "Manzil",
-            hint: "Masalan: Toshkent shahar, Yunusobod tumani,\n"
-                "Bobur ko'chasi 12-uy, 5-xonadon",
-            maxLines: 4,
-            onChanged: (v) =>
-                context.read<ProfileEditCubit>().onAddressChanged(v),
+          // AddressPicker — saytdagi bilan IDENTIK UX:
+          //   • 4 maydon (viloyat, tuman, mahalla, uy)
+          //   • Kartadan tanlash (flutter_map xarita)
+          //   • Joylashuvni aniqlash (GPS + permission dialog)
+          AddressPicker(
+            value: _address,
+            onChanged: (addr) {
+              setState(() => _address = addr);
+              // Cubit'ga full string sifatida saqlaymiz — backend muvofiqligi
+              context.read<ProfileEditCubit>().onAddressChanged(addr.full);
+            },
+            language: 'uz',
+            showHeading: false, // section title yuqorida
+            required: false, // Profile'da manzil ixtiyoriy
           ),
 
           const SizedBox(height: 16),

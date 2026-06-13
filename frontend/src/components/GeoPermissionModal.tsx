@@ -26,6 +26,7 @@ import {
   isMobileDevice,
   queryGeolocationPermission,
   type BrowserKind,
+  type GeolocationDenyReason,
 } from '../utils/geolocation';
 
 interface GeoPermissionModalProps {
@@ -39,9 +40,20 @@ interface GeoPermissionModalProps {
    * Async — async bo'lsa, tugma loading holatida bo'ladi.
    */
   onRetry: () => Promise<void> | void;
+  /**
+   * Modal nima sababdan ochilayotgani — sarlavha va xabar shu sababga
+   * qarab moslashtiriladi. Default: 'previously_denied'.
+   */
+  reason?: GeolocationDenyReason;
 }
 
-const GeoPermissionModal = ({ open, onClose, onManualEntry, onRetry }: GeoPermissionModalProps) => {
+const GeoPermissionModal = ({
+  open,
+  onClose,
+  onManualEntry,
+  onRetry,
+  reason = 'previously_denied',
+}: GeoPermissionModalProps) => {
   const { t } = useTranslation();
   const [retrying, setRetrying] = useState(false);
 
@@ -94,6 +106,17 @@ const GeoPermissionModal = ({ open, onClose, onManualEntry, onRetry }: GeoPermis
   const instructionsKey = getInstructionsKey(browser, mobile, ios);
   const instructions = t.profile.geoModal.instructions[instructionsKey];
 
+  // Reason'ga qarab MODAL TURI:
+  //   • previously_denied → "Avval bloklagansiz" + brauzer yo'l-yo'riq
+  //   • just_denied       → "Hozirgina rad etdingiz" + qayta urinish
+  //   • insecure_context  → "Sayt HTTPS emas" — brauzer sozlamalari KERAKMAS
+  //   • system_block      → "Tizim darajasida bloklangan" — OS sozlamalari
+  //   • unsupported       → "Brauzer qo'llab-quvvatlamaydi" — yangilang
+  const reasonContent = getReasonContent(reason, t);
+  const showBrowserInstructions =
+    reason === 'previously_denied' || reason === 'just_denied';
+  const showRetryButton = reason !== 'insecure_context' && reason !== 'unsupported';
+
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200"
@@ -111,7 +134,7 @@ const GeoPermissionModal = ({ open, onClose, onManualEntry, onRetry }: GeoPermis
           <div className="flex items-start gap-3">
             <div className="w-12 h-12 rounded-full bg-primary-container flex items-center justify-center shrink-0">
               <span className="material-symbols-outlined text-on-primary-container text-[26px]">
-                location_off
+                {reasonContent.icon}
               </span>
             </div>
             <div className="flex-1 pt-1">
@@ -119,10 +142,10 @@ const GeoPermissionModal = ({ open, onClose, onManualEntry, onRetry }: GeoPermis
                 id="geo-modal-title"
                 className="text-lg font-bold text-on-surface mb-1"
               >
-                {t.profile.geoModal.title}
+                {reasonContent.title}
               </h2>
               <p className="text-sm text-on-surface-variant">
-                {t.profile.geoModal.subtitle}
+                {reasonContent.subtitle}
               </p>
             </div>
           </div>
@@ -136,22 +159,34 @@ const GeoPermissionModal = ({ open, onClose, onManualEntry, onRetry }: GeoPermis
           </button>
         </div>
 
-        {/* Brauzerga qarab yo'l-yo'riq */}
-        <div className="p-6">
-          <div className="mb-4 flex items-center gap-2 text-xs text-on-surface-variant uppercase tracking-wide font-semibold">
-            <span className="material-symbols-outlined text-[16px]">
-              {getBrowserIcon(browser)}
+        {/* Sabab haqida qo'shimcha xabar (info banner) */}
+        {reasonContent.banner && (
+          <div className="mx-6 mt-6 p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 flex gap-2.5">
+            <span className="material-symbols-outlined text-amber-600 text-[18px] mt-0.5">
+              {reasonContent.bannerIcon || 'warning'}
             </span>
-            {t.profile.geoModal.browserLabel}: {getBrowserName(browser)}
-            {mobile && (
-              <span className="ml-1 px-2 py-0.5 rounded-full bg-primary/10 text-primary text-[10px]">
-                {ios ? 'iOS' : t.profile.geoModal.mobileTag}
-              </span>
-            )}
+            <p className="text-xs text-on-surface leading-relaxed">{reasonContent.banner}</p>
           </div>
+        )}
+
+        {/* Brauzerga qarab yo'l-yo'riq (faqat brauzer/system block holatlari) */}
+        <div className="p-6">
+          {showBrowserInstructions && (
+            <div className="mb-4 flex items-center gap-2 text-xs text-on-surface-variant uppercase tracking-wide font-semibold">
+              <span className="material-symbols-outlined text-[16px]">
+                {getBrowserIcon(browser)}
+              </span>
+              {t.profile.geoModal.browserLabel}: {getBrowserName(browser)}
+              {mobile && (
+                <span className="ml-1 px-2 py-0.5 rounded-full bg-primary/10 text-primary text-[10px]">
+                  {ios ? 'iOS' : t.profile.geoModal.mobileTag}
+                </span>
+              )}
+            </div>
+          )}
 
           <ol className="space-y-3 mb-5">
-            {instructions.map((step, idx) => (
+            {(showBrowserInstructions ? instructions : reasonContent.steps).map((step, idx) => (
               <li key={idx} className="flex gap-3">
                 <span className="w-6 h-6 rounded-full bg-primary text-on-primary text-xs font-bold flex items-center justify-center shrink-0 mt-0.5">
                   {idx + 1}
@@ -173,28 +208,30 @@ const GeoPermissionModal = ({ open, onClose, onManualEntry, onRetry }: GeoPermis
             </p>
           </div>
 
-          {/* Action tugmalari */}
+          {/* Action tugmalari — reason'ga qarab Retry tugma yashirilishi mumkin */}
           <div className="flex flex-col gap-2">
-            <button
-              type="button"
-              onClick={handleRetry}
-              disabled={retrying}
-              className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-primary text-on-primary font-semibold text-sm hover:bg-primary/90 disabled:opacity-60 transition-colors"
-            >
-              {retrying ? (
-                <>
-                  <span className="material-symbols-outlined text-[18px] animate-spin">
-                    progress_activity
-                  </span>
-                  {t.profile.geoModal.checking}
-                </>
-              ) : (
-                <>
-                  <span className="material-symbols-outlined text-[18px]">refresh</span>
-                  {t.profile.geoModal.retry}
-                </>
-              )}
-            </button>
+            {showRetryButton && (
+              <button
+                type="button"
+                onClick={handleRetry}
+                disabled={retrying}
+                className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-primary text-on-primary font-semibold text-sm hover:bg-primary/90 disabled:opacity-60 transition-colors"
+              >
+                {retrying ? (
+                  <>
+                    <span className="material-symbols-outlined text-[18px] animate-spin">
+                      progress_activity
+                    </span>
+                    {t.profile.geoModal.checking}
+                  </>
+                ) : (
+                  <>
+                    <span className="material-symbols-outlined text-[18px]">refresh</span>
+                    {t.profile.geoModal.retry}
+                  </>
+                )}
+              </button>
+            )}
             <button
               type="button"
               onClick={() => {
@@ -258,6 +295,83 @@ function getBrowserName(browser: BrowserKind): string {
       return 'Opera';
     default:
       return 'Brauzer';
+  }
+}
+
+/**
+ * Reason'ga qarab modal mazmuni: title, subtitle, banner, icon va custom
+ * steps (brauzer instruction'larining o'rniga).
+ *
+ * Bu helper translations'dan kerakli matnlarni oladi. Eski brauzer
+ * instruction'lari faqat brauzer-bog'liq holatlarda ko'rsatiladi
+ * (previously_denied, just_denied) — boshqa holatlarda reason.steps ishlatiladi.
+ */
+function getReasonContent(
+  reason: GeolocationDenyReason,
+  t: ReturnType<typeof useTranslation>['t'],
+): {
+  title: string;
+  subtitle: string;
+  icon: string;
+  banner?: string;
+  bannerIcon?: string;
+  steps: readonly string[];
+} {
+  const m = t.profile.geoModal;
+  const r = m.reasons;
+  switch (reason) {
+    case 'previously_denied':
+      return {
+        title: r.previouslyDenied.title,
+        subtitle: r.previouslyDenied.subtitle,
+        icon: 'location_off',
+        banner: r.previouslyDenied.banner,
+        bannerIcon: 'info',
+        steps: [],
+      };
+    case 'just_denied':
+      return {
+        title: r.justDenied.title,
+        subtitle: r.justDenied.subtitle,
+        icon: 'do_not_disturb_on',
+        banner: r.justDenied.banner,
+        bannerIcon: 'warning',
+        steps: [],
+      };
+    case 'insecure_context':
+      return {
+        title: r.insecureContext.title,
+        subtitle: r.insecureContext.subtitle,
+        icon: 'lock_open',
+        banner: r.insecureContext.banner,
+        bannerIcon: 'shield_lock',
+        steps: r.insecureContext.steps,
+      };
+    case 'system_block':
+      return {
+        title: r.systemBlock.title,
+        subtitle: r.systemBlock.subtitle,
+        icon: 'gps_off',
+        banner: r.systemBlock.banner,
+        bannerIcon: 'settings',
+        steps: r.systemBlock.steps,
+      };
+    case 'unsupported':
+      return {
+        title: r.unsupported.title,
+        subtitle: r.unsupported.subtitle,
+        icon: 'browser_not_supported',
+        banner: r.unsupported.banner,
+        bannerIcon: 'warning',
+        steps: r.unsupported.steps,
+      };
+    default:
+      return {
+        title: m.title,
+        subtitle: m.subtitle,
+        icon: 'location_off',
+        steps: [],
+      };
   }
 }
 

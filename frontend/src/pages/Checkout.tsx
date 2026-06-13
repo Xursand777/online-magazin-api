@@ -68,19 +68,16 @@ const Checkout = () => {
   });
 
   // ── STRUKTURALANGAN MANZIL — AddressPicker bilan sinxron ────────────────
-  // Profile.delivery_address backend'dan string sifatida keladi. Uni 4 ta
-  // strukturalangan maydonga ajratib, AddressPicker'ga uzatamiz. Foydalanuvchi
-  // o'zgartirsa (input typing yoki xarita/geolokatsiya), structured + full
-  // qaytadi va formData.delivery_address yangilanadi.
-  //
-  // AVTOMAT TO'LDIRISH:
-  //   1. Sahifa ochiladi → getProfile() chaqiriladi
-  //   2. profile.delivery_address (eski saqlangan) formData.delivery_address ga keladi
-  //   3. structuredAddress useEffect orqali parse qilinadi va inputlarga to'ldiriladi
-  //   4. Foydalanuvchi tahrir qilmasdan tugatishi mumkin — eski manzil ishlatiladi
   const [structuredAddress, setStructuredAddress] = useState<StructuredAddress>(() =>
     parseStructuredAddress(''),
   );
+
+  // ── Phase 3.0 — Xarita koordinatasi va kuryer eslatmasi ────────────────
+  // Kuryer xaritasi (CourierRouteMap) shu koordinatani ishlatadi.
+  // Mijoz xaritadan pin tanlasa yoki geolokatsiya berilsa — coordinates set.
+  // Eslatma "oxirgi 50 metr muammosi"ni hal qiladi (domofon, qavat, belgilar).
+  const [deliveryCoords, setDeliveryCoords] = useState<{ lat: number; lng: number } | null>(null);
+  const [deliveryNotes, setDeliveryNotes] = useState<string>('');
 
   // Profile'dan delivery_address kelgan vaqtda structured'ni ham yangilash
   useEffect(() => {
@@ -222,6 +219,14 @@ const Checkout = () => {
     if (safePaymentMethod !== 'credit') {
       delete payload.credit_days;
     }
+    // ── Phase 3.0 — Kuryer navigatsiyasi: koordinata + eslatma ───────────
+    if (deliveryCoords) {
+      payload.delivery_lat = deliveryCoords.lat;
+      payload.delivery_lng = deliveryCoords.lng;
+    }
+    if (deliveryNotes && deliveryNotes.trim()) {
+      payload.delivery_notes = deliveryNotes.trim();
+    }
 
     // Idempotency key: birinchi marta bosishda generatsiya, qayta urinishlarda
     // o'sha kalit ishlatiladi. Bu slow internet timeout'da takroriy buyurtmani
@@ -322,13 +327,19 @@ const Checkout = () => {
             <div className="mb-md">
               <AddressPicker
                 value={structuredAddress}
-                onChange={({ structured, full }) => {
+                initialCoordinates={deliveryCoords}
+                initialNotes={deliveryNotes}
+                onChange={({ structured, full, coordinates, notes }) => {
                   setStructuredAddress(structured);
                   setFormData((prev) => ({ ...prev, delivery_address: full }));
+                  // Phase 3.0: koordinata va eslatma — kuryer navigatsiyasi uchun
+                  setDeliveryCoords(coordinates);
+                  setDeliveryNotes(notes);
                 }}
                 required={true}
                 showHeading={false}
                 accentColor="#22c55e"
+                showNotesField={true}
               />
             </div>
           </section>

@@ -348,7 +348,8 @@ def trigger_refund(payment):
 @transaction.atomic
 def create_order_with_items(
     *, user, receiver_name, receiver_phone, delivery_address,
-    payment_method, items, credit_days=None, skip_credit_check=False
+    payment_method, items, credit_days=None, skip_credit_check=False,
+    delivery_lat=None, delivery_lng=None, delivery_notes='',
 ):
     import logging
     _log = logging.getLogger('orders.create')
@@ -423,6 +424,12 @@ def create_order_with_items(
         receiver_name=receiver_name,
         receiver_phone=receiver_phone,
         delivery_address=delivery_address,
+        # ── Phase 3.0 — Kuryer navigatsiya koordinatasi va eslatma ─────
+        # Mijoz AddressPicker xaritasida pin tanlagan bo'lsa, koordinatalar
+        # saqlanadi. Kuryer xaritasi shu nuqtaga yo'l chizadi.
+        delivery_lat=delivery_lat,
+        delivery_lng=delivery_lng,
+        delivery_notes=(delivery_notes or '').strip()[:500],
         payment_method=payment_method,
         status=initial_status,
         is_credit=is_credit,

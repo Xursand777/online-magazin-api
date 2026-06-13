@@ -74,6 +74,10 @@ class OrderSerializer(serializers.ModelSerializer):
             'receiver_name',
             'receiver_phone',
             'delivery_address',
+            # ── Phase 3.0 — Kuryer navigatsiyasi maydonlari ────────
+            'delivery_lat',
+            'delivery_lng',
+            'delivery_notes',
             'payment_method',
             'status',
             'delivery_price',
@@ -98,6 +102,9 @@ class OrderSerializer(serializers.ModelSerializer):
         read_only_fields = (
             'user',
             'status',
+            'delivery_lat',
+            'delivery_lng',
+            'delivery_notes',
             'delivery_price',
             'discount_price',
             'total_price',
@@ -140,6 +147,23 @@ class OrderSerializer(serializers.ModelSerializer):
         return obj.credit_due_date is not None and obj.credit_due_date < timezone.now().date()
 
 
+# ── Phase 3.0 — Kuryer navigatsiyasi uchun qo'shimcha maydonlar ──────────
+# Bu mixin ikkala Order serializer'ga koordinata + eslatma qabul qilish imkoni
+# beradi. AddressPicker (xarita pin) tanlangan bo'lsa lat/lng yuboriladi.
+# Eski klientlar (eski mobile APK) bu maydonlarni yubormaydi — backwards
+# compat uchun barchasi required=False.
+_LAT_VALIDATOR = serializers.DecimalField(
+    max_digits=9, decimal_places=6,
+    required=False, allow_null=True,
+    min_value=-90, max_value=90,
+)
+_LNG_VALIDATOR = serializers.DecimalField(
+    max_digits=10, decimal_places=6,
+    required=False, allow_null=True,
+    min_value=-180, max_value=180,
+)
+
+
 class QuickOrderSerializer(serializers.Serializer):
     product_id = serializers.IntegerField()
     variant_id = serializers.IntegerField(required=False, allow_null=True)
@@ -155,6 +179,20 @@ class QuickOrderSerializer(serializers.Serializer):
         help_text="E'TIBORGA OLINMAYDI — server ro'yxatdan o'tgan raqamni ishlatadi.",
     )
     delivery_address = serializers.CharField()
+    # ── Phase 3.0 — Xarita koordinatasi va kuryer eslatmasi ───────────────
+    delivery_lat = serializers.DecimalField(
+        max_digits=9, decimal_places=6,
+        required=False, allow_null=True,
+        min_value=-90, max_value=90,
+    )
+    delivery_lng = serializers.DecimalField(
+        max_digits=10, decimal_places=6,
+        required=False, allow_null=True,
+        min_value=-180, max_value=180,
+    )
+    delivery_notes = serializers.CharField(
+        max_length=500, required=False, allow_blank=True, default='',
+    )
     payment_method = serializers.ChoiceField(choices=Order.PAYMENT_METHOD_CHOICES, default=Order.PAYMENT_METHOD_CASH)
     credit_days = serializers.IntegerField(
         required=False,
@@ -166,6 +204,12 @@ class QuickOrderSerializer(serializers.Serializer):
     def validate(self, attrs):
         if attrs.get('payment_method') == Order.PAYMENT_METHOD_CREDIT and not attrs.get('credit_days'):
             raise serializers.ValidationError({'credit_days': "To'lov muddati (kunlar soni) ko'rsatilishi shart."})
+        # Koordinata juftligi: birini yuborgan bo'lsa, ikkinchisi ham kerak.
+        lat, lng = attrs.get('delivery_lat'), attrs.get('delivery_lng')
+        if (lat is None) != (lng is None):
+            raise serializers.ValidationError(
+                {'delivery_coords': "Koordinata juftligi to'liq bo'lishi kerak (lat va lng)."}
+            )
         return attrs
 
 
@@ -178,6 +222,20 @@ class OrderFromCartSerializer(serializers.Serializer):
         help_text="E'TIBORGA OLINMAYDI — server ro'yxatdan o'tgan raqamni ishlatadi.",
     )
     delivery_address = serializers.CharField()
+    # ── Phase 3.0 — Xarita koordinatasi va kuryer eslatmasi ───────────────
+    delivery_lat = serializers.DecimalField(
+        max_digits=9, decimal_places=6,
+        required=False, allow_null=True,
+        min_value=-90, max_value=90,
+    )
+    delivery_lng = serializers.DecimalField(
+        max_digits=10, decimal_places=6,
+        required=False, allow_null=True,
+        min_value=-180, max_value=180,
+    )
+    delivery_notes = serializers.CharField(
+        max_length=500, required=False, allow_blank=True, default='',
+    )
     payment_method = serializers.ChoiceField(choices=Order.PAYMENT_METHOD_CHOICES, default=Order.PAYMENT_METHOD_CASH)
     credit_days = serializers.IntegerField(
         required=False,
@@ -189,6 +247,12 @@ class OrderFromCartSerializer(serializers.Serializer):
     def validate(self, attrs):
         if attrs.get('payment_method') == Order.PAYMENT_METHOD_CREDIT and not attrs.get('credit_days'):
             raise serializers.ValidationError({'credit_days': "To'lov muddati (kunlar soni) ko'rsatilishi shart."})
+        # Koordinata juftligi tekshirish (yuqoridagi bilan bir xil mantiq)
+        lat, lng = attrs.get('delivery_lat'), attrs.get('delivery_lng')
+        if (lat is None) != (lng is None):
+            raise serializers.ValidationError(
+                {'delivery_coords': "Koordinata juftligi to'liq bo'lishi kerak (lat va lng)."}
+            )
         return attrs
 
 

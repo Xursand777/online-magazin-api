@@ -2821,10 +2821,51 @@ const OrdersTab = () => {
                   <div className='space-y-4'>
                     <div className='grid gap-3 lg:grid-cols-2'>
                       <div className='rounded-xl border border-outline-variant bg-surface-container p-4'>
-                        <div className='mb-2 text-xs uppercase text-on-surface-variant'>Manzil</div>
+                        <div className='mb-2 flex items-center justify-between gap-2'>
+                          <div className='text-xs uppercase text-on-surface-variant'>Manzil</div>
+                          {/* Phase 3.0 — Kuryer xaritasi: faqat SHIPPING holatda
+                              va koordinata mavjud bo'lganda chiqadi. Yangi tab'da
+                              ochiladi — kuryer admin paneliga qaytmaydi. */}
+                          {(order as any).delivery_lat &&
+                            (order as any).delivery_lng &&
+                            ['SHIPPING', 'PACKING', 'CONFIRMED', 'DELIVERED'].includes(
+                              order.status,
+                            ) && (
+                              <a
+                                href={`/courier/route/${order.id}`}
+                                target='_blank'
+                                rel='noopener noreferrer'
+                                className='flex items-center gap-1 rounded-lg bg-[#22c55e] px-2.5 py-1 text-xs font-bold text-white hover:bg-[#16a34a] transition-colors'
+                              >
+                                <span className='material-symbols-outlined text-[14px]'>
+                                  map
+                                </span>
+                                Xaritadan borish
+                              </a>
+                            )}
+                        </div>
                         <div className='text-sm text-on-surface whitespace-pre-line'>
                           {order.delivery_address}
                         </div>
+                        {(order as any).delivery_notes && (
+                          <div className='mt-2 flex items-start gap-1.5 rounded-lg bg-amber-50 border border-amber-200 px-2.5 py-1.5'>
+                            <span className='material-symbols-outlined text-amber-700 text-[14px] mt-0.5'>
+                              sticky_note_2
+                            </span>
+                            <p className='text-xs text-amber-900 flex-1'>
+                              {(order as any).delivery_notes}
+                            </p>
+                          </div>
+                        )}
+                        {(order as any).delivery_lat &&
+                          (order as any).delivery_lng && (
+                            <p className='mt-2 text-[10px] text-on-surface-variant flex items-center gap-1'>
+                              <span className='material-symbols-outlined text-[12px] text-[#22c55e]'>
+                                verified
+                              </span>
+                              Xaritada aniq nuqta tanlangan
+                            </p>
+                          )}
                       </div>
                       <div className='rounded-xl border border-outline-variant bg-surface-container p-4'>
                         <div className='mb-2 text-xs uppercase text-on-surface-variant'>

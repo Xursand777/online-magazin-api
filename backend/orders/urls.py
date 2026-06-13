@@ -13,6 +13,7 @@ from .views import (
     AdminReportOrdersView,
     AdminNasiyaSummaryView,
     CourierConfirmDeliveryView,
+    CourierRouteTargetView,
     CustomerCreateDisputeView,
     CustomerOrderDisputesView,
     QuickOrderView,
@@ -45,6 +46,8 @@ urlpatterns = [
     path('<int:pk>/cancel/', UserCancelOrderView.as_view(), name='order_cancel'),
     # Phase 2.4 — Kuryer qabul kodi + rasm + GPS bilan yetkazib berishni tasdiqlaydi
     path('<int:pk>/courier-confirm/', CourierConfirmDeliveryView.as_view(), name='order_courier_confirm'),
+    # Phase 3.0 — Kuryer real-time navigatsiyasi uchun manzil + koordinata
+    path('<int:pk>/route-target/', CourierRouteTargetView.as_view(), name='order_route_target'),
     # Phase 2.6 — Mijoz shikoyati (Order dispute)
     path('<int:pk>/dispute/', CustomerCreateDisputeView.as_view(), name='order_dispute_create'),
     path('<int:pk>/disputes/', CustomerOrderDisputesView.as_view(), name='order_disputes_list'),

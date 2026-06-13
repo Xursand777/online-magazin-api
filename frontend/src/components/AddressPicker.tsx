@@ -43,29 +43,57 @@ import {
 } from '../utils/leaflet';
 import {
   getCurrentPosition,
+  isSecureContext,
+  queryGeolocationPermission,
+  type GeolocationDenyReason,
   type GeolocationError,
 } from '../utils/geolocation';
 import GeoPermissionModal from './GeoPermissionModal';
 
+/** Xarita pin koordinatasi — Phase 3.0 kuryer navigatsiyasi uchun. */
+export interface AddressCoordinates {
+  lat: number;
+  lng: number;
+}
+
+/** AddressPicker onChange payload — to'liq holat. */
+export interface AddressPickerChange {
+  structured: StructuredAddress;
+  full: string;
+  /** Xarita yoki geolokatsiya orqali aniqlangan koordinata (null bo'lishi mumkin). */
+  coordinates: AddressCoordinates | null;
+  /** Kuryer uchun eslatma (domofon kodi, qavat va boshqalar). */
+  notes: string;
+}
+
 interface AddressPickerProps {
   /** Joriy manzil — string yoki strukturalangan obyekt. */
   value: string | StructuredAddress;
-  /** Manzil o'zgarganda chaqiriladi — strukturalangan + string. */
-  onChange: (address: { structured: StructuredAddress; full: string }) => void;
+  /** Boshlang'ich koordinata (Profile'dan kelganida) — ixtiyoriy. */
+  initialCoordinates?: AddressCoordinates | null;
+  /** Boshlang'ich eslatma — ixtiyoriy. */
+  initialNotes?: string;
+  /** Manzil o'zgarganda chaqiriladi — strukturalangan + string + coords + notes. */
+  onChange: (address: AddressPickerChange) => void;
   /** Inputlar majburiy belgilanishini ko'rsatadi. Default: true. */
   required?: boolean;
   /** Sarlavhani ko'rsatish (Profile uchun true, Checkout o'z sarlavhasi). */
   showHeading?: boolean;
   /** Yashil ramka rangi (Profile #22c55e, Checkout primary). */
   accentColor?: string;
+  /** Kuryer uchun eslatma maydonini ko'rsatish (Checkout uchun true). */
+  showNotesField?: boolean;
 }
 
 const AddressPicker = ({
   value,
+  initialCoordinates = null,
+  initialNotes = '',
   onChange,
   required = true,
   showHeading = true,
   accentColor = '#22c55e',
+  showNotesField = false,
 }: AddressPickerProps) => {
   const { t } = useTranslation();
   const language = useLanguageStore((s) => s.language);
@@ -78,18 +106,32 @@ const AddressPicker = ({
   const [tumanShahar, setTumanShahar] = useState(initial.tumanShahar);
   const [mahalla, setMahalla] = useState(initial.mahalla);
   const [domUy, setDomUy] = useState(initial.domUy);
+  // ── Phase 3.0 — Xarita pin koordinatasi va kuryer eslatmasi ─────────────
+  // Xaritada click / geolokatsiya orqali aniqlangan koordinata. Bu Order'ga
+  // delivery_lat/lng sifatida saqlanadi va kuryer xaritasi shu nuqtaga
+  // yo'l chizadi.
+  const [coordinates, setCoordinates] = useState<AddressCoordinates | null>(initialCoordinates);
+  const [notes, setNotes] = useState(initialNotes);
 
   const [showMap, setShowMap] = useState(false);
   const [isMapLoading, setIsMapLoading] = useState(false);
   const [isLocating, setIsLocating] = useState(false);
   const [geoModalOpen, setGeoModalOpen] = useState(false);
+  // Modal'da nima sababdan ko'rsatilayotganini bildiradi — modal aniq matn
+  // tanlaydi (avval bloklangan / endi bloklangan / HTTPS emas / system block).
+  const [geoDenyReason, setGeoDenyReason] = useState<GeolocationDenyReason>('previously_denied');
 
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<any>(null);
   const markerRef = useRef<any>(null);
   // Map ichidagi handleMapClick uchun aktiv state qiymatlarini olish
-  const setStateRef = useRef({ setViloyat, setTumanShahar, setMahalla, setDomUy });
-  setStateRef.current = { setViloyat, setTumanShahar, setMahalla, setDomUy };
+  // Phase 3.0: setCoordinates ham qo'shildi — xarita click koordinatani saqlash
+  const setStateRef = useRef({
+    setViloyat, setTumanShahar, setMahalla, setDomUy, setCoordinates,
+  });
+  setStateRef.current = {
+    setViloyat, setTumanShahar, setMahalla, setDomUy, setCoordinates,
+  };
   const langRef = useRef<'uz' | 'ru' | 'en'>(language);
   langRef.current = language;
 
@@ -97,35 +139,61 @@ const AddressPicker = ({
   // Bu KRITIK: Profile saqlangan manzilni Checkout ochilganda avtomat ko'rsatadi.
   // Parent prop o'zgarganda (masalan, profile fetch keyin), local state ham
   // yangilanadi. Lekin foydalanuvchi inputni tahrir qilayotgan paytda
-  // o'zgartirmaslik uchun, faqat string qiymat aniq farq qilsa.
-  const lastSyncedRef = useRef<string>(formatStructuredAddress(initial));
+  // o'zgartirmaslik uchun, faqat aniq farq bo'lsa.
+  //
+  // Phase 3.0: sync key endi structure + coords + notes ni o'z ichiga oladi.
+  const initialSyncKey = JSON.stringify({
+    full: formatStructuredAddress(initial),
+    lat: initialCoordinates?.lat ?? null,
+    lng: initialCoordinates?.lng ?? null,
+    notes: initialNotes,
+  });
+  const lastSyncedRef = useRef<string>(initialSyncKey);
   useEffect(() => {
     const incoming = typeof value === 'string' ? value : formatStructuredAddress(value);
-    if (incoming && incoming !== lastSyncedRef.current) {
-      const parsed = typeof value === 'string' ? parseStructuredAddress(value) : value;
-      setViloyat(parsed.viloyat);
-      setTumanShahar(parsed.tumanShahar);
-      setMahalla(parsed.mahalla);
-      setDomUy(parsed.domUy);
-      lastSyncedRef.current = incoming;
+    if (incoming) {
+      const newKey = JSON.stringify({
+        full: incoming,
+        lat: coordinates?.lat ?? null,
+        lng: coordinates?.lng ?? null,
+        notes,
+      });
+      if (newKey !== lastSyncedRef.current) {
+        const parsed = typeof value === 'string' ? parseStructuredAddress(value) : value;
+        setViloyat(parsed.viloyat);
+        setTumanShahar(parsed.tumanShahar);
+        setMahalla(parsed.mahalla);
+        setDomUy(parsed.domUy);
+        lastSyncedRef.current = newKey;
+      }
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [value]);
 
   // ── Local state o'zgarganda parent'ga xabar berish ────────────────────────
   // useEffect ichida onChange chaqirish — har bir typing'da parent state
   // yangilanadi. lastSyncedRef cyclic update'ni oldini oladi.
+  //
+  // Phase 3.0: onChange payload kengaytirilgan — structured + full + coords + notes.
   useEffect(() => {
     const structured = { viloyat, tumanShahar, mahalla, domUy };
     const full = formatStructuredAddress(structured);
-    if (full !== lastSyncedRef.current) {
-      lastSyncedRef.current = full;
-      onChange({ structured, full });
+    // Sync key: 4 maydon + coords + notes (har birining o'zgarishi onChange'ga sabab)
+    const syncKey = JSON.stringify({
+      full,
+      lat: coordinates?.lat ?? null,
+      lng: coordinates?.lng ?? null,
+      notes,
+    });
+    if (syncKey !== lastSyncedRef.current) {
+      lastSyncedRef.current = syncKey;
+      onChange({ structured, full, coordinates, notes });
     }
     // onChange'ni dependency'ga qo'shsak, parent har render'da yangi reference
     // bersa cheksiz tsikl bo'ladi. Shuning uchun chetlatamiz (controlled
     // pattern'da xavfsiz).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [viloyat, tumanShahar, mahalla, domUy]);
+  }, [viloyat, tumanShahar, mahalla, domUy, coordinates, notes]);
 
   // ── Xaritani yuklash (showMap=true bo'lganda) ─────────────────────────────
   useEffect(() => {
@@ -162,6 +230,12 @@ const AddressPicker = ({
             marker = L.marker([lat, lng], { icon: customMarkerIcon }).addTo(map);
             markerRef.current = marker;
           }
+
+          // ── Phase 3.0 — Xarita click koordinatasini SAQLASH ──────────────
+          // Reverse geocode parallel ishlaydi, lekin koordinatani darhol
+          // saqlaymiz — kuryer xaritasi shu nuqtaga yo'l chizadi. Nominatim
+          // ba'zan xato bo'lsa ham, pin koordinatasi DOIM aniq.
+          setStateRef.current.setCoordinates({ lat, lng });
 
           const addr = await reverseGeocode(lat, lng, langRef.current);
           if (!addr) {
@@ -222,26 +296,44 @@ const AddressPicker = ({
 
   // ── Joylashuvni aniqlash ───────────────────────────────────────────────────
   //
-  // PROFESSIONAL PATTERN (Google Maps, Uber, Yandex.Maps kabi):
+  // PROFESSIONAL 5 QATLAMLI TASHXIS (Yandex Maps, Google Maps, Uber pattern):
   //
-  //   1. Foydalanuvchi "Joylashuvni aniqlash" bosadi
-  //   2. getCurrentPosition() DARHOL chaqiriladi
-  //   3. Brauzer o'zining NATIVE dialog'ini ko'rsatadi:
-  //      "Bu sayt joylashuvingizni bilmoqchi — Ruxsat ber / Rad et"
-  //   4a. Ruxsat berilsa → koordinatalar olinadi → manzil to'ldiriladi ✅
-  //   4b. Rad etilsa yoki avval bloklangan → PERMISSION_DENIED xatosi keladi
-  //        → GeoPermissionModal ochiladi (brauzerda qanday yoqish ko'rsatiladi)
+  //   LAYER 1 — SECURE CONTEXT
+  //     Sayt HTTPS yoki localhost'da bo'lishi shart. HTTP'da Geolocation
+  //     API umuman ishlamaydi (brauzer hech qanday dialog ko'rsatmaydi).
+  //     Bu — TEZ-TEZ uchraydigan muammo: dev server `http://192.168.x.x`.
   //
-  // ESKI NOTO'G'RI YONDASHUV:
-  //   queryGeolocationPermission() avval tekshirilib, 'denied' bo'lsa modal
-  //   ochilar, brauzer dialog'i HECH QACHON chiqmasdi. Bu foydalanuvchini
-  //   chalkashtirar edi — brauzer dialog'ini ko'rmasdan tushunarsiz modal.
+  //   LAYER 2 — API MAVJUDLIGI
+  //     navigator.geolocation umuman bormi (juda eski brauzer, sandboxed
+  //     iframe).
   //
-  // YANGI TO'G'RI YONDASHUV:
-  //   Har doim getCurrentPosition() bilan boshlaymiz → brauzer o'z dialog'ini
-  //   ko'rsatadi → natijaga qarab harakat qilamiz.
+  //   LAYER 3 — PERMISSION STATE (oldindan tekshirish)
+  //     navigator.permissions.query() — brauzer dialog ko'rsatadimi?
+  //       • granted → darhol koordinatani olamiz (silent)
+  //       • prompt  → getCurrentPosition() chaqiramiz, brauzer dialog ko'rsatadi
+  //       • denied  → BRAUZER DIALOG CHIQMAYDI, darhol modal ko'rsatamiz
+  //
+  //   LAYER 4 — getCurrentPosition() ishga tushadi
+  //     'prompt' yoki 'granted' bo'lsa, koordinatani olamiz.
+  //     Brauzer dialog ko'rsatishi mumkin (prompt holatida).
+  //
+  //   LAYER 5 — ERROR HANDLING
+  //     Xato qaytarsa, ANIQ sababini aniqlaymiz:
+  //       PERMISSION_DENIED → user hozir Block bosdi (just_denied)
+  //       POSITION_UNAVAILABLE → GPS imkonsiz (system_block)
+  //       TIMEOUT → tarmoq sekin yoki signal yo'q
+  //
+  // NIMA UCHUN HOZIR MUAMMO TUG'ILGAN EDI:
+  //   Sizning brauzeringiz permission state'i allaqachon 'denied'. Brauzer
+  //   bu holatda hech qanday dialog ko'rsatmaydi — to'g'ridan-to'g'ri
+  //   PERMISSION_DENIED qaytaradi. Foydalanuvchi tugmani bosgani bilan
+  //   "hech narsa bo'lmadi" deb tushundi. Yangi yondashuv: Layer 3'da
+  //   buni aniqlab, modal'da "siz avval bloklagansiz" deb aniq ayttiramiz.
 
   const applyCoordinatesToForm = async (latitude: number, longitude: number) => {
+    // Phase 3.0: Geolokatsiyadan kelgan koordinatani saqlaymiz
+    setCoordinates({ lat: latitude, lng: longitude });
+
     const addr = await reverseGeocode(latitude, longitude, language);
     if (!addr) {
       toast.warning(t.profile.toastGeoFailed);
@@ -256,34 +348,75 @@ const AddressPicker = ({
     return true;
   };
 
+  /** Modal'ni aniq sabab bilan ochish. */
+  const openDenyModal = (reason: GeolocationDenyReason) => {
+    setGeoDenyReason(reason);
+    setGeoModalOpen(true);
+  };
+
   const handleGeolocate = async () => {
-    // Geolocation API umuman bormi? (eski brauzerlar, HTTP konteksti)
+    // ── LAYER 1: SECURE CONTEXT ─────────────────────────────────────────────
+    if (!isSecureContext()) {
+      console.warn(
+        '[Geolocation] Secure context yo\'q. Joriy URL:',
+        window.location.href,
+        '— Geolocation API faqat HTTPS yoki localhost da ishlaydi.',
+      );
+      openDenyModal('insecure_context');
+      return;
+    }
+
+    // ── LAYER 2: API MAVJUDLIGI ──────────────────────────────────────────────
     if (!navigator.geolocation) {
-      toast.error(t.profile.toastGeoNotSupported);
+      console.warn('[Geolocation] navigator.geolocation mavjud emas.');
+      openDenyModal('unsupported');
       return;
     }
 
     setIsLocating(true);
     try {
-      // ⭐ DARHOL getCurrentPosition() → brauzer o'zi native dialog ko'rsatadi.
-      // queryGeolocationPermission() oldindan tekshirmаymiz — shunda brauzer
-      // foydalanuvchiga "Ruxsat ber / Rad et" dialog'ini ko'rsatadi.
+      // ── LAYER 3: PERMISSION STATE (oldindan tekshirish) ────────────────────
+      const permissionState = await queryGeolocationPermission();
+      // Diagnostika — DevTools'da foydalanuvchi/dev tahlil qilishi mumkin
+      console.info('[Geolocation] Permission state:', permissionState);
+
+      if (permissionState === 'denied') {
+        // Brauzer avval blok qilgan — DIALOG CHIQMAYDI.
+        // Modal'da "siz avval bloklagansiz, sozlamalardan ruxsat bering" deymiz.
+        setIsLocating(false);
+        openDenyModal('previously_denied');
+        return;
+      }
+
+      // ── LAYER 4: KOORDINATANI OLISH ─────────────────────────────────────────
+      // 'granted' → darhol koordinata keladi
+      // 'prompt'  → brauzer NATIVE dialog ko'rsatadi (Allow / Block / Allow once)
+      // 'unsupported' → API'ni to'g'ridan-to'g'ri chaqiramiz, browser o'zi hal qiladi
       const coords = await getCurrentPosition({
         enableHighAccuracy: true,
-        timeout: 15_000, // 15s — foydalanuvchi dialog'da "Allow" bosishini kutadi
+        timeout: 15_000, // foydalanuvchi dialog'da "Allow" bosishini kutadi
         maximumAge: 0,
       });
+      console.info(
+        '[Geolocation] Olingan koordinatalar:',
+        { lat: coords.latitude, lng: coords.longitude, accuracy: coords.accuracy },
+      );
       await applyCoordinatesToForm(coords.latitude, coords.longitude);
     } catch (err) {
+      // ── LAYER 5: ERROR HANDLING ─────────────────────────────────────────────
       const geoErr = err as GeolocationError;
+      console.warn('[Geolocation] Xato:', geoErr.kind, geoErr.message);
+
       if (geoErr.kind === 'denied') {
-        // Foydalanuvchi "Rad et" bosdi YOKI avval bloklagan →
-        // endi brauzer sozlamalarini ko'rsatuvchi modal chiqadi.
-        setGeoModalOpen(true);
+        // 'prompt' holatda foydalanuvchi DIALOG'DA Block bosdi
+        openDenyModal('just_denied');
       } else if (geoErr.kind === 'unsupported') {
-        toast.error(t.profile.toastGeoNotSupported);
+        openDenyModal('unsupported');
+      } else if (geoErr.kind === 'unavailable') {
+        // POSITION_UNAVAILABLE — sistema GPS bermayapti (OS bloki, qurilma noqobil)
+        openDenyModal('system_block');
       } else {
-        // timeout yoki POSITION_UNAVAILABLE — vaqtinchalik muammo
+        // timeout — tarmoq sekin yoki signal yo'q
         toast.error(t.profile.toastGeoLocationError);
       }
     } finally {
@@ -291,11 +424,20 @@ const AddressPicker = ({
     }
   };
 
-  // Modal'dagi "Qayta urinish" tugmasi uchun — foydalanuvchi brauzer
-  // sozlamalarida ruxsat bergan, endi qayta urinadi.
+  // Modal'dagi "Qayta urinish" — foydalanuvchi brauzer sozlamalarida ruxsat
+  // bergan deb taxmin qilamiz. Yangi permission state'ni tekshiramiz.
   const handleGeolocateRetry = async () => {
+    // Insecure context retry foydasiz — sayt URL'i o'zgarmagan
+    if (!isSecureContext()) throw new Error('insecure_context_retry_blocked');
+
     setIsLocating(true);
     try {
+      const permissionState = await queryGeolocationPermission();
+      console.info('[Geolocation] Retry permission state:', permissionState);
+      if (permissionState === 'denied') {
+        // Foydalanuvchi sozlamalardan ruxsat bermagan — qayta throw
+        throw new Error('still_denied');
+      }
       const coords = await getCurrentPosition({
         enableHighAccuracy: true,
         timeout: 15_000,
@@ -304,9 +446,9 @@ const AddressPicker = ({
       await applyCoordinatesToForm(coords.latitude, coords.longitude);
     } catch (err) {
       const geoErr = err as GeolocationError;
-      // Hali ham denied — modal'da xato ko'rsatiladi (throw qilinadi)
       if (geoErr.kind === 'denied') throw err;
-      toast.error(t.profile.toastGeoLocationError);
+      // Boshqa xato — modal'da retry tugmasi qaytishi mumkin
+      throw err;
     } finally {
       setIsLocating(false);
     }
@@ -393,6 +535,71 @@ const AddressPicker = ({
         />
       </div>
 
+      {/* ── Phase 3.0 — Kuryer uchun eslatma maydoni ────────────────────────
+          Faqat Checkout'da ko'rsatiladi (showNotesField=true).
+          Domofon kodi, qavat, alohida ko'rsatmalar — "oxirgi 50 metr muammosi"
+          yechimi. Kuryer xaritada manzilni topgach, eshik oldida shu eslatmadan
+          foydalanib mijozni tezroq topadi. */}
+      {showNotesField && (
+        <div className="mt-4">
+          <label
+            className="block text-sm font-semibold text-on-surface-variant mb-2 flex items-center gap-2"
+            htmlFor="delivery_notes"
+          >
+            <span className="material-symbols-outlined text-[18px]" style={{ color: accentColor }}>
+              sticky_note_2
+            </span>
+            Kuryer uchun eslatma
+            <span className="text-xs text-on-surface-variant font-normal">(ixtiyoriy)</span>
+          </label>
+          <textarea
+            id="delivery_notes"
+            value={notes}
+            onChange={(e) => setNotes(e.target.value.slice(0, 500))}
+            rows={2}
+            placeholder="Domofon kodi, qavat raqami, alohida ko'rsatmalar..."
+            className="w-full rounded-xl border border-outline-variant/50 bg-surface-container-low/50 p-3 outline-none transition-all text-sm font-medium focus:ring-1 resize-none"
+            style={{
+              ['--tw-ring-color' as any]: accentColor,
+            }}
+            onFocus={(e) => {
+              e.currentTarget.style.borderColor = accentColor;
+            }}
+            onBlur={(e) => {
+              e.currentTarget.style.borderColor = '';
+            }}
+            maxLength={500}
+          />
+          <div className="flex items-center justify-between mt-1">
+            <p className="text-xs text-on-surface-variant flex items-center gap-1">
+              <span className="material-symbols-outlined text-[14px]">info</span>
+              Kuryerga manzilni topishga yordam beradi
+            </p>
+            <span className="text-[10px] text-on-surface-variant">{notes.length}/500</span>
+          </div>
+        </div>
+      )}
+
+      {/* ── Phase 3.0 — Xarita pin tasdiq belgisi ───────────────────────────
+          Mijoz xaritadan koordinata tanlaganida ko'rinadi — buyurtmasi
+          kuryer xaritasida aniq nuqtaga chiziladi degan ishonch beradi. */}
+      {coordinates && (
+        <div
+          className="mt-3 p-2.5 rounded-lg flex items-center gap-2 border"
+          style={{
+            background: `${accentColor}0d`,
+            borderColor: `${accentColor}33`,
+          }}
+        >
+          <span className="material-symbols-outlined text-[18px]" style={{ color: accentColor }}>
+            verified
+          </span>
+          <p className="text-xs text-on-surface flex-1">
+            Xaritadan aniq joylashuv tanlangan. Kuryer xaritada to'g'ridan-to'g'ri shu nuqtaga keladi.
+          </p>
+        </div>
+      )}
+
       <GeoPermissionModal
         open={geoModalOpen}
         onClose={() => setGeoModalOpen(false)}
@@ -401,6 +608,7 @@ const AddressPicker = ({
           // allaqachon ko'rinib turadi, hech narsa qilmaymiz
         }}
         onRetry={handleGeolocateRetry}
+        reason={geoDenyReason}
       />
     </div>
   );

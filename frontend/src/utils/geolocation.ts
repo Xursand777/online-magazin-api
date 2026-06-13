@@ -40,6 +40,49 @@ export type GeolocationPermissionState =
   | 'denied'       // Foydalanuvchi bloklagan — modal orqali yo'l-yo'riq
   | 'unsupported'; // Brauzer Permissions API yoki Geolocation'ni qo'llamaydi
 
+/**
+ * Geolocation muammosining ANIQ SABABI — modal'da to'g'ri xabar ko'rsatish uchun.
+ *
+ *   previously_denied  → Brauzer eslab qolgan: avval Block bosgan, dialog
+ *                        endi ko'rsatilmaydi (modal asosiy stsenariy)
+ *   just_denied        → Brauzer dialog'ida hozirgina Block bosildi
+ *   insecure_context   → Sayt HTTPS emas (HTTP) — geolocation umuman ishlamaydi
+ *                        (localhost dan tashqari)
+ *   system_block       → OS yoki brauzer darajasidagi blok (macOS Settings,
+ *                        Windows Privacy, Android tizim sozlamalari)
+ *   unsupported        → Brauzer geolocation'ni umuman qo'llab-quvvatlamaydi
+ *                        (juda eski versiya, sandbox iframe)
+ */
+export type GeolocationDenyReason =
+  | 'previously_denied'
+  | 'just_denied'
+  | 'insecure_context'
+  | 'system_block'
+  | 'unsupported';
+
+/**
+ * Sayt SECURE CONTEXT'da ekanmi (HTTPS yoki localhost)?
+ *
+ * Geolocation API qattiq qoidaga ega: faqat secure context'da ishlaydi.
+ *   ✅ https://example.com
+ *   ✅ http://localhost / http://127.0.0.1
+ *   ❌ http://example.com (HTTP) — getCurrentPosition rad etiladi
+ *   ❌ http://192.168.x.x — dev lokal network ham HTTP da bloklanadi
+ *
+ * Bu funksiya BIRINCHI bo'lib chaqiriladi — agar false bo'lsa, foydalanuvchiga
+ * "sayt HTTPS bo'lishi kerak" deb aniq ko'rsatamiz va modal'da brauzer
+ * sozlamalarini ko'rsatmaymiz (chunki bu brauzer muammosi emas).
+ */
+export function isSecureContext(): boolean {
+  if (typeof window === 'undefined') return false;
+  // window.isSecureContext zamonaviy brauzerlarda mavjud (Chrome 49+, Safari 12.1+)
+  if (typeof window.isSecureContext === 'boolean') return window.isSecureContext;
+  // Fallback: protocol va hostname tekshiruv
+  const proto = window.location.protocol;
+  const host = window.location.hostname;
+  return proto === 'https:' || host === 'localhost' || host === '127.0.0.1' || host === '::1';
+}
+
 export type BrowserKind = 'chrome' | 'safari' | 'firefox' | 'edge' | 'opera' | 'other';
 
 export interface GeolocationCoords {

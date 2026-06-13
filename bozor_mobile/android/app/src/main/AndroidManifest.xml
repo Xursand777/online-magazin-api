@@ -1,6 +1,12 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.INTERNET"/>
 
+    <!-- Geolocation — yetkazib berish manzilini avtomat aniqlash uchun. -->
+    <!-- ACCESS_FINE_LOCATION: aniq GPS koordinata (eng yaxshi accuracy) -->
+    <!-- ACCESS_COARSE_LOCATION: tarmoq asosida (WiFi/Cell tower) — fallback -->
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
+
     <application
         android:label="bozor_mobile"
         android:name="${applicationName}"

@@ -8,6 +8,8 @@ import '../../../../core/i18n/language_extension.dart';
 import '../../../../core/network/api_client.dart';
 import '../../../../core/network/api_constants.dart';
 import '../../../../core/models/product_model.dart';
+import '../../../../core/utils/address.dart';
+import '../../../../core/widgets/address_picker.dart';
 import '../../../cart/presentation/bloc/cart_bloc.dart';
 import '../../../auth/presentation/bloc/auth_bloc.dart';
 import '../../../profile/data/models/profile_model.dart';
@@ -46,8 +48,11 @@ class _CheckoutViewState extends State<CheckoutView> {
   final _formKey = GlobalKey<FormState>();
   final _nameController = TextEditingController();
   final _phoneController = TextEditingController(text: '+998 ');
-  final _addressController = TextEditingController();
-  
+
+  /// Strukturalangan manzil — AddressPicker'dan keladi va Profile'dan auto-fill.
+  /// Submit'da `addr.full` backend'ga yuboriladi (saytdagi bilan bir xil).
+  StructuredAddress _address = StructuredAddress.empty;
+
   String _paymentMethod = 'cash'; // 'cash', 'card', or 'installment'
   int _creditDays = 10;
   bool _isLoadingDetails = false;
@@ -85,8 +90,11 @@ class _CheckoutViewState extends State<CheckoutView> {
             if (profile.phone.isNotEmpty) {
               _phoneController.text = profile.phone;
             }
+            // AUTO-FILL manzil — Profile'da saqlangan bo'lsa, 4 maydonga
+            // parse qilib AddressPicker'ga uzatamiz. Foydalanuvchi qayta
+            // yozish/tanlashga majbur emas — eski manzil tayyor turadi.
             if (profile.deliveryAddress.isNotEmpty) {
-              _addressController.text = profile.deliveryAddress;
+              _address = StructuredAddress.parse(profile.deliveryAddress);
             }
             _isLoadingDetails = false;
           });
@@ -105,7 +113,6 @@ class _CheckoutViewState extends State<CheckoutView> {
   void dispose() {
     _nameController.dispose();
     _phoneController.dispose();
-    _addressController.dispose();
     super.dispose();
   }
 
@@ -117,6 +124,19 @@ class _CheckoutViewState extends State<CheckoutView> {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text("Telefon raqami +998XXXXXXXXX formatida bo'lishi kerak"),
+            backgroundColor: Colors.red,
+          ),
+        );
+        return;
+      }
+
+      // Manzilning to'liqligini tekshirish — strukturalangan bo'lsa, kamida
+      // viloyat + tuman + uy/ko'cha bo'lishi shart.
+      if (!_address.isValid) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+                "Yetkazib berish manzili to'liq emas. Viloyat, tuman/shahar va uy/ko'cha majburiy."),
             backgroundColor: Colors.red,
           ),
         );
@@ -164,7 +184,7 @@ class _CheckoutViewState extends State<CheckoutView> {
               product: widget.product!,
               name: _nameController.text,
               phone: _phoneController.text,
-              address: _addressController.text,
+              address: _address.full,
               paymentMethod: _paymentMethod,
               creditDays: _paymentMethod == 'installment' ? _creditDays : null,
             );
@@ -172,7 +192,7 @@ class _CheckoutViewState extends State<CheckoutView> {
         context.read<CheckoutCubit>().submitCartCheckout(
               name: _nameController.text,
               phone: _phoneController.text,
-              address: _addressController.text,
+              address: _address.full,
               paymentMethod: _paymentMethod,
               creditDays: _paymentMethod == 'installment' ? _creditDays : null,
             );
@@ -446,17 +466,31 @@ class _CheckoutViewState extends State<CheckoutView> {
                         ),
                         const SizedBox(height: 20),
 
-                        // Manzil
-                        Text(context.tr('checkout.deliveryAddress'), style: theme.textTheme.titleSmall),
+                        // ── YETKAZIB BERISH MANZILI ────────────────────────
+                        // AddressPicker — Profile sahifasi bilan IDENTIK widget.
+                        //   • 4 ta strukturalangan maydon
+                        //   • "Kartadan tanlash" — flutter_map xarita
+                        //   • "Joylashuvni aniqlash" — GPS + permission dialog
+                        //
+                        // AUTO-FILL:
+                        //   Profile.delivery_address eski saqlangan bo'lsa,
+                        //   _loadCheckoutDetails() ichida parse qilinib
+                        //   _address ga yoziladi va shu yerda inputlarda
+                        //   ko'rinadi. Foydalanuvchi qayta yozish/tanlashga
+                        //   majbur emas.
+                        Text(
+                          context.tr('checkout.deliveryAddress'),
+                          style: theme.textTheme.titleSmall,
+                        ),
                         const SizedBox(height: 8),
-                        TextFormField(
-                          controller: _addressController,
-                          maxLines: 3,
-                          decoration: InputDecoration(
-                            hintText: "Viloyat, tuman, ko'cha, uy raqami",
-                            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                          ),
-                          validator: (v) => v == null || v.isEmpty ? 'Manzil kiritish majburiy' : null,
+                        AddressPicker(
+                          value: _address,
+                          onChanged: (addr) {
+                            setState(() => _address = addr);
+                          },
+                          language: 'uz',
+                          showHeading: false, // o'z sarlavhasi bor
+                          required: true,
                         ),
                         const SizedBox(height: 32),
 
