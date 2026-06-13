@@ -306,11 +306,10 @@ class _OrderCard extends StatelessWidget {
                   _infoRow(theme, Icons.location_on_outlined,
                       order.deliveryAddress),
                 // ── Phase 3.0 — "Xaritadan borish" tugmasi ─────────────────
-                // Faqat mijoz xaritadan aniq koordinata tanlagan bo'lsa va
-                // status SHIPPING jarayonidagi holatlarda chiqadi.
-                if (order.hasDeliveryRoute &&
-                    {'CONFIRMED', 'PACKING', 'SHIPPING', 'DELIVERED'}
-                        .contains(order.status))
+                // POS va bekor qilingan buyurtmalardan tashqari HAR DOIM
+                // ko'rinadi. Koordinata bo'lmasa ham — sahifa fallback bilan
+                // matn manzil + tashqi xaritalar (Yandex/Google/2GIS) ko'rsatadi.
+                if (order.canShowRouteButton)
                   Padding(
                     padding: const EdgeInsets.symmetric(vertical: 6),
                     child: FilledButton.icon(

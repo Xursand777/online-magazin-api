@@ -2823,14 +2823,20 @@ const OrdersTab = () => {
                       <div className='rounded-xl border border-outline-variant bg-surface-container p-4'>
                         <div className='mb-2 flex items-center justify-between gap-2'>
                           <div className='text-xs uppercase text-on-surface-variant'>Manzil</div>
-                          {/* Phase 3.0 — Kuryer xaritasi: faqat SHIPPING holatda
-                              va koordinata mavjud bo'lganda chiqadi. Yangi tab'da
-                              ochiladi — kuryer admin paneliga qaytmaydi. */}
-                          {(order as any).delivery_lat &&
-                            (order as any).delivery_lng &&
-                            ['SHIPPING', 'PACKING', 'CONFIRMED', 'DELIVERED'].includes(
+                          {/* Phase 3.0 — Kuryer xaritasi tugmasi.
+                              MUKAMMAL LOGIKA:
+                                • POS buyurtmalarda yo'q (do'kondan olib ketiladi)
+                                • Bekor qilingan buyurtmalarda yo'q
+                                • Boshqa hamma holatda KO'RINADI (PENDING ham)
+                                • Koordinata bo'lmasa ham ko'rinadi — sahifa
+                                  fallback bilan address text + qo'ng'iroq
+                                  + Yandex Maps deep link ko'rsatadi.
+                              Bu kuryer/admin HAR DOIM navigatsiya imkoniyatiga
+                              ega bo'lishini ta'minlaydi. */}
+                          {!['CANCELLED_BY_USER', 'CANCELLED_BY_ADMIN', 'SYSTEM_AUTO_CANCEL'].includes(
                               order.status,
-                            ) && (
+                            ) &&
+                            !order.delivery_address?.includes('POS') && (
                               <a
                                 href={`/courier/route/${order.id}`}
                                 target='_blank'

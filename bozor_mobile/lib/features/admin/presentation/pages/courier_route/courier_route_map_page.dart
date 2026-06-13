@@ -108,6 +108,7 @@ class _CourierRouteMapPageState extends State<CourierRouteMapPage> {
   RouteResult? _route;
   bool _isLoadingRoute = false;
   bool _arrived = false;
+  bool _isMapReady = false; // Xarita to'liq yuklanganini kuzatuvchi flag
   StreamSubscription<Position>? _positionSub;
   RouteFetchSnapshot? _lastRouteFetch;
 
@@ -126,6 +127,7 @@ class _CourierRouteMapPageState extends State<CourierRouteMapPage> {
   @override
   void dispose() {
     _positionSub?.cancel();
+    _mapController.dispose(); // Oqish (leak) oldini olish
     super.dispose();
   }
 
@@ -180,23 +182,24 @@ class _CourierRouteMapPageState extends State<CourierRouteMapPage> {
     }
 
     // Real-time GPS stream
-    _positionSub = Geolocator.getPositionStream(
-      locationSettings: const LocationSettings(
-        accuracy: LocationAccuracy.high,
-        distanceFilter: 10, // har 10 metr harakatda yangilanadi
-      ),
-    ).listen(
-      (position) {
-        if (!mounted) return;
-        final newPos = LatLng(position.latitude, position.longitude);
-        setState(() => _courierPos = newPos);
-        _maybeRefreshRoute(newPos);
-        _checkArrival(newPos);
-      },
-      onError: (err) {
-        debugPrint('[CourierRouteMap] GPS xato: $err');
-      },
-    );
+    _positionSub =
+        Geolocator.getPositionStream(
+          locationSettings: const LocationSettings(
+            accuracy: LocationAccuracy.high,
+            distanceFilter: 10, // har 10 metr harakatda yangilanadi
+          ),
+        ).listen(
+          (position) {
+            if (!mounted) return;
+            final newPos = LatLng(position.latitude, position.longitude);
+            setState(() => _courierPos = newPos);
+            _maybeRefreshRoute(newPos);
+            _checkArrival(newPos);
+          },
+          onError: (err) {
+            debugPrint('[CourierRouteMap] GPS xato: $err');
+          },
+        );
   }
 
   // ── 3. Yo'lni qayta hisoblash (throttled) ──────────────────────────────
@@ -233,13 +236,24 @@ class _CourierRouteMapPageState extends State<CourierRouteMapPage> {
   }
 
   void _fitToRoute(RouteResult r) {
-    if (r.geometry.length < 2) return;
-    try {
-      final bounds = LatLngBounds.fromPoints(r.geometry);
-      _mapController.fitCamera(
-        CameraFit.bounds(bounds: bounds, padding: const EdgeInsets.all(60)),
-      );
-    } catch (_) {}
+    if (!_isMapReady || r.geometry.length < 2) return;
+
+    // PostFrameCallback — xarita joriy kadrda (frame) chizilib bo'lganini
+    // va ekrandagi haqiqiy o'lchamlari tayyor ekanini kafolatlaydi.
+    // Bu Race Condition (NaN zoom) xatosini 100% yo'q qiladi.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      try {
+        final bounds = LatLngBounds.fromPoints(r.geometry);
+        _mapController.fitCamera(
+          CameraFit.bounds(bounds: bounds, padding: const EdgeInsets.all(60)),
+        );
+      } catch (e) {
+        debugPrint(
+          '[CourierRouteMap] fitCamera xato (Race Condition to\'sildi): $e',
+        );
+      }
+    });
   }
 
   // ── 4. Manzilga yaqinlashish detect ────────────────────────────────────
@@ -289,7 +303,11 @@ class _CourierRouteMapPageState extends State<CourierRouteMapPage> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Icon(Icons.error_outline, size: 64, color: theme.colorScheme.error),
+                Icon(
+                  Icons.error_outline,
+                  size: 64,
+                  color: theme.colorScheme.error,
+                ),
                 const SizedBox(height: 16),
                 Text('Xato', style: theme.textTheme.headlineSmall),
                 const SizedBox(height: 8),
@@ -355,13 +373,20 @@ class _CourierRouteMapPageState extends State<CourierRouteMapPage> {
               initialZoom: 14,
               minZoom: 4,
               maxZoom: 19,
+              onMapReady: () {
+                _isMapReady = true;
+                if (_route != null) {
+                  _fitToRoute(_route!);
+                }
+              },
               interactionOptions: const InteractionOptions(
                 flags: InteractiveFlag.all & ~InteractiveFlag.rotate,
               ),
             ),
             children: [
               TileLayer(
-                urlTemplate: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+                urlTemplate:
+                    'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
                 subdomains: const ['a', 'b', 'c'],
                 userAgentPackageName: 'uz.bozor.mobile',
                 maxZoom: 19,
@@ -411,7 +436,10 @@ class _CourierRouteMapPageState extends State<CourierRouteMapPage> {
                         decoration: BoxDecoration(
                           color: theme.colorScheme.surfaceContainerLowest,
                           shape: BoxShape.circle,
-                          border: Border.all(color: theme.colorScheme.primary, width: 3),
+                          border: Border.all(
+                            color: theme.colorScheme.primary,
+                            width: 3,
+                          ),
                           boxShadow: const [
                             BoxShadow(
                               color: Colors.black26,
@@ -525,7 +553,9 @@ class _CourierRouteMapPageState extends State<CourierRouteMapPage> {
                     icon: Icon(Icons.call, color: theme.colorScheme.primary),
                     onPressed: _callCustomer,
                     style: IconButton.styleFrom(
-                      backgroundColor: theme.colorScheme.primary.withValues(alpha: 0.12),
+                      backgroundColor: theme.colorScheme.primary.withValues(
+                        alpha: 0.12,
+                      ),
                       minimumSize: const Size(40, 40),
                       padding: EdgeInsets.zero,
                     ),
@@ -535,15 +565,24 @@ class _CourierRouteMapPageState extends State<CourierRouteMapPage> {
               if (target.notes.isNotEmpty) ...[
                 const SizedBox(height: 8),
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 6,
+                  ),
                   decoration: BoxDecoration(
                     color: Colors.amber.withValues(alpha: 0.15),
                     borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: Colors.amber.withValues(alpha: 0.3)),
+                    border: Border.all(
+                      color: Colors.amber.withValues(alpha: 0.3),
+                    ),
                   ),
                   child: Row(
                     children: [
-                      const Icon(Icons.sticky_note_2, size: 16, color: Color(0xFFB45309)),
+                      const Icon(
+                        Icons.sticky_note_2,
+                        size: 16,
+                        color: Color(0xFFB45309),
+                      ),
                       const SizedBox(width: 6),
                       Expanded(
                         child: Text(
@@ -560,14 +599,21 @@ class _CourierRouteMapPageState extends State<CourierRouteMapPage> {
               if (_route != null) ...[
                 const SizedBox(height: 8),
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 6,
+                  ),
                   decoration: BoxDecoration(
                     color: theme.colorScheme.primary.withValues(alpha: 0.1),
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: Row(
                     children: [
-                      Icon(Icons.route, color: theme.colorScheme.primary, size: 18),
+                      Icon(
+                        Icons.route,
+                        color: theme.colorScheme.primary,
+                        size: 18,
+                      ),
                       const SizedBox(width: 8),
                       Text(
                         formatDistance(_route!.distanceMeters),
@@ -577,7 +623,11 @@ class _CourierRouteMapPageState extends State<CourierRouteMapPage> {
                       ),
                       if (_route!.durationSeconds > 0) ...[
                         const SizedBox(width: 12),
-                        const Icon(Icons.schedule, size: 16, color: Colors.grey),
+                        const Icon(
+                          Icons.schedule,
+                          size: 16,
+                          color: Colors.grey,
+                        ),
                         const SizedBox(width: 4),
                         Text(
                           formatDuration(_route!.durationSeconds),
@@ -623,7 +673,11 @@ class _ArrivedBanner extends StatelessWidget {
         color: theme.colorScheme.primary,
         borderRadius: BorderRadius.circular(16),
         boxShadow: const [
-          BoxShadow(color: Colors.black26, blurRadius: 16, offset: Offset(0, 4)),
+          BoxShadow(
+            color: Colors.black26,
+            blurRadius: 16,
+            offset: Offset(0, 4),
+          ),
         ],
       ),
       child: Row(
@@ -677,100 +731,204 @@ class _NoCoordinatesView extends StatelessWidget {
 
   const _NoCoordinatesView({required this.target, required this.onCall});
 
+  Future<void> _openExternalMap(String urlString) async {
+    final uri = Uri.parse(urlString);
+    if (await canLaunchUrl(uri)) {
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final addressEncoded = Uri.encodeComponent(target.addressText);
+
     return Scaffold(
       appBar: AppBar(title: Text('Buyurtma #${target.orderId}')),
-      body: Padding(
-        padding: const EdgeInsets.all(20),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Icon(Icons.location_off, size: 72, color: Colors.amber.shade700),
-            const SizedBox(height: 16),
-            Text(
-              "Xarita koordinata yo'q",
-              style: theme.textTheme.titleLarge?.copyWith(
-                fontWeight: FontWeight.bold,
-              ),
-              textAlign: TextAlign.center,
+      body: ListView(
+        padding: const EdgeInsets.all(16),
+        children: [
+          Center(child: Icon(Icons.location_off, size: 64, color: Colors.amber.shade700)),
+          const SizedBox(height: 12),
+          Text(
+            "Aniq koordinata yo'q",
+            style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 8),
+          Text(
+            "Mijoz xaritadan aniq joy tanlamagan. Quyidagi matn manzili "
+            "bo'yicha boring yoki tashqi xarita xizmatini ishlatib navigatsiya qiling.",
+            style: theme.textTheme.bodyMedium?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
             ),
-            const SizedBox(height: 8),
-            Text(
-              "Mijoz bu buyurtmada xaritadan aniq joy tanlamagan. "
-              "Quyidagi matn manzili bo'yicha boring va kerak bo'lsa qo'ng'iroq qiling.",
-              style: theme.textTheme.bodyMedium?.copyWith(
-                color: theme.colorScheme.onSurfaceVariant,
-              ),
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 24),
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Icon(Icons.person, color: theme.colorScheme.primary),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(target.receiverName,
-                                  style: theme.textTheme.titleSmall),
-                              Text(target.receiverPhone,
-                                  style: theme.textTheme.bodySmall),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
-                    const Divider(),
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Icon(Icons.place, color: theme.colorScheme.primary),
-                        const SizedBox(width: 8),
-                        Expanded(child: Text(target.addressText)),
-                      ],
-                    ),
-                    if (target.notes.isNotEmpty) ...[
-                      const SizedBox(height: 12),
-                      Container(
-                        padding: const EdgeInsets.all(10),
-                        decoration: BoxDecoration(
-                          color: Colors.amber.withValues(alpha: 0.15),
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: Row(
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 20),
+
+          // Mijoz ma'lumotlari
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Icon(Icons.person, color: theme.colorScheme.primary),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            const Icon(Icons.sticky_note_2,
-                                color: Color(0xFFB45309), size: 18),
-                            const SizedBox(width: 8),
-                            Expanded(child: Text(target.notes)),
+                            Text(target.receiverName, style: theme.textTheme.titleSmall),
+                            Text(target.receiverPhone, style: theme.textTheme.bodySmall),
                           ],
                         ),
                       ),
                     ],
+                  ),
+                  const Divider(),
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Icon(Icons.place, color: theme.colorScheme.primary),
+                      const SizedBox(width: 8),
+                      Expanded(child: Text(target.addressText)),
+                    ],
+                  ),
+                  if (target.notes.isNotEmpty) ...[
+                    const SizedBox(height: 12),
+                    Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: Colors.amber.withValues(alpha: 0.15),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Icon(Icons.sticky_note_2, color: Color(0xFFB45309), size: 18),
+                          const SizedBox(width: 8),
+                          Expanded(child: Text(target.notes)),
+                        ],
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
+
+          // Qo'ng'iroq
+          FilledButton.icon(
+            onPressed: onCall,
+            icon: const Icon(Icons.call),
+            label: Text(target.receiverPhone),
+            style: FilledButton.styleFrom(
+              padding: const EdgeInsets.symmetric(vertical: 16),
+            ),
+          ),
+
+          // Tashqi xaritalar — matn manzil bo'yicha qidirish
+          const SizedBox(height: 24),
+          Text(
+            "TASHQI NAVIGATSIYA",
+            style: theme.textTheme.labelSmall?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+              letterSpacing: 0.5,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          const SizedBox(height: 8),
+          _ExternalMapTile(
+            icon: '🗺️',
+            color: const Color(0xFFFFCC00),
+            title: "Yandex Maps'da ochish",
+            subtitle: 'CIS uchun eng aniq xarita',
+            onTap: () => _openExternalMap(
+              'https://yandex.com/maps/?text=$addressEncoded',
+            ),
+          ),
+          const SizedBox(height: 8),
+          _ExternalMapTile(
+            icon: '🗺️',
+            color: const Color(0xFF4285F4),
+            title: "Google Maps'da ochish",
+            subtitle: 'Universal xarita',
+            onTap: () => _openExternalMap(
+              'https://www.google.com/maps/search/?api=1&query=$addressEncoded',
+            ),
+          ),
+          const SizedBox(height: 8),
+          _ExternalMapTile(
+            icon: '🗺️',
+            color: const Color(0xFF22C55E),
+            title: "2GIS'da ochish",
+            subtitle: "O'zbekiston shaharlari",
+            onTap: () => _openExternalMap(
+              'https://2gis.uz/search/$addressEncoded',
+            ),
+          ),
+          const SizedBox(height: 24),
+        ],
+      ),
+    );
+  }
+}
+
+class _ExternalMapTile extends StatelessWidget {
+  final String icon;
+  final Color color;
+  final String title;
+  final String subtitle;
+  final VoidCallback onTap;
+
+  const _ExternalMapTile({
+    required this.icon,
+    required this.color,
+    required this.title,
+    required this.subtitle,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Material(
+      color: color.withValues(alpha: 0.12),
+      borderRadius: BorderRadius.circular(12),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(12),
+        child: Container(
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: color.withValues(alpha: 0.3)),
+          ),
+          padding: const EdgeInsets.all(14),
+          child: Row(
+            children: [
+              Text(icon, style: const TextStyle(fontSize: 24)),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(title,
+                        style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.bold)),
+                    Text(subtitle,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: theme.colorScheme.onSurfaceVariant,
+                        )),
                   ],
                 ),
               ),
-            ),
-            const SizedBox(height: 16),
-            FilledButton.icon(
-              onPressed: onCall,
-              icon: const Icon(Icons.call),
-              label: Text(target.receiverPhone),
-              style: FilledButton.styleFrom(
-                padding: const EdgeInsets.symmetric(vertical: 16),
-              ),
-            ),
-          ],
+              Icon(Icons.open_in_new, color: theme.colorScheme.onSurfaceVariant),
+            ],
+          ),
         ),
       ),
     );
@@ -796,9 +954,9 @@ class _GpsServiceDisabledView extends StatelessWidget {
             const SizedBox(height: 16),
             Text(
               "GPS xizmati o'chirilgan",
-              style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                fontWeight: FontWeight.bold,
-              ),
+              style: Theme.of(
+                context,
+              ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 8),
             const Text(
@@ -833,13 +991,17 @@ class _PermissionDeniedView extends StatelessWidget {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const Icon(Icons.location_disabled, size: 72, color: Colors.redAccent),
+            const Icon(
+              Icons.location_disabled,
+              size: 72,
+              color: Colors.redAccent,
+            ),
             const SizedBox(height: 16),
             Text(
               "Joylashuvga ruxsat kerak",
-              style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                fontWeight: FontWeight.bold,
-              ),
+              style: Theme.of(
+                context,
+              ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 8),
             const Text(

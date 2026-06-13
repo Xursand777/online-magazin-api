@@ -376,11 +376,17 @@ const CourierRouteMap = () => {
     );
   }
 
-  // Koordinata yo'q — eski buyurtma
+  // Koordinata yo'q — fallback: manzil matni + tashqi xaritalar deep link
   if (target && !target.destination) {
+    // External maps deep links — matn manzili bilan ochiladi (CIS standart)
+    const addressEncoded = encodeURIComponent(target.address_text);
+    const yandexUrl = `https://yandex.com/maps/?text=${addressEncoded}`;
+    const googleUrl = `https://www.google.com/maps/search/?api=1&query=${addressEncoded}`;
+    const twoGisUrl = `https://2gis.uz/search/${addressEncoded}`;
+
     return (
-      <div className="fixed inset-0 z-50 bg-surface">
-        <div className="absolute top-0 left-0 right-0 z-10 bg-surface/95 backdrop-blur shadow-md p-3">
+      <div className="fixed inset-0 z-50 bg-surface overflow-y-auto">
+        <div className="sticky top-0 z-10 bg-surface/95 backdrop-blur shadow-md p-3">
           <div className="flex items-center gap-3">
             <button onClick={() => navigate(-1)} className="p-2 rounded-full hover:bg-surface-container">
               <span className="material-symbols-outlined">arrow_back</span>
@@ -388,44 +394,103 @@ const CourierRouteMap = () => {
             <h2 className="font-bold flex-1">Buyurtma #{target.order_id}</h2>
           </div>
         </div>
-        <div className="absolute inset-x-4 top-20 bottom-4 flex flex-col items-center justify-center text-center">
-          <span className="material-symbols-outlined text-6xl text-amber-500 mb-3">
-            location_off
-          </span>
-          <h3 className="text-lg font-bold mb-2">Xarita koordinata yo'q</h3>
-          <p className="text-sm text-on-surface-variant mb-4 max-w-md">
-            Mijoz bu buyurtmada xaritadan aniq joy tanlamagan. Quyidagi matn manzili bo'yicha boring va kerak bo'lsa qo'ng'iroq qiling.
-          </p>
-          <div className="bg-surface-container rounded-2xl p-4 max-w-md w-full text-left">
-            <div className="flex items-start gap-2 mb-2">
+        <div className="p-4 max-w-md mx-auto">
+          <div className="flex flex-col items-center text-center mb-4">
+            <span className="material-symbols-outlined text-6xl text-amber-500 mb-3">
+              location_off
+            </span>
+            <h3 className="text-lg font-bold mb-2">Aniq koordinata yo'q</h3>
+            <p className="text-sm text-on-surface-variant max-w-md">
+              Mijoz xaritadan aniq joy tanlamagan. Quyidagi matn manzili
+              bo'yicha boring yoki tashqi xarita xizmatini ishlatib navigatsiya qiling.
+            </p>
+          </div>
+
+          {/* Mijoz ma'lumotlari */}
+          <div className="bg-surface-container rounded-2xl p-4 mb-4">
+            <div className="flex items-start gap-2 mb-3">
               <span className="material-symbols-outlined text-primary mt-0.5">person</span>
-              <div>
+              <div className="flex-1">
                 <p className="font-bold">{target.receiver_name}</p>
                 <p className="text-sm text-on-surface-variant">{target.receiver_phone}</p>
               </div>
             </div>
-            <div className="flex items-start gap-2 mb-2">
+            <div className="flex items-start gap-2 mb-3">
               <span className="material-symbols-outlined text-primary mt-0.5">place</span>
-              <p className="text-sm">{target.address_text}</p>
+              <p className="text-sm flex-1">{target.address_text}</p>
             </div>
             {target.notes && (
               <div className="flex items-start gap-2 p-2 rounded-lg bg-amber-50 border border-amber-200">
                 <span className="material-symbols-outlined text-amber-700 text-[18px] mt-0.5">
                   sticky_note_2
                 </span>
-                <p className="text-sm text-amber-900">{target.notes}</p>
+                <p className="text-sm text-amber-900 flex-1">{target.notes}</p>
               </div>
             )}
           </div>
+
+          {/* Qo'ng'iroq */}
           {callCustomer && (
             <a
               href={`tel:${callCustomer}`}
-              className="mt-4 px-6 py-3 bg-primary text-on-primary rounded-2xl font-bold flex items-center gap-2"
+              className="block w-full mb-3 px-6 py-3 bg-primary text-on-primary rounded-2xl font-bold flex items-center justify-center gap-2"
             >
               <span className="material-symbols-outlined">call</span>
               {target.receiver_phone}
             </a>
           )}
+
+          {/* Tashqi xaritalar — matn manzil bo'yicha qidirish */}
+          <p className="text-xs uppercase tracking-wide text-on-surface-variant font-semibold mb-2 mt-4">
+            Tashqi navigatsiya
+          </p>
+          <div className="flex flex-col gap-2">
+            <a
+              href={yandexUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center justify-between gap-3 px-4 py-3 rounded-xl bg-[#FFCC00]/15 border border-[#FFCC00]/30 hover:bg-[#FFCC00]/25 transition-colors"
+            >
+              <div className="flex items-center gap-3">
+                <span className="text-2xl">🗺️</span>
+                <div className="text-left">
+                  <p className="font-bold text-sm">Yandex Maps'da ochish</p>
+                  <p className="text-xs text-on-surface-variant">CIS uchun eng aniq xarita</p>
+                </div>
+              </div>
+              <span className="material-symbols-outlined text-on-surface-variant">open_in_new</span>
+            </a>
+            <a
+              href={googleUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center justify-between gap-3 px-4 py-3 rounded-xl bg-blue-500/10 border border-blue-500/20 hover:bg-blue-500/20 transition-colors"
+            >
+              <div className="flex items-center gap-3">
+                <span className="text-2xl">🗺️</span>
+                <div className="text-left">
+                  <p className="font-bold text-sm">Google Maps'da ochish</p>
+                  <p className="text-xs text-on-surface-variant">Universal xarita</p>
+                </div>
+              </div>
+              <span className="material-symbols-outlined text-on-surface-variant">open_in_new</span>
+            </a>
+            <a
+              href={twoGisUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center justify-between gap-3 px-4 py-3 rounded-xl bg-green-500/10 border border-green-500/20 hover:bg-green-500/20 transition-colors"
+            >
+              <div className="flex items-center gap-3">
+                <span className="text-2xl">🗺️</span>
+                <div className="text-left">
+                  <p className="font-bold text-sm">2GIS'da ochish</p>
+                  <p className="text-xs text-on-surface-variant">O'zbekiston shaharlari</p>
+                </div>
+              </div>
+              <span className="material-symbols-outlined text-on-surface-variant">open_in_new</span>
+            </a>
+          </div>
         </div>
       </div>
     );
