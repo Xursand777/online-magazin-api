@@ -11,15 +11,63 @@ import { formatStructuredAddress, parseStructuredAddress, type StructuredAddress
 const formatPrice = (v: string | number) =>
   Number(v).toLocaleString('uz-UZ') + ' UZS';
 
-const getCheckoutErrorMessage = (err: any, fallback: string) => {
+/**
+ * Backend xatosini foydalanuvchi o'qiy oladigan matnga aylantiradi.
+ *
+ * DRF validation errors strukturasi:
+ *   { "field_name": ["error message 1", "error message 2"], ... }
+ *   { "error": "umumiy xato matni" }
+ *   { "detail": "umumiy xato matni" }
+ *
+ * Bu funksiya ushbu strukturalarning HAMMASIDAN moslar xabarni ajratib oladi.
+ * Nested xatolarni ham to'g'ri ko'rsatadi (masalan delivery_lat field xato).
+ * Diagnostika uchun har holatda console.warn ham yozadi.
+ */
+const getCheckoutErrorMessage = (err: any, fallback: string): string => {
   const data = err?.response?.data;
-  if (!data) return fallback;
+  const status = err?.response?.status;
+
+  // Diagnostika — DevTools'da ko'rinadi
+  console.warn('[checkout] Buyurtma xatosi:', { status, data, err });
+
+  if (!data) {
+    if (err?.message) return `Tarmoq xatosi: ${err.message}`;
+    return fallback;
+  }
+
+  // {"error": "..."} yoki {"detail": "..."}
   if (typeof data.error === 'string') return data.error;
+  if (typeof data.detail === 'string') return data.detail;
   if (Array.isArray(data.error)) return data.error.join(' ');
 
-  const firstValue = Object.values(data)[0];
-  if (Array.isArray(firstValue)) return String(firstValue[0]);
-  if (typeof firstValue === 'string') return firstValue;
+  // Field-level errors: {"delivery_lat": [...], "delivery_notes": [...]}
+  // Birinchi field nomi va birinchi xato xabarini ko'rsatamiz
+  const entries = Object.entries(data);
+  if (entries.length > 0) {
+    const [fieldName, fieldErrors] = entries[0];
+    let errorText = '';
+    if (Array.isArray(fieldErrors) && fieldErrors.length > 0) {
+      errorText = String(fieldErrors[0]);
+    } else if (typeof fieldErrors === 'string') {
+      errorText = fieldErrors;
+    } else {
+      errorText = JSON.stringify(fieldErrors);
+    }
+    // Field nomi inson o'qiy oladigan tarjima
+    const fieldLabels: Record<string, string> = {
+      delivery_lat: 'Joylashuv koordinatasi',
+      delivery_lng: 'Joylashuv koordinatasi',
+      delivery_coords: 'Joylashuv koordinatasi',
+      delivery_address: 'Manzil',
+      delivery_notes: 'Eslatma',
+      receiver_name: 'Ism',
+      receiver_phone: 'Telefon raqami',
+      payment_method: "To'lov usuli",
+      credit_days: "Kredit muddati",
+    };
+    const label = fieldLabels[fieldName] || fieldName;
+    return `${label}: ${errorText}`;
+  }
 
   return fallback;
 };
@@ -220,9 +268,14 @@ const Checkout = () => {
       delete payload.credit_days;
     }
     // ── Phase 3.0 — Kuryer navigatsiyasi: koordinata + eslatma ───────────
+    // KRITIK: Leaflet xaritadan keladigan koordinatalar 12-14 kasrli son
+    // bo'ladi (masalan 41.549912345678). Backend DecimalField(max_digits=9)
+    // bunday qiymatni rad etadi. Shu uchun yuborishdan oldin 6 kasrgacha
+    // qisqartiramiz — ~10cm aniqlik kuryer navigatsiyasi uchun ko'pdan ham
+    // ko'p yetarli.
     if (deliveryCoords) {
-      payload.delivery_lat = deliveryCoords.lat;
-      payload.delivery_lng = deliveryCoords.lng;
+      payload.delivery_lat = Number(deliveryCoords.lat.toFixed(6));
+      payload.delivery_lng = Number(deliveryCoords.lng.toFixed(6));
     }
     if (deliveryNotes && deliveryNotes.trim()) {
       payload.delivery_notes = deliveryNotes.trim();

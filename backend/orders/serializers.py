@@ -1,7 +1,46 @@
+from decimal import Decimal, ROUND_HALF_UP
+
 from rest_framework import serializers
 
 from .models import Order, OrderHistory, OrderItem, Payment
 from products.serializers import ProductListSerializer, ProductVariantSerializer
+
+
+# ── Phase 3.0 — Defensive GPS koordinata DecimalField ───────────────────────
+#
+# MUAMMO:
+#   Leaflet xaritadan keladigan koordinatalar 12-14 kasrli son bo'ladi:
+#     41.549912345678
+#   DRF DecimalField(max_digits=9) bunday qiymatni RAD etadi:
+#     "Ensure that there are no more than 9 digits in total."
+#
+# YECHIM:
+#   Custom DecimalField — to_internal_value ichida QUANTIZE qiladi.
+#   Kelgan qiymat avtomat 6 ta kasrli aniqlikka yumalanadi:
+#     41.549912345678 → Decimal('41.549912')
+#
+#   6 kasrli aniqlik = ~10 cm ekvator yonida — kuryer navigatsiyasi uchun
+#   ko'proq darajada yetarli.
+class GpsDecimalField(serializers.DecimalField):
+    """GPS koordinata uchun DecimalField — kelgan qiymatni 6 kasrgacha yumalantiradi.
+
+    Bu max_digits xatosini oldini oladi: Leaflet'dan keladigan ko'p kasrli
+    sonlar (12-14 digit) avtomat ravishda model talabiga mos qilinadi.
+    """
+
+    def to_internal_value(self, data):
+        # str/float/int qabul qilamiz va avval Decimal'ga aylantirib quantize qilamiz.
+        # Buni base validator ishlamasdan oldin qilamiz — shu sabab max_digits
+        # xatosi hech qachon chiqmaydi.
+        if data is None or data == '':
+            return None
+        try:
+            value = Decimal(str(data))
+        except Exception:
+            self.fail('invalid')
+        # 6 kasrli aniqlikka yumalantirish — model talabiga mos
+        quantized = value.quantize(Decimal('0.000001'), rounding=ROUND_HALF_UP)
+        return super().to_internal_value(str(quantized))
 
 
 class OrderItemSerializer(serializers.ModelSerializer):
@@ -152,16 +191,9 @@ class OrderSerializer(serializers.ModelSerializer):
 # beradi. AddressPicker (xarita pin) tanlangan bo'lsa lat/lng yuboriladi.
 # Eski klientlar (eski mobile APK) bu maydonlarni yubormaydi — backwards
 # compat uchun barchasi required=False.
-_LAT_VALIDATOR = serializers.DecimalField(
-    max_digits=9, decimal_places=6,
-    required=False, allow_null=True,
-    min_value=-90, max_value=90,
-)
-_LNG_VALIDATOR = serializers.DecimalField(
-    max_digits=10, decimal_places=6,
-    required=False, allow_null=True,
-    min_value=-180, max_value=180,
-)
+#
+# GpsDecimalField (yuqorida ko'rsatilgan) — Leaflet'dan keladigan ko'p kasrli
+# sonlarni avtomat 6 kasrgacha yumalaydi. max_digits xatosi yo'q.
 
 
 class QuickOrderSerializer(serializers.Serializer):
@@ -180,12 +212,14 @@ class QuickOrderSerializer(serializers.Serializer):
     )
     delivery_address = serializers.CharField()
     # ── Phase 3.0 — Xarita koordinatasi va kuryer eslatmasi ───────────────
-    delivery_lat = serializers.DecimalField(
+    # GpsDecimalField avtomat 6 kasrgacha yumalantiradi — Leaflet'dan kelgan
+    # 12-14 kasrli sonlar muammosini hal qiladi.
+    delivery_lat = GpsDecimalField(
         max_digits=9, decimal_places=6,
         required=False, allow_null=True,
         min_value=-90, max_value=90,
     )
-    delivery_lng = serializers.DecimalField(
+    delivery_lng = GpsDecimalField(
         max_digits=10, decimal_places=6,
         required=False, allow_null=True,
         min_value=-180, max_value=180,
@@ -223,12 +257,14 @@ class OrderFromCartSerializer(serializers.Serializer):
     )
     delivery_address = serializers.CharField()
     # ── Phase 3.0 — Xarita koordinatasi va kuryer eslatmasi ───────────────
-    delivery_lat = serializers.DecimalField(
+    # GpsDecimalField avtomat 6 kasrgacha yumalantiradi — Leaflet'dan kelgan
+    # 12-14 kasrli sonlar muammosini hal qiladi.
+    delivery_lat = GpsDecimalField(
         max_digits=9, decimal_places=6,
         required=False, allow_null=True,
         min_value=-90, max_value=90,
     )
-    delivery_lng = serializers.DecimalField(
+    delivery_lng = GpsDecimalField(
         max_digits=10, decimal_places=6,
         required=False, allow_null=True,
         min_value=-180, max_value=180,
