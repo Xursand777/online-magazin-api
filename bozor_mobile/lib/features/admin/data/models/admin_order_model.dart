@@ -104,26 +104,20 @@ class AdminOrder {
   bool get hasDeliveryRoute =>
       deliveryLat != null && deliveryLng != null && !isPos;
 
-  /// "Xaritadan borish" tugmasi ko'rinishi kerakmi.
+  /// Phase 3.1 — "Xaritadan borish" tugmasi ko'rinishi kerakmi.
   ///
-  /// MUKAMMAL LOGIKA — koordinata MAJBURIY EMAS:
+  /// MUKAMMAL LOGIKA:
+  ///   • Faqat PACKING/SHIPPING/DELIVERED/RECEIVED holatlarda ko'rinadi
+  ///     (kuryer aktiv ishlayotgan vaqt — buyurtma yig'ilgan)
+  ///   • PENDING/AWAITING_PAYMENT/CONFIRMED da hali kuryer kerakmas
   ///   • POS buyurtmalarda yo'q (do'kondan olib ketiladi)
   ///   • Bekor qilingan buyurtmalarda yo'q
-  ///   • Boshqa hamma holatda KO'RINADI (PENDING ham)
   ///   • Koordinata bo'lmasa ham ko'rinadi — sahifa fallback bilan
-  ///     address text + qo'ng'iroq + tashqi xaritalar (Yandex/Google/2GIS)
-  ///     deep link ko'rsatadi.
-  ///
-  /// Bu kuryer/admin HAR DOIM navigatsiya imkoniyatiga ega bo'lishini
-  /// ta'minlaydi — saytdagi xulq bilan IDENTIK.
+  ///     tashqi xaritalar (Yandex/Google/2GIS) deep link ko'rsatadi.
   bool get canShowRouteButton {
     if (isPos) return false;
-    const cancelled = {
-      'CANCELLED_BY_USER',
-      'CANCELLED_BY_ADMIN',
-      'SYSTEM_AUTO_CANCEL',
-    };
-    return !cancelled.contains(status);
+    const allowed = {'PACKING', 'SHIPPING', 'DELIVERED', 'RECEIVED'};
+    return allowed.contains(status);
   }
 
   factory AdminOrder.fromJson(Map<String, dynamic> json) {

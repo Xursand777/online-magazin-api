@@ -374,6 +374,22 @@ def create_order_with_items(
         )
         payment_method = Order.PAYMENT_METHOD_CASH
 
+    # ── Phase 3.1 — Profile koordinatasidan AVTOMAT TO'LDIRISH ──────────────
+    # Agar buyurtmada koordinata yuborilmagan bo'lsa, UserProfile'dan olamiz.
+    # Bu shuni anglatadiki: foydalanuvchi Profile'da bir marta xaritadan
+    # manzil tanlasa, har buyurtmada koordinata avtomat ishlatiladi —
+    # qayta tanlash shart emas.
+    if user is not None and (delivery_lat is None or delivery_lng is None):
+        profile = getattr(user, 'profile', None)
+        if profile is not None:
+            if delivery_lat is None and profile.delivery_lat is not None:
+                delivery_lat = profile.delivery_lat
+            if delivery_lng is None and profile.delivery_lng is not None:
+                delivery_lng = profile.delivery_lng
+            # Notes ham — agar bo'sh bo'lsa
+            if not delivery_notes and profile.delivery_notes:
+                delivery_notes = profile.delivery_notes
+
     is_credit = (payment_method == Order.PAYMENT_METHOD_CREDIT)
 
     # Diagnostic log — agar credit bo'lsa, kim va qanday qiymatlar yuborganini

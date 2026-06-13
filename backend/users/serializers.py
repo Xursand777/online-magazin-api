@@ -95,14 +95,40 @@ class UserProfileSerializer(serializers.ModelSerializer):
     is_master      = serializers.BooleanField(source='user.is_master', read_only=True)
     can_use_credit = serializers.BooleanField(source='user.can_use_credit', read_only=True)
 
+    def to_internal_value(self, data):
+        # Phase 3.1 — Profile update koordinatalarni quantize qilamiz.
+        # Leaflet'dan kelgan 14 kasrli son model max_digits=9 ga sig'maydi,
+        # shuning uchun yuqorida 6 kasrgacha qisqartiramiz. Bu
+        # orders/serializers.py'dagi GpsDecimalField bilan bir xil mantiq.
+        from decimal import Decimal, ROUND_HALF_UP
+
+        # data immutable bo'lishi mumkin (QueryDict) — copy qilamiz
+        try:
+            data = data.copy() if hasattr(data, 'copy') else dict(data)
+        except Exception:
+            pass
+
+        for key in ('delivery_lat', 'delivery_lng'):
+            if key in data and data[key] not in (None, ''):
+                try:
+                    value = Decimal(str(data[key]))
+                    data[key] = str(value.quantize(
+                        Decimal('0.000001'), rounding=ROUND_HALF_UP,
+                    ))
+                except Exception:
+                    pass
+        return super().to_internal_value(data)
+
     def get_is_admin(self, obj):
         return obj.user.is_superuser or bool(obj.user.role)
 
     class Meta:
         model = UserProfile
         fields = ('phone', 'first_name', 'last_name', 'avatar', 'birth_date', 'gender',
-                  'language', 'delivery_address', 'is_admin', 'role',
-                  'is_master', 'can_use_credit')
+                  'language', 'delivery_address',
+                  # Phase 3.1 — kuryer navigatsiyasi uchun saqlangan koordinata
+                  'delivery_lat', 'delivery_lng', 'delivery_notes',
+                  'is_admin', 'role', 'is_master', 'can_use_credit')
 
     def update(self, instance, validated_data):
         user_data = validated_data.pop('user', {})

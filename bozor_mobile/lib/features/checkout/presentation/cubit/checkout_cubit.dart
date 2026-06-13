@@ -40,12 +40,14 @@ class CheckoutCubit extends Cubit<CheckoutState> {
     required String address,
     required String paymentMethod,
     int? creditDays,
+    // Phase 3.1 — kuryer navigatsiyasi koordinatasi va eslatma
+    double? deliveryLat,
+    double? deliveryLng,
+    String deliveryNotes = '',
   }) async {
     emit(CheckoutLoading());
     try {
       final cleanPhone = phone.replaceAll(RegExp(r'\s+'), '');
-      // ⚠ DEFENSIVE: payment_method'ni QAT'IY validatsiya — kutilmagan qiymat
-      // bo'lsa, default 'cash'ga qaytamiz (XSS, state buzilishi va h.k.larga qarshi)
       final normalizedPayment = _normalizePayment(paymentMethod);
       final body = <String, dynamic>{
         'product_id': product.id,
@@ -55,9 +57,16 @@ class CheckoutCubit extends Cubit<CheckoutState> {
         'delivery_address': address.trim(),
         'payment_method': normalizedPayment,
       };
-      // Credit-related fields ONLY agar haqiqatan kredit bo'lsa
       if (normalizedPayment == 'credit' && creditDays != null) {
         body['credit_days'] = creditDays;
+      }
+      // Phase 3.1 — koordinata + eslatma (6 kasrgacha qisqartirilgan)
+      if (deliveryLat != null && deliveryLng != null) {
+        body['delivery_lat'] = double.parse(deliveryLat.toStringAsFixed(6));
+        body['delivery_lng'] = double.parse(deliveryLng.toStringAsFixed(6));
+      }
+      if (deliveryNotes.trim().isNotEmpty) {
+        body['delivery_notes'] = deliveryNotes.trim();
       }
 
       await apiClient.dio.post(ApiConstants.ordersQuick, data: body);
@@ -73,11 +82,14 @@ class CheckoutCubit extends Cubit<CheckoutState> {
     required String address,
     required String paymentMethod,
     int? creditDays,
+    // Phase 3.1
+    double? deliveryLat,
+    double? deliveryLng,
+    String deliveryNotes = '',
   }) async {
     emit(CheckoutLoading());
     try {
       final cleanPhone = phone.replaceAll(RegExp(r'\s+'), '');
-      // ⚠ DEFENSIVE: yuqoridagi kabi normalizatsiya
       final normalizedPayment = _normalizePayment(paymentMethod);
       final body = <String, dynamic>{
         'receiver_name': name.trim(),
@@ -87,6 +99,14 @@ class CheckoutCubit extends Cubit<CheckoutState> {
       };
       if (normalizedPayment == 'credit' && creditDays != null) {
         body['credit_days'] = creditDays;
+      }
+      // Phase 3.1 — koordinata + eslatma
+      if (deliveryLat != null && deliveryLng != null) {
+        body['delivery_lat'] = double.parse(deliveryLat.toStringAsFixed(6));
+        body['delivery_lng'] = double.parse(deliveryLng.toStringAsFixed(6));
+      }
+      if (deliveryNotes.trim().isNotEmpty) {
+        body['delivery_notes'] = deliveryNotes.trim();
       }
 
       await apiClient.dio.post(ApiConstants.ordersFromCart, data: body);

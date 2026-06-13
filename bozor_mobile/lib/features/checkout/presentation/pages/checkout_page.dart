@@ -53,6 +53,13 @@ class _CheckoutViewState extends State<CheckoutView> {
   /// Submit'da `addr.full` backend'ga yuboriladi (saytdagi bilan bir xil).
   StructuredAddress _address = StructuredAddress.empty;
 
+  // ── Phase 3.1 — Manzil koordinatasi va kuryer eslatmasi ──────────────
+  // Profile'dan auto-loaded — foydalanuvchi Mening manzilim'da xaritadan
+  // tanlasa, har checkout'da qayta tanlash shart emas.
+  double? _deliveryLat;
+  double? _deliveryLng;
+  String _deliveryNotes = '';
+
   String _paymentMethod = 'cash'; // 'cash', 'card', or 'installment'
   int _creditDays = 10;
   bool _isLoadingDetails = false;
@@ -96,6 +103,13 @@ class _CheckoutViewState extends State<CheckoutView> {
             if (profile.deliveryAddress.isNotEmpty) {
               _address = StructuredAddress.parse(profile.deliveryAddress);
             }
+            // Phase 3.1 — Profile koordinata va eslatmasini auto-load.
+            // Bu KRITIK fix: Mening manzilim'da xaritadan tanlangan koordinata
+            // hozir checkout'da auto-ishlatiladi → Order'da delivery_lat/lng
+            // saqlanadi → kuryer xaritasi tugmasi ko'rinadi.
+            _deliveryLat = profile.deliveryLat;
+            _deliveryLng = profile.deliveryLng;
+            _deliveryNotes = profile.deliveryNotes;
             _isLoadingDetails = false;
           });
         }
@@ -187,6 +201,10 @@ class _CheckoutViewState extends State<CheckoutView> {
               address: _address.full,
               paymentMethod: _paymentMethod,
               creditDays: _paymentMethod == 'installment' ? _creditDays : null,
+              // Phase 3.1 — Profile'dan auto-loaded koordinata va eslatma
+              deliveryLat: _deliveryLat,
+              deliveryLng: _deliveryLng,
+              deliveryNotes: _deliveryNotes,
             );
       } else {
         context.read<CheckoutCubit>().submitCartCheckout(
@@ -195,6 +213,10 @@ class _CheckoutViewState extends State<CheckoutView> {
               address: _address.full,
               paymentMethod: _paymentMethod,
               creditDays: _paymentMethod == 'installment' ? _creditDays : null,
+              // Phase 3.1 — Profile'dan auto-loaded koordinata va eslatma
+              deliveryLat: _deliveryLat,
+              deliveryLng: _deliveryLng,
+              deliveryNotes: _deliveryNotes,
             );
       }
     }

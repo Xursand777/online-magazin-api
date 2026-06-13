@@ -151,6 +151,23 @@ class UserProfile(models.Model):
     language = models.CharField(max_length=10, default='uz')
     delivery_address = models.TextField(blank=True, default='')
 
+    # ── Phase 3.1 — Saqlangan manzil koordinatasi (kuryer navigatsiyasi) ────
+    # Foydalanuvchi Profile/Mening manzilim'da AddressPicker xaritasidan tanlagan
+    # koordinata. Order yaratilganida bu qiymatlar Order.delivery_lat/lng'ga
+    # nusxalanadi (auto-fill). Mijoz har safar xaritadan qayta tanlash shart emas.
+    delivery_lat = models.DecimalField(
+        max_digits=9, decimal_places=6, null=True, blank=True,
+        help_text="Foydalanuvchi default manzili koordinatasi (lat)",
+    )
+    delivery_lng = models.DecimalField(
+        max_digits=10, decimal_places=6, null=True, blank=True,
+        help_text="Foydalanuvchi default manzili koordinatasi (lng)",
+    )
+    delivery_notes = models.TextField(
+        blank=True, default='',
+        help_text="Kuryer uchun default eslatma (domofon kodi, qavat, belgilar)",
+    )
+
     def __str__(self):
         return f"{self.user.phone} Profile"
 

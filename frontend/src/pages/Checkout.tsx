@@ -160,6 +160,18 @@ const Checkout = () => {
           receiver_phone: p.phone || prev.receiver_phone,
           delivery_address: p.delivery_address || prev.delivery_address,
         }));
+        // Phase 3.1 — Profilda saqlangan koordinata va eslatmani auto-load.
+        // Foydalanuvchi Profile'da bir marta xaritadan tanlagan bo'lsa, har
+        // buyurtmada qayta tanlash shart emas — bu yerda avtomat tushadi.
+        if (p.delivery_lat != null && p.delivery_lng != null) {
+          setDeliveryCoords({
+            lat: Number(p.delivery_lat),
+            lng: Number(p.delivery_lng),
+          });
+        }
+        if (p.delivery_notes) {
+          setDeliveryNotes(p.delivery_notes);
+        }
       })
       .catch(() => {});
 

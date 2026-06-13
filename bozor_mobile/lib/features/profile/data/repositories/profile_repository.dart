@@ -24,7 +24,8 @@ class ProfileRepository {
     return ProfileModel.fromJson(response.data as Map<String, dynamic>);
   }
 
-  /// Profilni yangilash — first_name, last_name, delivery_address.
+  /// Profilni yangilash — first_name, last_name, delivery_address +
+  /// Phase 3.1 koordinata va eslatma.
   /// Server javobida butun yangi profil keladi → biz qaytaramiz.
   ///
   /// Throw qiladi DioException agar server xato bersa.
@@ -32,12 +33,26 @@ class ProfileRepository {
     required String firstName,
     required String lastName,
     required String deliveryAddress,
+    // Phase 3.1 — koordinata + eslatma (ixtiyoriy)
+    double? deliveryLat,
+    double? deliveryLng,
+    String deliveryNotes = '',
   }) async {
-    final data = {
+    final data = <String, dynamic>{
       'first_name': firstName.trim(),
       'last_name': lastName.trim(),
       'delivery_address': deliveryAddress.trim(),
+      'delivery_notes': deliveryNotes.trim(),
     };
+    // Koordinata — 6 kasrgacha qisqartirish (Leaflet'dan 14 kasrli kelishi mumkin)
+    if (deliveryLat != null) {
+      data['delivery_lat'] =
+          double.parse(deliveryLat.toStringAsFixed(6));
+    }
+    if (deliveryLng != null) {
+      data['delivery_lng'] =
+          double.parse(deliveryLng.toStringAsFixed(6));
+    }
     final response = await apiClient.dio.patch(
       ApiConstants.profile,
       data: data,

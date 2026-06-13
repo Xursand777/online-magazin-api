@@ -731,10 +731,52 @@ class _NoCoordinatesView extends StatelessWidget {
 
   const _NoCoordinatesView({required this.target, required this.onCall});
 
-  Future<void> _openExternalMap(String urlString) async {
+  /// Tashqi xaritani ochish — Android 11+'da canLaunchUrl noto'g'ri natija
+  /// berishi mumkin (queries manifest'da bo'lsa-da). Shu sababli to'g'ridan-
+  /// to'g'ri launchUrl chaqiramiz va xato bo'lsa boshqa rejim'da urinamiz.
+  Future<void> _openExternalMap(BuildContext context, String urlString) async {
     final uri = Uri.parse(urlString);
-    if (await canLaunchUrl(uri)) {
-      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    bool launched = false;
+
+    // 1. Eng yaxshi rejim — tashqi ilova (Yandex Maps, Chrome va boshq.)
+    try {
+      launched = await launchUrl(uri, mode: LaunchMode.externalApplication);
+    } catch (_) {
+      launched = false;
+    }
+
+    // 2. Tashqi ilova ishlamasa — platform default (system browser)
+    if (!launched) {
+      try {
+        launched = await launchUrl(uri, mode: LaunchMode.platformDefault);
+      } catch (_) {
+        launched = false;
+      }
+    }
+
+    // 3. In-app browser fallback
+    if (!launched) {
+      try {
+        launched = await launchUrl(uri, mode: LaunchMode.inAppBrowserView);
+      } catch (_) {
+        launched = false;
+      }
+    }
+
+    if (!launched && context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Text(
+            "Xaritani ochib bo'lmadi. Brauzer yoki xarita ilovasi mavjudligini tekshiring.",
+          ),
+          duration: const Duration(seconds: 4),
+          action: SnackBarAction(
+            label: 'OK',
+            onPressed: () =>
+                ScaffoldMessenger.of(context).hideCurrentSnackBar(),
+          ),
+        ),
+      );
     }
   }
 
@@ -848,6 +890,7 @@ class _NoCoordinatesView extends StatelessWidget {
             title: "Yandex Maps'da ochish",
             subtitle: 'CIS uchun eng aniq xarita',
             onTap: () => _openExternalMap(
+              context,
               'https://yandex.com/maps/?text=$addressEncoded',
             ),
           ),
@@ -858,6 +901,7 @@ class _NoCoordinatesView extends StatelessWidget {
             title: "Google Maps'da ochish",
             subtitle: 'Universal xarita',
             onTap: () => _openExternalMap(
+              context,
               'https://www.google.com/maps/search/?api=1&query=$addressEncoded',
             ),
           ),
@@ -868,6 +912,7 @@ class _NoCoordinatesView extends StatelessWidget {
             title: "2GIS'da ochish",
             subtitle: "O'zbekiston shaharlari",
             onTap: () => _openExternalMap(
+              context,
               'https://2gis.uz/search/$addressEncoded',
             ),
           ),

@@ -183,6 +183,11 @@ const Profile = () => {
   const [tumanShahar, setTumanShahar] = useState('');
   const [mahalla, setMahalla] = useState('');
   const [domUy, setDomUy] = useState('');
+  // ── Phase 3.1 — Manzil koordinatasi va kuryer eslatmasi ────────────────
+  // Foydalanuvchi xaritadan tanlasa, bu state'lar to'ladi. Saqlanganda
+  // backend'ga yuboriladi → keyingi safar Checkout'da avtomat ishlatiladi.
+  const [profileCoords, setProfileCoords] = useState<{ lat: number; lng: number } | null>(null);
+  const [profileNotes, setProfileNotes] = useState<string>('');
 
   const updateUserStore = useAuthStore((state) => state.updateUser);
 
@@ -194,6 +199,13 @@ const Profile = () => {
     setTumanShahar(parsed.tumanShahar);
     setMahalla(parsed.mahalla);
     setDomUy(parsed.domUy);
+    // Phase 3.1 — saqlangan koordinata va eslatmani tahrir oynasiga yuklash
+    const lat = profileData?.delivery_lat;
+    const lng = profileData?.delivery_lng;
+    setProfileCoords(
+      lat != null && lng != null ? { lat: Number(lat), lng: Number(lng) } : null,
+    );
+    setProfileNotes(profileData?.delivery_notes || '');
     setIsEditing(true);
   };
 
@@ -203,7 +215,15 @@ const Profile = () => {
   // state'ni ushlab turadi va updateProfile'ga concat qilib yuboradi.
 
   const updateProfileMutation = useMutation({
-    mutationFn: (data: { first_name: string; last_name: string; delivery_address: string }) =>
+    mutationFn: (data: {
+      first_name: string;
+      last_name: string;
+      delivery_address: string;
+      // Phase 3.1 — koordinata va eslatma
+      delivery_lat?: number | null;
+      delivery_lng?: number | null;
+      delivery_notes?: string;
+    }) =>
       updateProfile(data),
     onSuccess: async (response) => {
       await queryClient.invalidateQueries({ queryKey: ['profile'] });
@@ -396,7 +416,16 @@ const Profile = () => {
                       updateProfileMutation.mutate({
                         first_name: firstName.trim(),
                         last_name: lastName.trim(),
-                        delivery_address: fullAddress
+                        delivery_address: fullAddress,
+                        // Phase 3.1 — koordinata + eslatma. toFixed(6) GpsDecimalField
+                        // bilan birga 2 darajadagi himoya (frontend + backend).
+                        delivery_lat: profileCoords
+                          ? Number(profileCoords.lat.toFixed(6))
+                          : null,
+                        delivery_lng: profileCoords
+                          ? Number(profileCoords.lng.toFixed(6))
+                          : null,
+                        delivery_notes: profileNotes.trim(),
                       });
                     }}
                     className="space-y-6"
@@ -432,11 +461,17 @@ const Profile = () => {
                           uzatadi. accentColor=#22c55e — Profile yashil brendiga mos. */}
                       <AddressPicker
                         value={{ viloyat, tumanShahar, mahalla, domUy }}
-                        onChange={({ structured }) => {
+                        initialCoordinates={profileCoords}
+                        initialNotes={profileNotes}
+                        showNotesField={true}
+                        onChange={({ structured, coordinates, notes }) => {
                           setViloyat(structured.viloyat);
                           setTumanShahar(structured.tumanShahar);
                           setMahalla(structured.mahalla);
                           setDomUy(structured.domUy);
+                          // Phase 3.1 — koordinata va eslatmani saqlash
+                          setProfileCoords(coordinates);
+                          setProfileNotes(notes);
                         }}
                         required={false}
                         showHeading={true}

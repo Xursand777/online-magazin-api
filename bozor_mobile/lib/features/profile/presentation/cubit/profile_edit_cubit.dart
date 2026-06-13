@@ -16,6 +16,10 @@ class ProfileEditState extends Equatable {
   final String firstName;
   final String lastName;
   final String deliveryAddress;
+  // ── Phase 3.1 — Manzil koordinatasi va kuryer eslatmasi ───────────────
+  final double? deliveryLat;
+  final double? deliveryLng;
+  final String deliveryNotes;
 
   /// Status flag'lari
   final bool isLoading;       // GET /api/profile/ yuklanmoqda
@@ -28,6 +32,9 @@ class ProfileEditState extends Equatable {
     this.firstName = '',
     this.lastName = '',
     this.deliveryAddress = '',
+    this.deliveryLat,
+    this.deliveryLng,
+    this.deliveryNotes = '',
     this.isLoading = false,
     this.isSaving = false,
     this.isSaved = false,
@@ -58,6 +65,10 @@ class ProfileEditState extends Equatable {
     String? firstName,
     String? lastName,
     String? deliveryAddress,
+    double? deliveryLat,
+    double? deliveryLng,
+    String? deliveryNotes,
+    bool clearCoords = false,
     bool? isLoading,
     bool? isSaving,
     bool? isSaved,
@@ -70,6 +81,9 @@ class ProfileEditState extends Equatable {
       firstName: firstName ?? this.firstName,
       lastName: lastName ?? this.lastName,
       deliveryAddress: deliveryAddress ?? this.deliveryAddress,
+      deliveryLat: clearCoords ? null : (deliveryLat ?? this.deliveryLat),
+      deliveryLng: clearCoords ? null : (deliveryLng ?? this.deliveryLng),
+      deliveryNotes: deliveryNotes ?? this.deliveryNotes,
       isLoading: isLoading ?? this.isLoading,
       isSaving: isSaving ?? this.isSaving,
       isSaved: clearSaved ? false : (isSaved ?? this.isSaved),
@@ -83,6 +97,9 @@ class ProfileEditState extends Equatable {
         firstName,
         lastName,
         deliveryAddress,
+        deliveryLat,
+        deliveryLng,
+        deliveryNotes,
         isLoading,
         isSaving,
         isSaved,
@@ -110,6 +127,10 @@ class ProfileEditCubit extends Cubit<ProfileEditState> {
         firstName: profile.firstName,
         lastName: profile.lastName,
         deliveryAddress: profile.deliveryAddress,
+        // Phase 3.1 — saqlangan koordinata va eslatma
+        deliveryLat: profile.deliveryLat,
+        deliveryLng: profile.deliveryLng,
+        deliveryNotes: profile.deliveryNotes,
         isLoading: false,
       ));
     } catch (e) {
@@ -118,6 +139,29 @@ class ProfileEditCubit extends Cubit<ProfileEditState> {
         errorMessage: repository.parseError(e),
       ));
     }
+  }
+
+  /// Phase 3.1 — AddressPicker xaritadan koordinata tanlaganda.
+  void onCoordinatesChanged(double? lat, double? lng) {
+    if (lat == null || lng == null) {
+      emit(state.copyWith(clearCoords: true, clearError: true, clearSaved: true));
+    } else {
+      emit(state.copyWith(
+        deliveryLat: lat,
+        deliveryLng: lng,
+        clearError: true,
+        clearSaved: true,
+      ));
+    }
+  }
+
+  /// Phase 3.1 — Kuryer uchun eslatma yozilganda.
+  void onNotesChanged(String value) {
+    emit(state.copyWith(
+      deliveryNotes: value,
+      clearError: true,
+      clearSaved: true,
+    ));
   }
 
   /// TextField'lar o'zgarganda chaqiriladi — state'ni yangilash.
@@ -156,12 +200,19 @@ class ProfileEditCubit extends Cubit<ProfileEditState> {
         firstName: state.firstName,
         lastName: state.lastName,
         deliveryAddress: state.deliveryAddress,
+        // Phase 3.1 — koordinata + eslatma
+        deliveryLat: state.deliveryLat,
+        deliveryLng: state.deliveryLng,
+        deliveryNotes: state.deliveryNotes,
       );
       emit(state.copyWith(
         initialProfile: updated,
         firstName: updated.firstName,
         lastName: updated.lastName,
         deliveryAddress: updated.deliveryAddress,
+        deliveryLat: updated.deliveryLat,
+        deliveryLng: updated.deliveryLng,
+        deliveryNotes: updated.deliveryNotes,
         isSaving: false,
         isSaved: true,
       ));
