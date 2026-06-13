@@ -43,6 +43,13 @@ class AdminOrder {
   final String receiverName;
   final String receiverPhone;
   final String deliveryAddress;
+  // ── Phase 3.0 — Kuryer navigatsiyasi maydonlari ───────────────────────
+  // Mijoz AddressPicker xaritasida tanlagan koordinata. NULL bo'lishi
+  // mumkin (eski buyurtmalar yoki mijoz xaritadan tanlamagan).
+  // Kuryer xaritasi (CourierRouteMapPage) shu nuqtaga real-time yo'l chizadi.
+  final double? deliveryLat;
+  final double? deliveryLng;
+  final String deliveryNotes;
   final String paymentMethod;
   final String status;
   final double totalPrice;
@@ -67,6 +74,9 @@ class AdminOrder {
     required this.receiverName,
     required this.receiverPhone,
     required this.deliveryAddress,
+    required this.deliveryLat,
+    required this.deliveryLng,
+    required this.deliveryNotes,
     required this.paymentMethod,
     required this.status,
     required this.totalPrice,
@@ -89,6 +99,11 @@ class AdminOrder {
 
   bool get isPos => deliveryAddress.contains('POS');
 
+  /// Kuryer xaritasi mavjudmi — koordinata bor va SHIPPING jarayonidagi
+  /// holatlardan biri. Mahalliy buyurtmalar (POS) uchun xarita kerakmas.
+  bool get hasDeliveryRoute =>
+      deliveryLat != null && deliveryLng != null && !isPos;
+
   factory AdminOrder.fromJson(Map<String, dynamic> json) {
     final user = json['user'];
     return AdminOrder(
@@ -96,6 +111,10 @@ class AdminOrder {
       receiverName: json['receiver_name'] as String? ?? '',
       receiverPhone: json['receiver_phone'] as String? ?? '',
       deliveryAddress: json['delivery_address'] as String? ?? '',
+      // Phase 3.0 — koordinata Decimal sifatida string ham keladi
+      deliveryLat: _doubleOrNull(json['delivery_lat']),
+      deliveryLng: _doubleOrNull(json['delivery_lng']),
+      deliveryNotes: json['delivery_notes'] as String? ?? '',
       paymentMethod: json['payment_method'] as String? ?? '',
       status: json['status'] as String? ?? '',
       totalPrice: _double(json['total_price']),
@@ -215,4 +234,16 @@ double _double(dynamic v) {
   if (v is num) return v.toDouble();
   if (v is String) return double.tryParse(v) ?? 0;
   return 0;
+}
+
+/// Null-tolerant double parser — koordinata maydonlari NULL bo'lishi mumkin.
+/// Backend Decimal'ni string sifatida qaytaradi: "41.549912".
+double? _doubleOrNull(dynamic v) {
+  if (v == null) return null;
+  if (v is num) return v.toDouble();
+  if (v is String) {
+    if (v.isEmpty) return null;
+    return double.tryParse(v);
+  }
+  return null;
 }

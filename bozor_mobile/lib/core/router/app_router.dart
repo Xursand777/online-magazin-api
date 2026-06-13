@@ -28,6 +28,7 @@ import '../../features/admin/presentation/pages/admin_settings_page.dart';
 import '../../features/admin/presentation/pages/admin_masters_page.dart';
 import '../../features/admin/presentation/pages/admin_staff_page.dart';
 import '../../features/admin/presentation/pages/admin_stock_page.dart';
+import '../../features/admin/presentation/pages/courier_route/courier_route_map_page.dart';
 import '../../features/admin/presentation/bloc/admin_dashboard_bloc.dart';
 import '../../features/admin/presentation/bloc/admin_orders_bloc.dart';
 import '../../features/admin/presentation/bloc/admin_pos_bloc.dart';
@@ -178,6 +179,15 @@ class AppRouter {
                 create: (_) => sl<AdminOrdersBloc>()..add(const LoadOrders()),
                 child: const AdminOrdersPage(),
               ),
+            ),
+            // Phase 3.0 — Kuryer real-time navigatsiya xaritasi.
+            // Admin Orders sahifasidagi "Xaritadan borish" tugmasidan ochiladi.
+            GoRoute(
+              path: '/admin/orders/:orderId/route',
+              builder: (context, state) {
+                final orderId = int.tryParse(state.pathParameters['orderId'] ?? '') ?? 0;
+                return CourierRouteMapPage(orderId: orderId);
+              },
             ),
             GoRoute(
               path: '/admin/products',

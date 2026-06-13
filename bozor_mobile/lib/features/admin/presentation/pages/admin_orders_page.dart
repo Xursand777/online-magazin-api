@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 
 import '../../data/models/admin_order_model.dart';
@@ -304,6 +305,67 @@ class _OrderCard extends StatelessWidget {
                 if (!order.isPos && order.deliveryAddress.isNotEmpty)
                   _infoRow(theme, Icons.location_on_outlined,
                       order.deliveryAddress),
+                // ── Phase 3.0 — "Xaritadan borish" tugmasi ─────────────────
+                // Faqat mijoz xaritadan aniq koordinata tanlagan bo'lsa va
+                // status SHIPPING jarayonidagi holatlarda chiqadi.
+                if (order.hasDeliveryRoute &&
+                    {'CONFIRMED', 'PACKING', 'SHIPPING', 'DELIVERED'}
+                        .contains(order.status))
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 6),
+                    child: FilledButton.icon(
+                      onPressed: () => context.push(
+                        '/admin/orders/${order.id}/route',
+                      ),
+                      icon: const Icon(Icons.map, size: 18),
+                      label: const Text('Xaritadan borish'),
+                      style: FilledButton.styleFrom(
+                        backgroundColor: const Color(0xFF22C55E),
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 14, vertical: 10,
+                        ),
+                        minimumSize: const Size(0, 36),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                      ),
+                    ),
+                  ),
+                // ── Mijoz kuryer eslatmasi (amber banner) ──────────────────
+                if (order.deliveryNotes.isNotEmpty)
+                  Container(
+                    margin: const EdgeInsets.only(top: 4, bottom: 4),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10, vertical: 8,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.amber.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(
+                        color: Colors.amber.withValues(alpha: 0.3),
+                      ),
+                    ),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Icon(
+                          Icons.sticky_note_2,
+                          size: 16,
+                          color: Color(0xFFB45309),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            order.deliveryNotes,
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: const Color(0xFF92400E),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
                 _infoRow(
                   theme,
                   Icons.payments_outlined,
