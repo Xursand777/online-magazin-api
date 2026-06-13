@@ -379,7 +379,8 @@ CORS_ALLOW_HEADERS = (
     'user-agent',
     'x-csrftoken',
     'x-requested-with',
-    'x-guest-session-id',  # Mehmon cart sessiyasi uchun
+    'x-guest-session-id',     # Mehmon cart sessiyasi uchun
+    'x-idempotency-key',      # Phase 3.0 — buyurtma takrorlanmasligi uchun (slow internet)
 )
 
 # Browser cross-origin javoblarda faqat "simple response headers"ni ko'rsatadi.
