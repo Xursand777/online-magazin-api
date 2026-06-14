@@ -20,6 +20,12 @@ class AdminUser {
   /// Xodimmi (admin/seller/courier)?
   final bool isStaff;
 
+  /// Super Admin (is_superuser=True) — hech kim bloklay olmaydi.
+  final bool isSuperuser;
+
+  /// Xodim roli: 'admin', 'seller', 'courier' yoki null (oddiy mijoz).
+  final String? role;
+
   /// Kredit ban — 3 marta o'tkazib yuborgan mijoz.
   final bool creditBan;
 
@@ -43,6 +49,8 @@ class AdminUser {
     required this.isActive,
     required this.isVerified,
     required this.isStaff,
+    required this.isSuperuser,
+    required this.role,
     required this.creditBan,
     required this.overdueCreditCount,
     required this.dateJoined,
@@ -78,6 +86,8 @@ class AdminUser {
       isActive: json['is_active'] as bool? ?? true,
       isVerified: json['is_verified'] as bool? ?? false,
       isStaff: json['is_staff'] as bool? ?? false,
+      isSuperuser: json['is_superuser'] as bool? ?? false,
+      role: json['role'] as String?,
       creditBan: json['credit_ban'] as bool? ?? false,
       overdueCreditCount: _int(json['overdue_credit_count']),
       dateJoined: _parseDate(json['date_joined']),
@@ -120,6 +130,8 @@ class AdminUserDetail {
   final bool isActive;
   final bool isVerified;
   final bool isStaff;
+  final bool isSuperuser;
+  final String? role;
   final bool creditBan;
   final int overdueCreditCount;
   final DateTime? dateJoined;
@@ -136,6 +148,8 @@ class AdminUserDetail {
     required this.isActive,
     required this.isVerified,
     required this.isStaff,
+    required this.isSuperuser,
+    required this.role,
     required this.creditBan,
     required this.overdueCreditCount,
     required this.dateJoined,
@@ -169,6 +183,8 @@ class AdminUserDetail {
       isActive: json['is_active'] as bool? ?? true,
       isVerified: json['is_verified'] as bool? ?? false,
       isStaff: json['is_staff'] as bool? ?? false,
+      isSuperuser: json['is_superuser'] as bool? ?? false,
+      role: json['role'] as String?,
       creditBan: json['credit_ban'] as bool? ?? false,
       overdueCreditCount: _int(json['overdue_credit_count']),
       dateJoined: _parseDate(json['date_joined']),

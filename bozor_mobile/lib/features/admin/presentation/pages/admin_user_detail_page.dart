@@ -412,10 +412,11 @@ class _AdminUserDetailPageState extends State<AdminUserDetailPage> {
           const SizedBox(height: 20),
 
           // ── Amallar — saytdagi bilan IDENTIK tugmalar ─────────────────────
-          // Saytda 2 ta tugma yonma-yon turadi (faqat ban bo'lsa):
-          //   1. "Bloklash" (qizil) yoki "Faollashtirish" (yashil)
-          //   2. "Ban hisobidan chiqarish" (sariq) — faqat creditBan=true bo'lsa
-          // Mobile'da ular vertikal joylashadi (kichik ekran).
+          // Phase 3.2.1 — Block tugmasi gating (backend 4-qatlamli himoyaga mos):
+          //   • Super Admin (is_superuser=True) — bloklab bo'lmaydi
+          //   • Xodim (is_staff yoki role) — faqat Super Admin bloklay oladi
+          // UI tomonidan biz tugmani yashiramiz va sabab banner'i ko'rsatamiz.
+          // Backend baribir himoyalangan (defense in depth).
           if (u.creditBan) ...[
             SizedBox(
               width: double.infinity,
@@ -432,32 +433,83 @@ class _AdminUserDetailPageState extends State<AdminUserDetailPage> {
             ),
             const SizedBox(height: 10),
           ],
-          // Saytdagi tugma:
-          //   is_active=true   → "Bloklash" (Icons.block, qizil)
-          //   is_active=false  → "Faollashtirish" (Icons.check_circle, yashil)
-          SizedBox(
-            width: double.infinity,
-            child: OutlinedButton.icon(
-              onPressed: _isWorking ? null : _toggleActive,
-              icon: Icon(
-                u.isActive ? Icons.block : Icons.check_circle,
-              ),
-              label: Text(
-                u.isActive ? 'Bloklash' : 'Faollashtirish',
-              ),
-              style: OutlinedButton.styleFrom(
-                foregroundColor:
-                    u.isActive ? theme.colorScheme.error : Colors.green,
-                side: BorderSide(
-                  color: u.isActive
-                      ? theme.colorScheme.error
-                      : Colors.green,
+          // Bloklash gating mantiq'i
+          if (u.isSuperuser)
+            _protectedBanner(
+              theme,
+              icon: Icons.verified_user,
+              text: "Super Admin'ni bloklab bo'lmaydi. Tizim egasi himoyalangan.",
+              color: Colors.deepPurple,
+            )
+          else if (u.isStaff || (u.role != null && u.role!.isNotEmpty))
+            _protectedBanner(
+              theme,
+              icon: Icons.verified_user,
+              text: "Xodimni faqat Super Admin bloklay oladi.",
+              color: Colors.amber.shade800,
+            )
+          else
+            // Oddiy mijoz uchun — saytdagidek tugma:
+            //   is_active=true   → "Bloklash" (Icons.block, qizil)
+            //   is_active=false  → "Faollashtirish" (Icons.check_circle, yashil)
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: _isWorking ? null : _toggleActive,
+                icon: Icon(
+                  u.isActive ? Icons.block : Icons.check_circle,
                 ),
-                padding: const EdgeInsets.symmetric(vertical: 14),
+                label: Text(
+                  u.isActive ? 'Bloklash' : 'Faollashtirish',
+                ),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor:
+                      u.isActive ? theme.colorScheme.error : Colors.green,
+                  side: BorderSide(
+                    color: u.isActive
+                        ? theme.colorScheme.error
+                        : Colors.green,
+                  ),
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                ),
+              ),
+            ),
+          const SizedBox(height: 20),
+        ],
+      ),
+    );
+  }
+
+  /// Himoyalangan foydalanuvchi uchun banner.
+  /// Bloklash tugmasi o'rniga ko'rsatiladi.
+  Widget _protectedBanner(
+    ThemeData theme, {
+    required IconData icon,
+    required String text,
+    required Color color,
+  }) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: color.withValues(alpha: 0.3)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, color: color, size: 22),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              text,
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: color,
+                fontWeight: FontWeight.w600,
               ),
             ),
           ),
-          const SizedBox(height: 20),
         ],
       ),
     );

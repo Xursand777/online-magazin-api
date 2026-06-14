@@ -4118,6 +4118,8 @@ interface AdminUser {
   is_active: boolean;
   is_verified: boolean;
   is_staff: boolean;
+  is_superuser: boolean;
+  role: string | null;
   credit_ban: boolean;
   overdue_credit_count: number;
   date_joined: string;
@@ -4139,6 +4141,7 @@ interface AdminUserDetail extends AdminUser {
 
 const UsersTab = () => {
   const qc = useQueryClient();
+  const { user: currentUser } = useAuthStore();
   const [page, setPage] = useState(1);
   const [q, setQ] = useState('');
   const [draftQ, setDraftQ] = useState('');
@@ -4541,36 +4544,65 @@ const UsersTab = () => {
                   </div>
                 </div>
 
-                {/* Actions */}
-                <div className='flex gap-2 border-t border-outline-variant px-5 py-4'>
-                  <button
-                    disabled={toggleActiveMutation.isPending || detailData.is_staff}
-                    onClick={() => toggleActiveMutation.mutate(detailData.id)}
-                    title={detailData.is_staff ? 'Staff bloklanmaydi' : ''}
-                    className={`flex flex-1 items-center justify-center gap-2 rounded-xl py-2.5 text-sm font-medium transition-all disabled:opacity-50 ${
-                      detailData.is_active
-                        ? 'bg-error/10 text-error hover:bg-error/20'
-                        : 'bg-green-100 text-green-700 hover:bg-green-200'
-                    }`}
-                  >
-                    <span className='material-symbols-outlined text-[18px]'>
-                      {detailData.is_active ? 'block' : 'check_circle'}
-                    </span>
-                    {detailData.is_active ? 'Bloklash' : 'Faollashtirish'}
-                  </button>
-                  {/* Phase 2.7 (qayta dizayn) — Faqat banlangan mijoz uchun ko'rinadi.
-                      Bosilganda modal ochiladi; lift 1 ta imkoniyat beradi (count=2). */}
-                  {detailData.credit_ban && (
-                    <button
-                      disabled={liftCreditBanMutation.isPending}
-                      onClick={() => setLiftBanTarget(detailData)}
-                      className='flex flex-1 items-center justify-center gap-2 rounded-xl bg-amber-100 py-2.5 text-sm font-medium text-amber-700 transition-all hover:bg-amber-200 disabled:opacity-50'
-                    >
-                      <span className='material-symbols-outlined text-[18px]'>lock_open</span>
-                      Ban hisobidan chiqarish
-                    </button>
-                  )}
-                </div>
+                {/* Actions — Phase 3.2.1 — Block tugmasi gating (defense in depth, UX) */}
+                {(() => {
+                  // Backend 4-qatlamli himoyaga mos UI gating.
+                  // Faqat oddiy mijozlarni boshqa adminlar bloklay oladi.
+                  const isSelf = detailData.id === currentUser?.id;
+                  const isTargetSuperuser = !!detailData.is_superuser;
+                  const isTargetStaff = !!detailData.is_staff || !!detailData.role;
+                  const isViewerSuperuser = !!currentUser?.is_superuser;
+
+                  let blockedReason: string | null = null;
+                  if (isTargetSuperuser) {
+                    blockedReason = "Super Admin'ni bloklab bo'lmaydi. Tizim egasi himoyalangan.";
+                  } else if (isSelf) {
+                    blockedReason = "O'zingizni bloklab bo'lmaydi.";
+                  } else if (isTargetStaff && !isViewerSuperuser) {
+                    blockedReason = "Xodimlarni faqat Super Admin bloklay oladi.";
+                  }
+
+                  return (
+                    <div className='flex flex-col gap-2 border-t border-outline-variant px-5 py-4'>
+                      {blockedReason && (
+                        <div className='flex items-start gap-2 rounded-xl bg-amber-50 px-3 py-2 text-xs text-amber-800'>
+                          <span className='material-symbols-outlined text-[18px] flex-shrink-0'>shield_person</span>
+                          <span>{blockedReason}</span>
+                        </div>
+                      )}
+                      <div className='flex gap-2'>
+                        {!blockedReason && (
+                          <button
+                            disabled={toggleActiveMutation.isPending}
+                            onClick={() => toggleActiveMutation.mutate(detailData.id)}
+                            className={`flex flex-1 items-center justify-center gap-2 rounded-xl py-2.5 text-sm font-medium transition-all disabled:opacity-50 ${
+                              detailData.is_active
+                                ? 'bg-error/10 text-error hover:bg-error/20'
+                                : 'bg-green-100 text-green-700 hover:bg-green-200'
+                            }`}
+                          >
+                            <span className='material-symbols-outlined text-[18px]'>
+                              {detailData.is_active ? 'block' : 'check_circle'}
+                            </span>
+                            {detailData.is_active ? 'Bloklash' : 'Faollashtirish'}
+                          </button>
+                        )}
+                        {/* Phase 2.7 (qayta dizayn) — Faqat banlangan mijoz uchun ko'rinadi.
+                            Bosilganda modal ochiladi; lift 1 ta imkoniyat beradi (count=2). */}
+                        {detailData.credit_ban && (
+                          <button
+                            disabled={liftCreditBanMutation.isPending}
+                            onClick={() => setLiftBanTarget(detailData)}
+                            className='flex flex-1 items-center justify-center gap-2 rounded-xl bg-amber-100 py-2.5 text-sm font-medium text-amber-700 transition-all hover:bg-amber-200 disabled:opacity-50'
+                          >
+                            <span className='material-symbols-outlined text-[18px]'>lock_open</span>
+                            Ban hisobidan chiqarish
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })()}
 
                 {/* Recent orders */}
                 {detailData.recent_orders.length > 0 && (

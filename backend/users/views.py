@@ -418,6 +418,9 @@ class AdminUserListView(views.APIView):
                 'is_active': u.is_active,
                 'is_verified': u.is_verified,
                 'is_staff': u.is_staff,
+                # Phase 3.3 — Block himoyasi uchun frontend gating'i (UX)
+                'is_superuser': u.is_superuser,
+                'role': u.role,
                 'credit_ban': u.credit_ban,
                 'overdue_credit_count': u.overdue_credit_count,
                 'date_joined': u.date_joined,
@@ -456,6 +459,9 @@ class AdminUserDetailView(views.APIView):
             'is_active': u.is_active,
             'is_verified': u.is_verified,
             'is_staff': u.is_staff,
+            # Phase 3.3 — Block himoyasi UX gating'i uchun
+            'is_superuser': u.is_superuser,
+            'role': u.role,
             'credit_ban': u.credit_ban,
             'overdue_credit_count': u.overdue_credit_count,
             'date_joined': u.date_joined,
@@ -517,16 +523,74 @@ class AdminLiftCreditBanView(views.APIView):
 
 
 class AdminUserToggleActiveView(views.APIView):
+    """
+    POST /api/admin/users/<pk>/toggle-active/ — Foydalanuvchini blok/faollashtirish.
+
+    4 QATLAMLI HIMOYA (har qaysisi mustaqil tekshiriladi):
+
+      1. SUPERUSER PROTECTION — superuser hech qachon bloklanmaydi (root admin).
+         Buni bloklab bo'lsa, hech kim tizimni boshqarib bo'lmaydi.
+
+      2. STAFF PROTECTION — is_staff=True (admin/sotuvchi/kuryer) foydalanuvchini
+         FAQAT superuser bloklab oladi. Bu admin'lar bir-birini bloklab tizimni
+         buzishini oldini oladi (race condition: A bloklaydi B'ni, B bloklaydi A'ni).
+
+      3. ROLE PROTECTION — `role` maydonida admin/seller/courier bo'lganlar uchun
+         ham xuddi shu cheklov (is_staff False ga o'tib qolgan bo'lsa ham). Defense
+         in depth — agar is_staff sinxron emas bo'lsa, role tekshiruvi qoplaydi.
+
+      4. SELF-BLOCK PROTECTION — administrator o'zini bloklab tushib qola olmaydi.
+         Hech qanday holatda admin o'zining is_active'ini false qila olmaydi.
+    """
     permission_classes = (IsAuthenticated, IsAdminOrAbove)
 
     def post(self, request, pk):
         try:
             u = User.objects.get(pk=pk)
         except User.DoesNotExist:
-            return Response({"error": "Foydalanuvchi topilmadi"}, status=status.HTTP_404_NOT_FOUND)
+            return Response(
+                {"error": "Foydalanuvchi topilmadi"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
 
+        # ── 1. SUPERUSER — hech qachon bloklanmaydi ──────────────────────────
         if u.is_superuser:
-            return Response({"error": "Superuser bloklanmaydi"}, status=status.HTTP_403_FORBIDDEN)
+            return Response(
+                {
+                    "error": "Super Admin'ni bloklab bo'lmaydi.",
+                    "code": "cannot_block_superuser",
+                },
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        # ── 2. SELF-BLOCK — admin o'zini bloklamaydi ─────────────────────────
+        # Foydalanuvchi o'zini bloklasa, qaytadan kira olmaydi va boshqalar uni
+        # qaytarib bera olmaydi (faqat superuser). Bu race condition'ni oldini oladi.
+        if u.pk == request.user.pk:
+            return Response(
+                {
+                    "error": "O'zingizni bloklab bo'lmaydi.",
+                    "code": "cannot_block_self",
+                },
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        # ── 3 & 4. XODIM (STAFF/ROLE) — faqat superuser bloklaydi ────────────
+        # is_staff yoki role mavjud bo'lsa — xodim hisoblanadi.
+        # Defense in depth: ikkalasini ham tekshiramiz (sinxronizatsiya
+        # muammosi bo'lganda himoya saqlanadi).
+        is_staff_member = bool(u.is_staff or u.role)
+        if is_staff_member and not request.user.is_superuser:
+            return Response(
+                {
+                    "error": (
+                        "Xodimlarni faqat Super Admin bloklay oladi. "
+                        "Avval uning rolini olib tashlang yoki Super Admin'ga murojaat qiling."
+                    ),
+                    "code": "staff_block_requires_superuser",
+                },
+                status=status.HTTP_403_FORBIDDEN,
+            )
 
         u.is_active = not u.is_active
         u.save(update_fields=['is_active'])

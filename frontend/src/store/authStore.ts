@@ -23,6 +23,7 @@ interface AuthUser {
   first_name: string;
   last_name: string;
   is_admin: boolean;
+  is_superuser?: boolean;
   role?: StaffRole | null;
   is_master?: boolean;
   // Backend hisoblaydi (User.can_use_credit property). Frontend UX gating

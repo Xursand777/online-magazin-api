@@ -89,6 +89,7 @@ class UserProfileSerializer(serializers.ModelSerializer):
     first_name = serializers.CharField(source='user.first_name', required=False)
     last_name  = serializers.CharField(source='user.last_name', required=False)
     is_admin   = serializers.SerializerMethodField()
+    is_superuser = serializers.BooleanField(source='user.is_superuser', read_only=True)
     role       = serializers.CharField(source='user.role', read_only=True, allow_null=True)
     # Frontend kredit option'ini gating qilish uchun (backend authoritative
     # check'ni almashtirmaydi — UX uchun)
@@ -128,7 +129,7 @@ class UserProfileSerializer(serializers.ModelSerializer):
                   'language', 'delivery_address',
                   # Phase 3.1 — kuryer navigatsiyasi uchun saqlangan koordinata
                   'delivery_lat', 'delivery_lng', 'delivery_notes',
-                  'is_admin', 'role', 'is_master', 'can_use_credit')
+                  'is_admin', 'is_superuser', 'role', 'is_master', 'can_use_credit')
 
     def update(self, instance, validated_data):
         user_data = validated_data.pop('user', {})
