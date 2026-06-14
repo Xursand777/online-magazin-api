@@ -83,6 +83,13 @@ class ApiConstants {
   static const String adminOrders = '/api/orders/admin/';
   // Phase 3.0 — Kuryer navigatsiyasi (manzil + koordinata + eslatma)
   static String orderRouteTarget(int orderId) => '/api/orders/$orderId/route-target/';
+  // Phase 3.2 — Foydalanuvchilar (admin)
+  static const String adminUsers = '/api/admin/users/';
+  static String adminUserDetail(int userId) => '/api/admin/users/$userId/';
+  static String adminUserToggleActive(int userId) =>
+      '/api/admin/users/$userId/toggle-active/';
+  static String adminUserLiftCreditBan(int userId) =>
+      '/api/admin/users/$userId/lift-credit-ban/';
   static String adminOrderStatus(int id) => '/api/orders/admin/$id/status/';
   static String adminPayCredit(int id) => '/api/orders/admin/$id/pay-credit/';
   static const String adminPosOrder = '/api/orders/admin/pos-order/';

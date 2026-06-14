@@ -31,6 +31,8 @@ class AdminDrawer extends StatelessWidget {
       _NavItem('Bannerlar', Icons.view_carousel_rounded, '/admin/banners'),
     ]),
     _NavGroup('TIZIM', [
+      // Phase 3.2 — Foydalanuvchilar (saytdagi Users tab ekvivalenti)
+      _NavItem('Foydalanuvchilar', Icons.groups_rounded, '/admin/users'),
       _NavItem('Xodimlar', Icons.manage_accounts_rounded, '/admin/staff'),
       _NavItem('Ustalar', Icons.construction_rounded, '/admin/masters'),
       _NavItem('Sozlamalar', Icons.settings_rounded, '/admin/settings'),

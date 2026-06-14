@@ -29,6 +29,8 @@ import '../../features/admin/presentation/bloc/admin_report_bloc.dart';
 import '../../features/admin/presentation/bloc/admin_settings_bloc.dart';
 import '../../features/admin/presentation/bloc/admin_master_bloc.dart';
 import '../../features/admin/presentation/bloc/admin_staff_bloc.dart';
+import '../../features/admin/data/repositories/admin_users_repository.dart';
+import '../../features/admin/presentation/bloc/admin_users_bloc.dart';
 import '../../features/admin/presentation/bloc/admin_stock_bloc.dart';
 import '../../features/profile/data/repositories/user_orders_repository.dart';
 import '../../features/profile/data/repositories/favorites_repository.dart';
@@ -89,6 +91,10 @@ Future<void> init() async {
   );
   sl.registerLazySingleton<AdminRepository>(
     () => AdminRepository(apiClient: sl()),
+  );
+  // Phase 3.2 — Foydalanuvchilar admin paneli
+  sl.registerLazySingleton<AdminUsersRepository>(
+    () => AdminUsersRepository(apiClient: sl()),
   );
   sl.registerLazySingleton<UserOrdersRepository>(
     () => UserOrdersRepository(apiClient: sl()),
@@ -156,6 +162,7 @@ Future<void> init() async {
   sl.registerFactory<AdminReportBloc>(   () => AdminReportBloc(repository:    sl()));
   sl.registerFactory<AdminMasterBloc>(   () => AdminMasterBloc(repository:    sl()));
   sl.registerFactory<AdminStaffBloc>(    () => AdminStaffBloc(repository:     sl()));
+  sl.registerFactory<AdminUsersBloc>(    () => AdminUsersBloc(repository:     sl()));
   sl.registerFactory<AdminStockBloc>(    () => AdminStockBloc(repository:     sl()));
   sl.registerFactory<AdminSettingsBloc>( () => AdminSettingsBloc(repository:  sl()));
   sl.registerFactory<MyOrdersCubit>(     () => MyOrdersCubit(repository:      sl()));

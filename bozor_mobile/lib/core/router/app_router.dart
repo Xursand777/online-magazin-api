@@ -28,6 +28,9 @@ import '../../features/admin/presentation/pages/admin_settings_page.dart';
 import '../../features/admin/presentation/pages/admin_masters_page.dart';
 import '../../features/admin/presentation/pages/admin_staff_page.dart';
 import '../../features/admin/presentation/pages/admin_stock_page.dart';
+import '../../features/admin/presentation/pages/admin_users_page.dart';
+import '../../features/admin/presentation/pages/admin_user_detail_page.dart';
+import '../../features/admin/presentation/bloc/admin_users_bloc.dart';
 import '../../features/admin/presentation/pages/courier_route/courier_route_map_page.dart';
 import '../../features/admin/presentation/bloc/admin_dashboard_bloc.dart';
 import '../../features/admin/presentation/bloc/admin_orders_bloc.dart';
@@ -187,6 +190,21 @@ class AppRouter {
               builder: (context, state) {
                 final orderId = int.tryParse(state.pathParameters['orderId'] ?? '') ?? 0;
                 return CourierRouteMapPage(orderId: orderId);
+              },
+            ),
+            // Phase 3.2 — Foydalanuvchilar admin tab'i (saytdagidek).
+            GoRoute(
+              path: '/admin/users',
+              builder: (context, _) => BlocProvider(
+                create: (_) => sl<AdminUsersBloc>()..add(const LoadUsers()),
+                child: const AdminUsersPage(),
+              ),
+            ),
+            GoRoute(
+              path: '/admin/users/:userId',
+              builder: (context, state) {
+                final userId = int.tryParse(state.pathParameters['userId'] ?? '') ?? 0;
+                return AdminUserDetailPage(userId: userId);
               },
             ),
             GoRoute(
