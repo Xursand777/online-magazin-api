@@ -72,12 +72,21 @@ class _AdminUserDetailPageState extends State<AdminUserDetailPage> {
   Future<void> _toggleActive() async {
     if (_user == null) return;
     final newState = !_user!.isActive;
+    // SAYTDAGI bilan IDENTIK terminologiya:
+    //   is_active=true   → "Bloklash" (qizil)
+    //   is_active=false  → "Faollashtirish" (yashil)
+    // Bu DELETE emas — foydalanuvchi ma'lumotlari va buyurtmalari saqlanadi,
+    // faqat tizimga kira olmaydigan holatga o'tkaziladi (is_active=false).
     final ok = await _confirm(
-      title: newState ? 'Foydalanuvchini faollashtirish?' : "Foydalanuvchini o'chirish?",
+      title: newState
+          ? 'Foydalanuvchini faollashtirish?'
+          : 'Foydalanuvchini bloklash?',
       message: newState
-          ? "Bu foydalanuvchi yana tizimga kira oladi va buyurtma bera oladi."
-          : "Bu foydalanuvchi tizimga kira olmaydi va yangi buyurtma bera olmaydi.",
-      confirmLabel: newState ? 'Faollashtirish' : "O'chirish",
+          ? "Bu foydalanuvchi yana tizimga kira oladi va buyurtma bera oladi.\n\n"
+              "Ma'lumotlar saqlangan — hech narsa o'chirilmagan."
+          : "Bu foydalanuvchi tizimga kira olmaydi va yangi buyurtma bera olmaydi.\n\n"
+              "Eski buyurtmalar va ma'lumotlar saqlanib qoladi. Keyinroq qayta faollashtirish mumkin.",
+      confirmLabel: newState ? 'Faollashtirish' : 'Bloklash',
       destructive: !newState,
     );
     if (!ok) return;
@@ -95,11 +104,10 @@ class _AdminUserDetailPageState extends State<AdminUserDetailPage> {
       }
       await _load();
       if (mounted) {
+        // Saytdagi toast bilan bir xil: 'Faollashtirildi' yoki 'Bloklandi'
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(newState
-                ? 'Foydalanuvchi faollashtirildi'
-                : "Foydalanuvchi o'chirildi"),
+            content: Text(newState ? 'Faollashtirildi' : 'Bloklandi'),
             behavior: SnackBarBehavior.floating,
           ),
         );
@@ -403,14 +411,19 @@ class _AdminUserDetailPageState extends State<AdminUserDetailPage> {
           ),
           const SizedBox(height: 20),
 
-          // Amallar
+          // ── Amallar — saytdagi bilan IDENTIK tugmalar ─────────────────────
+          // Saytda 2 ta tugma yonma-yon turadi (faqat ban bo'lsa):
+          //   1. "Bloklash" (qizil) yoki "Faollashtirish" (yashil)
+          //   2. "Ban hisobidan chiqarish" (sariq) — faqat creditBan=true bo'lsa
+          // Mobile'da ular vertikal joylashadi (kichik ekran).
           if (u.creditBan) ...[
             SizedBox(
               width: double.infinity,
               child: FilledButton.icon(
                 onPressed: _isWorking ? null : _liftCreditBan,
                 icon: const Icon(Icons.lock_open),
-                label: const Text("Kredit ban'ni olib tashlash"),
+                // Saytdagi atama: "Ban hisobidan chiqarish"
+                label: const Text('Ban hisobidan chiqarish'),
                 style: FilledButton.styleFrom(
                   backgroundColor: Colors.amber.shade700,
                   padding: const EdgeInsets.symmetric(vertical: 14),
@@ -419,15 +432,18 @@ class _AdminUserDetailPageState extends State<AdminUserDetailPage> {
             ),
             const SizedBox(height: 10),
           ],
+          // Saytdagi tugma:
+          //   is_active=true   → "Bloklash" (Icons.block, qizil)
+          //   is_active=false  → "Faollashtirish" (Icons.check_circle, yashil)
           SizedBox(
             width: double.infinity,
             child: OutlinedButton.icon(
               onPressed: _isWorking ? null : _toggleActive,
               icon: Icon(
-                u.isActive ? Icons.person_off : Icons.person,
+                u.isActive ? Icons.block : Icons.check_circle,
               ),
               label: Text(
-                u.isActive ? "Foydalanuvchini o'chirish" : "Foydalanuvchini faollashtirish",
+                u.isActive ? 'Bloklash' : 'Faollashtirish',
               ),
               style: OutlinedButton.styleFrom(
                 foregroundColor:
