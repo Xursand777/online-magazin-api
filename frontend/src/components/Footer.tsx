@@ -76,6 +76,7 @@ const Footer = () => {
                 { to: '/delivery', label: t.footer.delivery },
                 { to: '/returns', label: t.footer.returns },
                 { to: '/terms', label: t.footer.terms },
+                { to: '/privacy', label: t.footer.privacy },
                 { to: '/about', label: t.footer.about },
               ].map(({ to, label }) => (
                 <li key={to}>

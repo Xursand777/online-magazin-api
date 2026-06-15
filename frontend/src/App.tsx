@@ -11,6 +11,7 @@ import Auth from './pages/Auth';
 import SectionProducts from './pages/SectionProducts';
 import Favorites from './pages/Favorites';
 import SearchPage from './pages/SearchPage';
+import ComingSoon from './pages/ComingSoon';
 import NotFound from './pages/NotFound';
 import ProtectedRoute from './components/ProtectedRoute';
 import { useCartStore } from './store/cartStore';
@@ -123,6 +124,14 @@ function App() {
           <Route path="auth" element={<Auth />} />
           <Route path="favorites" element={<Favorites />} />
           <Route path="search" element={<SearchPage />} />
+
+          {/* Footer ma'lumot sahifalari — hozircha "tez orada" (ComingSoon) */}
+          <Route path="terms" element={<ComingSoon />} />
+          <Route path="privacy" element={<ComingSoon />} />
+          <Route path="payment-info" element={<ComingSoon />} />
+          <Route path="delivery" element={<ComingSoon />} />
+          <Route path="returns" element={<ComingSoon />} />
+          <Route path="about" element={<ComingSoon />} />
 
           {/* 404 Catch-all Route */}
           <Route path="*" element={<NotFound />} />

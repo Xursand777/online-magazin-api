@@ -347,6 +347,11 @@ const translations = {
         },
       },
     },
+    comingSoon: {
+      title: "Ushbu sahifa hozircha tayyor emas…",
+      subtitle: "Lekin yaqin orada foydalanishingiz mumkin bo'ladi. Bosh sahifaga qaytamizmi?",
+      button: "Asosiy sahifa",
+    },
     footer: {
       description: "Urganch shahridagi ishonchli elektron tijorat platformasi. Sifatli mahsulotlar — eng yaxshi narxlarda.",
       workHours: "Du–Shan: 09:00 – 19:00",
@@ -362,6 +367,7 @@ const translations = {
       delivery: "Yetkazib berish",
       returns: "Qaytarish siyosati",
       terms: "Foydalanish shartlari",
+      privacy: "Maxfiylik siyosati",
       about: "Biz haqimizda",
       acceptedPayments: "Qabul qilinadigan to'lovlar:",
       cash: "Naqd pul",
@@ -837,6 +843,11 @@ const translations = {
         },
       },
     },
+    comingSoon: {
+      title: "Эта страница пока не готова…",
+      subtitle: "Но скоро вы сможете ею пользоваться. Вернёмся на главную?",
+      button: "На главную",
+    },
     footer: {
       description: "Надёжная платформа электронной торговли в Ургенче. Качественные товары по лучшим ценам.",
       workHours: "Пн–Вс: 09:00 – 19:00",
@@ -852,6 +863,7 @@ const translations = {
       delivery: "Доставка",
       returns: "Политика возврата",
       terms: "Условия использования",
+      privacy: "Политика конфиденциальности",
       about: "О нас",
       acceptedPayments: "Принимаемые платежи:",
       cash: "Наличные",
@@ -1327,6 +1339,11 @@ const translations = {
         },
       },
     },
+    comingSoon: {
+      title: "This page isn't ready yet…",
+      subtitle: "But you'll be able to use it soon. Shall we head back home?",
+      button: "Home page",
+    },
     footer: {
       description: "Trusted e-commerce platform in Urgench. Quality products at the best prices.",
       workHours: "Mon–Sun: 09:00 – 19:00",
@@ -1342,6 +1359,7 @@ const translations = {
       delivery: "Delivery",
       returns: "Return policy",
       terms: "Terms of use",
+      privacy: "Privacy policy",
       about: "About us",
       acceptedPayments: "Accepted payments:",
       cash: "Cash",
