@@ -248,11 +248,23 @@ class _CheckoutViewState extends State<CheckoutView> {
           : BlocConsumer<CheckoutCubit, CheckoutState>(
               listener: (context, state) {
                 if (state is CheckoutSuccess) {
-                  // Muvaffaqiyatli buyurtma
-                  if (!widget.isQuickBuy) {
-                    context.read<CartBloc>().add(ClearCart()); // Savatni tozalash
+                  // ── Buyurtmadan keyin savatni HAQIQATGA moslaymiz ──────────
+                  // • Tezkor xarid: faqat SOTIB OLINGAN mahsulotni savatdan olib
+                  //   tashlaymiz (agar savatda bo'lsa). Boshqa mahsulotlar qoladi —
+                  //   foydalanuvchi faqat shu mahsulotni sotib oldi.
+                  // • Oddiy checkout: butun savat tozalanadi (backend ham server
+                  //   cart'ni bo'shatadi: OrderFromCartView → cart.items.delete()).
+                  if (widget.isQuickBuy && widget.product != null) {
+                    context.read<CartBloc>().add(
+                          RemoveFromCart(
+                            widget.product!.id,
+                            variantId: widget.product!.variantId,
+                          ),
+                        );
+                  } else {
+                    context.read<CartBloc>().add(ClearCart());
                   }
-                  
+
                   showDialog(
                     context: context,
                     barrierDismissible: false,
