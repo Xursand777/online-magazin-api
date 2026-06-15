@@ -75,7 +75,7 @@ import {
 import { toast } from '../utils/toast';
 import { printReceipt, printCreditAgreement } from '../utils/receiptPrinter';
 import { loadShopInfo, useShopInfo, updateShopInfoCache } from '../utils/shopInfoCache';
-import { playNewOrderSound } from '../utils/notificationSound';
+import { playNewOrderSound, primeNotificationSound } from '../utils/notificationSound';
 import { adminPollOrders } from '../api/endpoints';
 import ThemeToggle from '../components/ThemeToggle';
 import AdminPOS from '../components/AdminPOS';
@@ -866,54 +866,68 @@ const useOrdersPolling = (enabled: boolean, isOnOrdersTab: boolean) => {
     }
   }, [enabled, lastSeenId, setLastSeenId]);
 
-  // Polling query
+  // Lightweight poll — har 5 sekund. So'rov juda arzon (Max(id)+Count, PK index),
+  // shuning uchun 5s "deyarli real-time" UX beradi, Render yukini ham oshirmaydi.
   const poll = useQuery({
     queryKey: ['admin-orders-poll', lastSeenId],
     queryFn: () => adminPollOrders(lastSeenId ?? 0).then((r) => r.data),
-    refetchInterval: 10_000, // 10 sekund
-    refetchIntervalInBackground: false, // tab yashirin bo'lsa pause
-    refetchOnWindowFocus: true,           // qaytib kelsa darhol
+    refetchInterval: 5_000,               // 5 sekund — snappy real-time
+    refetchIntervalInBackground: false,   // tab yashirin bo'lsa pause (battery/yuk)
+    refetchOnWindowFocus: true,           // fokusga qaytsa darhol tekshir
     enabled: enabled && lastSeenId !== null,
   });
 
-  // prevNewCount — bir xil counter ikki marta toast bermasligi uchun ref
-  const prevNewCount = useRef(0);
-  // lastSeenId o'zgarsa (markAllSeen orqali) — counterni ham reset
-  useEffect(() => {
-    prevNewCount.current = 0;
-  }, [lastSeenId]);
+  const latestId = poll.data?.latest_id ?? 0;
+  const newCount = poll.data?.new_count ?? 0;
 
-  // Yangi keldi -> reaktsiya
+  // ── DETECTION — har bir yangi buyurtmani KAFOLATLI ushlash ─────────────────
+  // lastNotifiedId: eslatma chiqarilgan eng katta order id. Bu badge'ning
+  // lastSeenId'idan MUSTAQIL. Shuning uchun admin Orders tab'ida tursa ham
+  // (lastSeenId doim yangilanib tursa ham), latestId oshishi bo'yicha har bir
+  // yangi buyurtmada ovoz + toast + ro'yxat yangilanishi ISHLAYDI.
+  const lastNotifiedId = useRef<number | null>(null);
+
   useEffect(() => {
-    const currentCount = poll.data?.new_count ?? 0;
-    if (currentCount > prevNewCount.current) {
-      // Faqat baseline o'rnatilgandan keyin toast (init noise oldini olish)
-      if (lastSeenId !== null && lastSeenId > 0) {
-        const justArrived = currentCount - prevNewCount.current;
-        playNewOrderSound();
-        toast.success(
-          `🛎 ${justArrived} ta yangi buyurtma keldi!`,
-          { duration: 5000 },
-        );
-      }
-      // Orders list va dashboard cache'larni invalidatsiya — UI darhol yangilanadi
+    if (!enabled || latestId <= 0) return;
+
+    // Birinchi marta — baseline o'rnatamiz, mavjud buyurtmalar uchun eslatma yo'q
+    if (lastNotifiedId.current === null) {
+      lastNotifiedId.current = latestId;
+      return;
+    }
+
+    if (latestId > lastNotifiedId.current) {
+      // order id ketma-ket (autoincrement) — delta = yangi buyurtmalar soni
+      const justArrived = latestId - lastNotifiedId.current;
+      lastNotifiedId.current = latestId;
+
+      playNewOrderSound();
+      toast.success(
+        justArrived === 1
+          ? '🛎 1 ta yangi buyurtma keldi!'
+          : `🛎 ${justArrived} ta yangi buyurtma keldi!`,
+        { duration: 6000 },
+      );
+
+      // Buyurtma REAL qo'shilishi uchun — ro'yxat + dashboard cache'larini
+      // darhol invalidatsiya qilamiz (active query'lar avtomat refetch bo'ladi).
       qc.invalidateQueries({ queryKey: ['admin-orders'] });
       qc.invalidateQueries({ queryKey: ['admin-dashboard'] });
       qc.invalidateQueries({ queryKey: ['admin-nasiya-summary'] });
     }
-    prevNewCount.current = currentCount;
-  }, [poll.data?.new_count, lastSeenId, qc]);
+  }, [enabled, latestId, qc]);
 
-  // Admin Orders tab'iga o'tsa "ko'rdim" deb belgilash (badge tushadi)
+  // Admin Orders tab'ida bo'lsa — "ko'rildi" deb belgilaymiz (badge tushadi).
+  // Detection lastNotifiedId orqali bo'lgani uchun bu uni BOSTIRMAYDI.
   useEffect(() => {
-    if (isOnOrdersTab && poll.data?.latest_id) {
-      setLastSeenId(poll.data.latest_id);
+    if (isOnOrdersTab && latestId > 0) {
+      setLastSeenId(latestId);
     }
-  }, [isOnOrdersTab, poll.data?.latest_id, setLastSeenId]);
+  }, [isOnOrdersTab, latestId, setLastSeenId]);
 
   return {
-    newCount: poll.data?.new_count ?? 0,
-    latestId: poll.data?.latest_id ?? 0,
+    newCount,
+    latestId,
     isPolling: poll.isFetching,
   };
 };
@@ -930,6 +944,13 @@ const AdminDashboard = () => {
   // hook ichida useEffect bilan boshqariladi -> bu yerda alohida useEffect
   // kerakmas.
   useShopInfo();
+
+  // Eslatma tovushini "unlock" qilamiz — brauzer avtoplay siyosati uchun.
+  // Admin sahifaga kirib biror joyni bossa, AudioContext resume bo'ladi va
+  // keyingi barcha yangi-buyurtma tovushlari ishonchli chiqadi.
+  useEffect(() => {
+    primeNotificationSound();
+  }, []);
 
   const userRole    = user?.role as StaffRole | undefined;
   const isSuperUser = !!(user?.is_admin && !userRole);
@@ -2412,6 +2433,11 @@ const OrdersTab = () => {
         page: filters.page,
       }).then((r) => r.data),
     placeholderData: (prev) => prev,
+    // Backstop: polling invalidatsiyasi asosiy mexanizm, lekin ro'yxat ochiq
+    // turganda har 15s da ham yangilanadi va fokusga qaytganda darhol —
+    // shunda hech bir buyurtma "tushib qolmaydi".
+    refetchInterval: 15_000,
+    refetchOnWindowFocus: true,
   });
 
   const orders: AdminOrder[] = (data as any)?.results || (Array.isArray(data) ? data : []);

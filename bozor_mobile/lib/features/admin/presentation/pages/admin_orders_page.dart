@@ -1,10 +1,15 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 
+import '../../../../core/di/injection_container.dart';
 import '../../data/models/admin_order_model.dart';
 import '../../data/models/order_status_helper.dart';
+import '../../data/repositories/admin_repository.dart';
 import '../bloc/admin_orders_bloc.dart';
 import '../widgets/admin_drawer.dart';
 
@@ -17,9 +22,17 @@ class AdminOrdersPage extends StatefulWidget {
   State<AdminOrdersPage> createState() => _AdminOrdersPageState();
 }
 
-class _AdminOrdersPageState extends State<AdminOrdersPage> {
+class _AdminOrdersPageState extends State<AdminOrdersPage>
+    with WidgetsBindingObserver {
   static const Color _brandDark = Color(0xFF063F2B);
   final _searchCtrl = TextEditingController();
+
+  // ── Real-time polling — saytdagidek yangi buyurtmalarni darhol ushlash ──────
+  final AdminRepository _repo = sl<AdminRepository>();
+  Timer? _pollTimer;
+  int _lastNotifiedId = -1;          // -1 = baseline hali o'rnatilmagan
+  bool _polling = false;             // bir vaqtning o'zida bitta so'rov
+  AppLifecycleState _appState = AppLifecycleState.resumed;
 
   // Tezkor status filtrlari
   static const List<MapEntry<String, String>> _quickStatuses = [
@@ -33,7 +46,69 @@ class _AdminOrdersPageState extends State<AdminOrdersPage> {
   ];
 
   @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    // Har 7 sekundda yangi buyurtmalarni tekshiramiz (arzon Max(id)+Count poll).
+    _pollTimer = Timer.periodic(
+      const Duration(seconds: 7),
+      (_) => _checkNewOrders(),
+    );
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    _appState = state;
+  }
+
+  /// Yangi buyurtmalarni aniqlash. latestId oshsa → vibratsiya + tovush +
+  /// snackbar + ro'yxatni yangilash (buyurtma REAL qo'shiladi).
+  Future<void> _checkNewOrders() async {
+    if (!mounted || _polling || _appState != AppLifecycleState.resumed) return;
+    _polling = true;
+    try {
+      final r = await _repo.pollOrders(_lastNotifiedId < 0 ? 0 : _lastNotifiedId);
+      if (!mounted) return;
+
+      if (_lastNotifiedId < 0) {
+        _lastNotifiedId = r.latestId; // baseline — mavjudlar uchun eslatma yo'q
+        return;
+      }
+      if (r.latestId > _lastNotifiedId) {
+        final justArrived = r.latestId - _lastNotifiedId; // id ketma-ket = aniq son
+        _lastNotifiedId = r.latestId;
+
+        HapticFeedback.heavyImpact();
+        SystemSound.play(SystemSoundType.alert);
+
+        if (!mounted) return;
+        _showSnack(
+          context,
+          justArrived == 1
+              ? '🛎 1 ta yangi buyurtma keldi!'
+              : '🛎 $justArrived ta yangi buyurtma keldi!',
+          const Color(0xFF0A7C55),
+          Icons.notifications_active_outlined,
+        );
+
+        // Faqat birinchi sahifa + filtrsiz ko'rinishda avto-yangilaymiz —
+        // admin filtrlangan qidiruvini buzmaslik uchun.
+        final bloc = context.read<AdminOrdersBloc>();
+        if (bloc.state.filters.page == 1 && !bloc.state.filters.hasActive) {
+          bloc.add(const LoadOrders());
+        }
+      }
+    } catch (_) {
+      // tarmoq xatosi — keyingi tick'da qayta urinadi
+    } finally {
+      _polling = false;
+    }
+  }
+
+  @override
   void dispose() {
+    _pollTimer?.cancel();
+    WidgetsBinding.instance.removeObserver(this);
     _searchCtrl.dispose();
     super.dispose();
   }

@@ -11,6 +11,13 @@ import '../models/admin_kassa_model.dart';
 import '../models/admin_report_model.dart';
 import '../models/admin_stock_model.dart';
 
+/// Real-time poll natijasi — yangi buyurtmalarni aniqlash uchun.
+class OrdersPollResult {
+  final int latestId;
+  final int newCount;
+  const OrdersPollResult({required this.latestId, required this.newCount});
+}
+
 class AdminRepository {
   final ApiClient apiClient;
 
@@ -167,6 +174,20 @@ class AdminRepository {
     final response =
         await apiClient.dio.get(ApiConstants.adminOrders, queryParameters: params);
     return AdminOrderPage.fromJson(response.data);
+  }
+
+  /// Real-time poll — yangi buyurtmalarni aniqlash uchun arzon agregat
+  /// (Max(id) + Count). `since` — oxirgi ko'rilgan order id.
+  Future<OrdersPollResult> pollOrders(int since) async {
+    final response = await apiClient.dio.get(
+      ApiConstants.adminOrdersPoll,
+      queryParameters: {'since': since},
+    );
+    final data = (response.data as Map).cast<String, dynamic>();
+    return OrdersPollResult(
+      latestId: (data['latest_id'] as num?)?.toInt() ?? 0,
+      newCount: (data['new_count'] as num?)?.toInt() ?? 0,
+    );
   }
 
   Future<AdminOrder> updateOrderStatus(

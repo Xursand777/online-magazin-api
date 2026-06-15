@@ -81,6 +81,8 @@ class ApiConstants {
   // ─── Admin: Dashboard / Buyurtmalar / POS ─────────────────────────────────────
   static const String adminDashboard = '/api/orders/admin/dashboard/';
   static const String adminOrders = '/api/orders/admin/';
+  // Real-time polling — yangi buyurtmalarni aniqlash (Max(id)+Count, arzon)
+  static const String adminOrdersPoll = '/api/orders/admin/poll/';
   // Phase 3.0 — Kuryer navigatsiyasi (manzil + koordinata + eslatma)
   static String orderRouteTarget(int orderId) => '/api/orders/$orderId/route-target/';
   // Phase 3.2 — Foydalanuvchilar (admin)
