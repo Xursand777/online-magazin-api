@@ -48,9 +48,11 @@ class _AdminOrdersPageState extends State<AdminOrdersPage>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    // Har 7 sekundda yangi buyurtmalarni tekshiramiz (arzon Max(id)+Count poll).
+    // Darhol baseline o'rnatamiz — detection birinchi sekundlardanoq ishlasin.
+    _checkNewOrders();
+    // Har 6 sekundda yangi buyurtmalarni tekshiramiz (arzon Max(id)+Count poll).
     _pollTimer = Timer.periodic(
-      const Duration(seconds: 7),
+      const Duration(seconds: 6),
       (_) => _checkNewOrders(),
     );
   }
@@ -60,10 +62,16 @@ class _AdminOrdersPageState extends State<AdminOrdersPage>
     _appState = state;
   }
 
-  /// Yangi buyurtmalarni aniqlash. latestId oshsa → vibratsiya + tovush +
-  /// snackbar + ro'yxatni yangilash (buyurtma REAL qo'shiladi).
+  /// Yangi buyurtmalarni aniqlash. latestId oshsa → ro'yxatni jim yangilash +
+  /// snackbar (buyurtma REAL qo'shiladi, ovoz/vibratsiya yo'q).
   Future<void> _checkNewOrders() async {
-    if (!mounted || _polling || _appState != AppLifecycleState.resumed) return;
+    // Faqat haqiqiy fonda (paused/detached) to'xtaymiz — inactive/hidden kabi
+    // o'tkinchi holatlarda ham ishlayveramiz (ishonchlilik uchun).
+    if (!mounted || _polling) return;
+    if (_appState == AppLifecycleState.paused ||
+        _appState == AppLifecycleState.detached) {
+      return;
+    }
     _polling = true;
     try {
       final r = await _repo.pollOrders(_lastNotifiedId < 0 ? 0 : _lastNotifiedId);
@@ -76,24 +84,24 @@ class _AdminOrdersPageState extends State<AdminOrdersPage>
       if (r.latestId > _lastNotifiedId) {
         final justArrived = r.latestId - _lastNotifiedId; // id ketma-ket = aniq son
         _lastNotifiedId = r.latestId;
-
-        // Faqat snackbar (ovoz/vibratsiya yo'q — yengil, professional)
         if (!mounted) return;
-        _showSnack(
-          context,
-          justArrived == 1
-              ? '🛎 1 ta yangi buyurtma keldi!'
-              : '🛎 $justArrived ta yangi buyurtma keldi!',
-          const Color(0xFF0A7C55),
-          Icons.notifications_active_outlined,
-        );
 
-        // Faqat birinchi sahifa + filtrsiz ko'rinishda avto-yangilaymiz —
-        // admin filtrlangan qidiruvini buzmaslik uchun.
-        final bloc = context.read<AdminOrdersBloc>();
-        if (bloc.state.filters.page == 1 && !bloc.state.filters.hasActive) {
-          bloc.add(const LoadOrders());
-        }
+        // 1) ENG MUHIM — ro'yxatni JIM yangilaymiz (loading flash yo'q, joriy
+        //    filtr saqlanadi). Bu snackbar'dan ALOHIDA va undan OLDIN bajariladi
+        //    — snackbar xatosi reload'ni HECH QACHON to'xtatmaydi.
+        context.read<AdminOrdersBloc>().add(const SilentReloadOrders());
+
+        // 2) Toast (faqat ko'rsatma — alohida try, xatosi reload'ga ta'sir qilmaydi)
+        try {
+          _showSnack(
+            context,
+            justArrived == 1
+                ? '🛎 1 ta yangi buyurtma keldi!'
+                : '🛎 $justArrived ta yangi buyurtma keldi!',
+            const Color(0xFF0A7C55),
+            Icons.notifications_active_outlined,
+          );
+        } catch (_) {/* messenger yo'q bo'lsa ham reload bajarilgan */}
       }
     } catch (_) {
       // tarmoq xatosi — keyingi tick'da qayta urinadi

@@ -67,6 +67,13 @@ class LoadOrders extends AdminOrdersEvent {
   const LoadOrders();
 }
 
+/// Joriy filtr bo'yicha ro'yxatni JIM (loading-flash'siz) qayta yuklash —
+/// real-time polling yangi buyurtma aniqlaganda ishlatiladi. Foydalanuvchi
+/// loading spinnerni ko'rmaydi, ro'yxat shunchaki yangilanadi.
+class SilentReloadOrders extends AdminOrdersEvent {
+  const SilentReloadOrders();
+}
+
 class ApplyOrderFilters extends AdminOrdersEvent {
   final OrderFilters filters;
   const ApplyOrderFilters(this.filters);
@@ -169,10 +176,41 @@ class AdminOrdersBloc extends Bloc<AdminOrdersEvent, AdminOrdersState> {
 
   AdminOrdersBloc({required this.repository}) : super(const AdminOrdersState()) {
     on<LoadOrders>(_onLoad);
+    on<SilentReloadOrders>(_onSilentReload);
     on<ApplyOrderFilters>(_onApplyFilters);
     on<ChangeOrderPage>(_onChangePage);
     on<UpdateOrderStatus>(_onUpdateStatus);
     on<PayCreditOrder>(_onPayCredit);
+  }
+
+  /// Jim qayta yuklash — joriy filtr saqlanadi, loading holati EMIT QILINMAYDI
+  /// (ro'yxat eski ma'lumotni ko'rsatib turadi, kelgach yangilanadi). Xato bo'lsa
+  /// jim o'tkaziladi — keyingi poll/yangilashda qayta urinadi.
+  Future<void> _onSilentReload(
+    SilentReloadOrders event,
+    Emitter<AdminOrdersState> emit,
+  ) async {
+    try {
+      final f = state.filters;
+      final page = await repository.getOrders(
+        q: f.q,
+        status: f.status,
+        paymentMethod: f.paymentMethod,
+        isCredit: f.isCredit,
+        dateFrom: f.dateFrom,
+        dateTo: f.dateTo,
+        page: f.page,
+      );
+      emit(state.copyWith(
+        status: OrdersStatus.success,
+        orders: page.orders,
+        count: page.count,
+        hasNext: page.hasNext,
+        hasPrev: page.hasPrev,
+      ));
+    } catch (_) {
+      // jim — keyingi tick'da qayta urinadi
+    }
   }
 
   Future<void> _fetch(Emitter<AdminOrdersState> emit, OrderFilters f) async {
