@@ -1,7 +1,6 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
@@ -78,9 +77,7 @@ class _AdminOrdersPageState extends State<AdminOrdersPage>
         final justArrived = r.latestId - _lastNotifiedId; // id ketma-ket = aniq son
         _lastNotifiedId = r.latestId;
 
-        HapticFeedback.heavyImpact();
-        SystemSound.play(SystemSoundType.alert);
-
+        // Faqat snackbar (ovoz/vibratsiya yo'q — yengil, professional)
         if (!mounted) return;
         _showSnack(
           context,

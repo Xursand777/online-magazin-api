@@ -75,7 +75,6 @@ import {
 import { toast } from '../utils/toast';
 import { printReceipt, printCreditAgreement } from '../utils/receiptPrinter';
 import { loadShopInfo, useShopInfo, updateShopInfoCache } from '../utils/shopInfoCache';
-import { playNewOrderSound, primeNotificationSound } from '../utils/notificationSound';
 import { adminPollOrders } from '../api/endpoints';
 import ThemeToggle from '../components/ThemeToggle';
 import AdminPOS from '../components/AdminPOS';
@@ -901,7 +900,7 @@ const useOrdersPolling = (enabled: boolean, isOnOrdersTab: boolean) => {
       const justArrived = latestId - lastNotifiedId.current;
       lastNotifiedId.current = latestId;
 
-      playNewOrderSound();
+      // Faqat TOAST (ovoz yo'q — brauzer yuki/limit muammosisiz, yengil)
       toast.success(
         justArrived === 1
           ? '🛎 1 ta yangi buyurtma keldi!'
@@ -944,13 +943,6 @@ const AdminDashboard = () => {
   // hook ichida useEffect bilan boshqariladi -> bu yerda alohida useEffect
   // kerakmas.
   useShopInfo();
-
-  // Eslatma tovushini "unlock" qilamiz — brauzer avtoplay siyosati uchun.
-  // Admin sahifaga kirib biror joyni bossa, AudioContext resume bo'ladi va
-  // keyingi barcha yangi-buyurtma tovushlari ishonchli chiqadi.
-  useEffect(() => {
-    primeNotificationSound();
-  }, []);
 
   const userRole    = user?.role as StaffRole | undefined;
   const isSuperUser = !!(user?.is_admin && !userRole);
@@ -2433,10 +2425,8 @@ const OrdersTab = () => {
         page: filters.page,
       }).then((r) => r.data),
     placeholderData: (prev) => prev,
-    // Backstop: polling invalidatsiyasi asosiy mexanizm, lekin ro'yxat ochiq
-    // turganda har 15s da ham yangilanadi va fokusga qaytganda darhol —
-    // shunda hech bir buyurtma "tushib qolmaydi".
-    refetchInterval: 15_000,
+    // Yengil: ro'yxat FAQAT yangi buyurtma aniqlanganda (poll invalidatsiyasi)
+    // va fokusga qaytganda yangilanadi — keraksiz takroriy og'ir so'rov yo'q.
     refetchOnWindowFocus: true,
   });
 
