@@ -5808,7 +5808,15 @@ const SozlamalarTab = () => {
       toast.success(res.data.message || 'Dollar kursi yangilandi');
       setEditingRate(false);
       refetchRate();
-      qc.invalidateQueries({ queryKey: ['admin-report'] });
+      // Kurs o'zgardi → backend USD'dagi mahsulotlar narxi va chegirma narxini
+      // qayta hisobladi. Saytdagi BARCHA narx ko'rsatadigan ekranlar yangi
+      // qiymatni darrov ko'rsatishi uchun tegishli cache'larni invalidatsiya
+      // qilamiz (admin ro'yxati, mijoz katalogi, bosh sahifa, kategoriya,
+      // mahsulot sahifasi, hisobot).
+      ['admin-products', 'products', 'product', 'mainPage', 'categories-home',
+       'category-products', 'admin-report', 'search-products'].forEach((key) =>
+        qc.invalidateQueries({ queryKey: [key] }),
+      );
     },
     onError: () => toast.error('Kursni yangilashda xatolik'),
   });
@@ -6056,6 +6064,16 @@ const ProductEditor = ({
     const numericValue = Number(stripNumberFormatting(value));
     setForm((prev) => {
       const next = { ...prev };
+      // ── TANNARX (cost_price) kursdan MUSTAQIL ─────────────────────────────
+      // Tannarx HECH QACHON avtomatik konvertatsiya qilinmaydi: SuperAdmin
+      // tovarni qancha so'mga olganini kiritadi va dollar kursi o'zgarsa ham
+      // bu qiymat o'zgarmaydi. Backend ham (Product.save + bulk_update) shu
+      // qoidani himoyalaydi.
+      if (field === 'cost_price') {
+        if (isUsd) (next as any).cost_price_usd = value;
+        else next.cost_price = formatPriceInput(value);
+        return next;
+      }
       if (isUsd) {
         (next as any)[`${field}_usd`] = value;
         if (usdRate > 0) {
@@ -6113,8 +6131,8 @@ const ProductEditor = ({
           ? (minDiscount / usdRate).toFixed(2)
           : prev.discount_price_usd,
       cost_price: minCost > 0 ? formatPriceInput(String(minCost)) : prev.cost_price,
-      cost_price_usd:
-        minCost > 0 && usdRate > 0 ? (minCost / usdRate).toFixed(2) : prev.cost_price_usd,
+      // Tannarx kursdan mustaqil — cost_price_usd kursdan QAYTA hisoblanmaydi.
+      cost_price_usd: prev.cost_price_usd,
     }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [variants, hasVariants]);
@@ -6150,6 +6168,12 @@ const ProductEditor = ({
       c.map((v, i) => {
         if (i !== index) return v;
         const next = { ...v };
+        // Tannarx kursdan mustaqil (mahsulot darajasidagi qoida bilan bir xil)
+        if (field === 'cost_price') {
+          if (isUsd) (next as any).cost_price_usd = value;
+          else next.cost_price = formatPriceInput(value);
+          return next;
+        }
         if (isUsd) {
           (next as any)[`${field}_usd`] = value;
           if (usdRate > 0)

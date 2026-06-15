@@ -1,12 +1,62 @@
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:dio/dio.dart';
 import '../bloc/admin_bloc.dart';
 import '../../data/models/admin_product_model.dart';
+import '../../data/repositories/admin_repository.dart';
+import '../../../../core/di/injection_container.dart';
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  UZS ↔ USD AVTOMATIK KONVERTATSIYA
+//  Saytdagi (frontend/src/pages/AdminPanel.tsx) `stripNumberFormatting` va
+//  `formatPriceInput` mantig'ining AYNAN ko'chirmasi. Admin narx kiritganda
+//  bir maydon (UZS yoki USD) to'ldirilsa, ikkinchisi dollar kursiga ko'ra
+//  avtomatik hisoblanadi.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Probel/vergulli matnni toza songa keltiradi: "15 000 000" → "15000000",
+/// "1 200,50" → "1200.50". (Web: value.replace(/\s+/g,'').replace(/,/g,'.'))
+String _stripNum(String value) =>
+    value.replaceAll(RegExp(r'\s+'), '').replaceAll(',', '.');
+
+/// Butun UZS qiymatni "15 000 000" ko'rinishida probel bilan ajratadi.
+/// (Web: formatPriceInput — minglik ajratuvchi.)
+String _formatUzsDigits(String raw) {
+  final digits =
+      _stripNum(raw).split('.').first.replaceAll(RegExp(r'[^0-9]'), '');
+  if (digits.isEmpty) return '';
+  final trimmed = digits.replaceFirst(RegExp(r'^0+(?=\d)'), '');
+  final buf = StringBuffer();
+  for (var i = 0; i < trimmed.length; i++) {
+    if (i > 0 && (trimmed.length - i) % 3 == 0) buf.write(' ');
+    buf.write(trimmed[i]);
+  }
+  return buf.toString();
+}
+
+/// UZS maydonida foydalanuvchi yozayotganda real-time probel formatlash
+/// (saytdagi minglik ajratuvchi ko'rinishi). Kursorni oxiriga qo'yadi.
+class _ThousandsFormatter extends TextInputFormatter {
+  @override
+  TextEditingValue formatEditUpdate(
+      TextEditingValue oldValue, TextEditingValue newValue) {
+    final formatted = _formatUzsDigits(newValue.text);
+    return TextEditingValue(
+      text: formatted,
+      selection: TextSelection.collapsed(offset: formatted.length),
+    );
+  }
+}
+
+/// USD maydonida faqat raqam, nuqta va vergulga ruxsat (1200.50).
+final List<TextInputFormatter> _usdFormatters = [
+  FilteringTextInputFormatter.allow(RegExp(r'[0-9.,]')),
+];
 
 const List<Map<String, String>> COLOR_PRESETS = [
   {'name': 'Qora', 'hex': '#111827'},
@@ -60,6 +110,11 @@ class _VariantData {
   String? existingImageUrl;
   bool removeImage = false;
 
+  /// Variant narx maydonlari uchun controllerlar — UZS↔USD avtomatik
+  /// konvertatsiya saytdagidek ishlashi uchun (har bir variant alohida).
+  late final TextEditingController priceCtrl;
+  late final TextEditingController priceUsdCtrl;
+
   _VariantData({
     this.groupId,
     this.id,
@@ -75,7 +130,19 @@ class _VariantData {
     this.stock,
     this.imageFile,
     this.existingImageUrl,
-  });
+  }) {
+    // Controllerda chiroyli (probelli) ko'rinish, lekin saqlash uchun
+    // toza qiymatni (price/priceUsd) saqlaymiz.
+    priceCtrl = TextEditingController(text: _formatUzsDigits(price ?? ''));
+    priceUsdCtrl = TextEditingController(text: priceUsd ?? '');
+    price = _stripNum(price ?? '');
+    priceUsd = _stripNum(priceUsd ?? '');
+  }
+
+  void disposeControllers() {
+    priceCtrl.dispose();
+    priceUsdCtrl.dispose();
+  }
 }
 
 class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
@@ -97,20 +164,30 @@ class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
   File? _pickedImage;
   bool _isLoading = false;
 
+  /// Joriy dollar kursi (UZS). 0 bo'lsa avtomatik konvertatsiya o'chiq.
+  /// Saytdagidek `GET /api/admin/exchange-rate/` dan olinadi.
+  final AdminRepository _adminRepo = sl<AdminRepository>();
+  double _usdRate = 0;
+
   List<_VariantData> _variants = [];
 
   @override
   void initState() {
     super.initState();
+    _loadExchangeRate();
     final p = widget.product;
     if (p != null) {
       _name.text = p.name;
       _description.text = p.description;
-      _price.text = p.price.toStringAsFixed(0);
+      _price.text = _formatUzsDigits(p.price.toStringAsFixed(0));
       _priceUsd.text = p.priceUsd?.toStringAsFixed(2) ?? '';
-      _discountPrice.text = p.discountPrice?.toStringAsFixed(0) ?? '';
+      _discountPrice.text = p.discountPrice != null
+          ? _formatUzsDigits(p.discountPrice!.toStringAsFixed(0))
+          : '';
       _discountPriceUsd.text = p.discountPriceUsd?.toStringAsFixed(2) ?? '';
-      _costPrice.text = p.costPrice?.toStringAsFixed(0) ?? '';
+      _costPrice.text = p.costPrice != null
+          ? _formatUzsDigits(p.costPrice!.toStringAsFixed(0))
+          : '';
       _costPriceUsd.text = p.costPriceUsd?.toStringAsFixed(2) ?? '';
       _stock.text = p.stock.toString();
       _selectedCategoryId = p.categoryId;
@@ -153,7 +230,46 @@ class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
     _costPrice.dispose();
     _costPriceUsd.dispose();
     _stock.dispose();
+    for (final v in _variants) {
+      v.disposeControllers();
+    }
     super.dispose();
+  }
+
+  /// Dollar kursini yuklaydi (saytdagidek). Xatolik bo'lsa konvertatsiya
+  /// jim turadi — admin baribir UZS va USD ni qo'lda kiritishi mumkin.
+  Future<void> _loadExchangeRate() async {
+    try {
+      final rate = await _adminRepo.getExchangeRate();
+      if (mounted && rate > 0) setState(() => _usdRate = rate);
+    } catch (_) {
+      // kurs yuklanmadi — avtomatik to'ldirish o'chiq qoladi
+    }
+  }
+
+  /// UZS yozildi → USD ni to'ldiradi. (Web: numericValue / usdRate, 2 xona;
+  /// 0 yoki noto'g'ri bo'lsa bo'sh.)
+  void _syncUsd(String uzsRaw, TextEditingController usdCtrl) {
+    if (_usdRate <= 0) return;
+    final n = double.tryParse(_stripNum(uzsRaw)) ?? 0;
+    if (n <= 0) {
+      usdCtrl.text = '';
+      return;
+    }
+    final s = (n / _usdRate).toStringAsFixed(2);
+    usdCtrl.text = (s == '0.00') ? '' : s;
+  }
+
+  /// USD yozildi → UZS ni to'ldiradi. (Web: round(numericValue * usdRate),
+  /// minglik ajratuvchi bilan.)
+  void _syncUzs(String usdRaw, TextEditingController uzsCtrl) {
+    if (_usdRate <= 0) return;
+    final n = double.tryParse(_stripNum(usdRaw)) ?? 0;
+    if (n <= 0) {
+      uzsCtrl.text = '';
+      return;
+    }
+    uzsCtrl.text = _formatUzsDigits((n * _usdRate).round().toString());
   }
 
   Future<void> _pickImage() async {
@@ -204,6 +320,7 @@ class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
 
   void _removeVariant(_VariantData variant) {
     setState(() {
+      variant.disposeControllers();
       _variants.remove(variant);
     });
   }
@@ -212,10 +329,12 @@ class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
     if (!_formKey.currentState!.validate()) return;
     setState(() => _isLoading = true);
 
+    // Saqlashdan oldin barcha narxlarni toza songa keltiramiz (probel/vergul
+    // backendga ketmasligi uchun).
     final fields = <String, dynamic>{
       'name': _name.text.trim(),
       'description': _description.text.trim(),
-      'price': _price.text.trim(),
+      'price': _stripNum(_price.text),
       'stock': _stock.text.trim(),
       'is_active': _isActive.toString(),
       'is_new': _isNew.toString(),
@@ -224,11 +343,11 @@ class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
     if (_selectedCategoryId != null) {
       fields['category'] = _selectedCategoryId.toString();
     }
-    if (_priceUsd.text.isNotEmpty) fields['price_usd'] = _priceUsd.text.trim();
-    if (_discountPrice.text.isNotEmpty) fields['discount_price'] = _discountPrice.text.trim();
-    if (_discountPriceUsd.text.isNotEmpty) fields['discount_price_usd'] = _discountPriceUsd.text.trim();
-    if (_costPrice.text.isNotEmpty) fields['cost_price'] = _costPrice.text.trim();
-    if (_costPriceUsd.text.isNotEmpty) fields['cost_price_usd'] = _costPriceUsd.text.trim();
+    if (_priceUsd.text.trim().isNotEmpty) fields['price_usd'] = _stripNum(_priceUsd.text);
+    if (_discountPrice.text.trim().isNotEmpty) fields['discount_price'] = _stripNum(_discountPrice.text);
+    if (_discountPriceUsd.text.trim().isNotEmpty) fields['discount_price_usd'] = _stripNum(_discountPriceUsd.text);
+    if (_costPrice.text.trim().isNotEmpty) fields['cost_price'] = _stripNum(_costPrice.text);
+    if (_costPriceUsd.text.trim().isNotEmpty) fields['cost_price_usd'] = _stripNum(_costPriceUsd.text);
 
     final formParts = fields.entries
         .map((e) => MapEntry(e.key, e.value.toString()))
@@ -421,6 +540,7 @@ class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
                       const SizedBox(height: 24),
 
                       _buildSectionTitle(context, 'Narxlar va Qoldiq'),
+                      _ExchangeRateHint(usdRate: _usdRate),
                       Row(
                         children: [
                           Expanded(
@@ -428,6 +548,8 @@ class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
                               label: "Narx (UZS) *",
                               controller: _price,
                               keyboardType: TextInputType.number,
+                              inputFormatters: [_ThousandsFormatter()],
+                              onChanged: (v) => _syncUsd(v, _priceUsd),
                               validator: (v) => v!.isEmpty ? 'Majburiy' : null,
                             ),
                           ),
@@ -437,6 +559,8 @@ class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
                               label: "Narx (USD)",
                               controller: _priceUsd,
                               keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                              inputFormatters: _usdFormatters,
+                              onChanged: (v) => _syncUzs(v, _price),
                             ),
                           ),
                         ],
@@ -449,6 +573,8 @@ class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
                               label: "Chegirma narx (UZS)",
                               controller: _discountPrice,
                               keyboardType: TextInputType.number,
+                              inputFormatters: [_ThousandsFormatter()],
+                              onChanged: (v) => _syncUsd(v, _discountPriceUsd),
                             ),
                           ),
                           const SizedBox(width: 10),
@@ -457,11 +583,17 @@ class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
                               label: "Chegirma narx (USD)",
                               controller: _discountPriceUsd,
                               keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                              inputFormatters: _usdFormatters,
+                              onChanged: (v) => _syncUzs(v, _discountPrice),
                             ),
                           ),
                         ],
                       ),
                       const SizedBox(height: 12),
+                      // ── TANNARX — kursdan MUSTAQIL ──────────────────────────
+                      // Avto-konvertatsiya ATAYIN yo'q: SuperAdmin tovarni
+                      // qancha so'mga olganini aniq kiritadi va kurs o'zgarsa
+                      // ham bu qiymat o'zgarmaydi (backend ham himoyalaydi).
                       Row(
                         children: [
                           Expanded(
@@ -469,6 +601,7 @@ class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
                               label: "Tannarx (UZS)",
                               controller: _costPrice,
                               keyboardType: TextInputType.number,
+                              inputFormatters: [_ThousandsFormatter()],
                             ),
                           ),
                           const SizedBox(width: 10),
@@ -477,11 +610,31 @@ class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
                               label: "Tannarx (USD)",
                               controller: _costPriceUsd,
                               keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                              inputFormatters: _usdFormatters,
                             ),
                           ),
                         ],
                       ),
-                      const SizedBox(height: 12),
+                      Padding(
+                        padding: const EdgeInsets.only(top: 6, bottom: 12),
+                        child: Row(
+                          children: [
+                            Icon(Icons.lock_outline_rounded,
+                                size: 13, color: Colors.grey[500]),
+                            const SizedBox(width: 5),
+                            Expanded(
+                              child: Text(
+                                "Tannarx kursga bog'liq emas — qo'lda kiritiladi",
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  color: Colors.grey[500],
+                                  fontStyle: FontStyle.italic,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
                       _FormField(
                         label: "Umumiy Stok miqdori *",
                         controller: _stock,
@@ -640,6 +793,11 @@ class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
                         constraints: const BoxConstraints(),
                         onPressed: () {
                           setState(() {
+                            for (final r in _variants
+                                .where((v) => v.groupId == groupId)
+                                .toList()) {
+                              r.disposeControllers();
+                            }
                             _variants.removeWhere((v) => v.groupId == groupId);
                           });
                         },
@@ -896,19 +1054,29 @@ class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
             children: [
               Expanded(
                 child: TextFormField(
-                  initialValue: v.price,
+                  controller: v.priceCtrl,
                   keyboardType: TextInputType.number,
+                  inputFormatters: [_ThousandsFormatter()],
                   decoration: _inputDeco('Alohida narx (UZS)'),
-                  onChanged: (val) => v.price = val,
+                  onChanged: (val) {
+                    v.price = _stripNum(val);
+                    _syncUsd(val, v.priceUsdCtrl);
+                    v.priceUsd = _stripNum(v.priceUsdCtrl.text);
+                  },
                 ),
               ),
               const SizedBox(width: 8),
               Expanded(
                 child: TextFormField(
-                  initialValue: v.priceUsd,
+                  controller: v.priceUsdCtrl,
                   keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                  inputFormatters: _usdFormatters,
                   decoration: _inputDeco('Alohida narx (USD)'),
-                  onChanged: (val) => v.priceUsd = val,
+                  onChanged: (val) {
+                    v.priceUsd = _stripNum(val);
+                    _syncUzs(val, v.priceCtrl);
+                    v.price = _stripNum(v.priceCtrl.text);
+                  },
                 ),
               ),
             ],
@@ -936,12 +1104,16 @@ class _FormField extends StatelessWidget {
     this.keyboardType,
     this.validator,
     this.maxLines = 1,
+    this.onChanged,
+    this.inputFormatters,
   });
   final String label;
   final TextEditingController controller;
   final TextInputType? keyboardType;
   final String? Function(String?)? validator;
   final int maxLines;
+  final ValueChanged<String>? onChanged;
+  final List<TextInputFormatter>? inputFormatters;
 
   @override
   Widget build(BuildContext context) {
@@ -961,6 +1133,8 @@ class _FormField extends StatelessWidget {
           keyboardType: keyboardType,
           validator: validator,
           maxLines: maxLines,
+          onChanged: onChanged,
+          inputFormatters: inputFormatters,
           decoration: InputDecoration(
             filled: true,
             fillColor: theme.colorScheme.surfaceContainerLowest,
@@ -979,6 +1153,38 @@ class _FormField extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+/// Narxlar bo'limi tepasidagi kichik eslatma: joriy dollar kursi va UZS↔USD
+/// avtomatik hisoblanishini bildiradi (saytdagi tajribaga mos).
+class _ExchangeRateHint extends StatelessWidget {
+  const _ExchangeRateHint({required this.usdRate});
+  final double usdRate;
+
+  @override
+  Widget build(BuildContext context) {
+    if (usdRate <= 0) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Row(
+        children: [
+          const Icon(Icons.sync_alt_rounded, size: 15, color: Color(0xFF0A7C55)),
+          const SizedBox(width: 6),
+          Expanded(
+            child: Text(
+              "1\$ = ${_formatUzsDigits(usdRate.toStringAsFixed(0))} so'm — "
+              "narx va chegirma narx avtomatik hisoblanadi",
+              style: TextStyle(
+                fontSize: 11.5,
+                color: Colors.grey[600],
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

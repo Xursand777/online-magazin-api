@@ -1,6 +1,7 @@
 import random
 import re
 
+from django.db import transaction
 from django.db.models import Case, IntegerField, Min, Max, Q, Sum, Value, When
 from .serializers import absolute_media_url
 from django.utils import timezone
@@ -1084,34 +1085,45 @@ class AdminExchangeRateView(views.APIView):
         except:
             return Response({'error': 'Invalid rate format'}, status=status.HTTP_400_BAD_REQUEST)
             
-        setting, _ = GlobalSetting.objects.get_or_create(key='usd_rate')
-        setting.value = str(new_rate_dec)
-        setting.save()
-        
-        # Bulk update products
-        products = list(Product.objects.filter(price_usd__gt=0))
-        for p in products:
-            p.price = (p.price_usd * new_rate_dec).quantize(Decimal('1'))
-            if p.discount_price_usd:
-                p.discount_price = (p.discount_price_usd * new_rate_dec).quantize(Decimal('1'))
-        
-        if products:
-            Product.objects.bulk_update(products, ['price', 'discount_price'])
+        # Kurs yangilanishi + USD'da narxlangan mahsulotlarni qayta hisoblash
+        # bitta atomik tranzaksiyada: yarim-yangilangan holat bo'lmasligi uchun.
+        #
+        # MUHIM QOIDA (biznes-logikasi):
+        #   Kurs o'zgarganda FAQAT sotuv narxi (price) va chegirma narxi
+        #   (discount_price) qayta hisoblanadi. TANNARX (cost_price) HECH QACHON
+        #   o'zgarmaydi — u SuperAdmin kiritgan haqiqiy so'm xarid qiymati bo'lib
+        #   qoladi. Mijoz tomonida ham faqat narx/chegirma yangilangani ko'rinadi.
+        with transaction.atomic():
+            setting, _ = GlobalSetting.objects.get_or_create(key='usd_rate')
+            setting.value = str(new_rate_dec)
+            setting.save()
 
-        # Bulk update variants
-        variants = list(ProductVariant.objects.filter(price_usd__isnull=False))
-        for v in variants:
-            v.price = (v.price_usd * new_rate_dec).quantize(Decimal('1'))
-            if v.discount_price_usd:
-                v.discount_price = (v.discount_price_usd * new_rate_dec).quantize(Decimal('1'))
-            if v.cost_price_usd:
-                v.cost_price = (v.cost_price_usd * new_rate_dec).quantize(Decimal('1'))
-        
-        if variants:
-            ProductVariant.objects.bulk_update(variants, ['price', 'discount_price', 'cost_price'])
-            
+            # ── Mahsulotlar: price + discount_price (cost_price'ga tegmaymiz) ──
+            products = list(Product.objects.filter(price_usd__gt=0))
+            for p in products:
+                p.price = (p.price_usd * new_rate_dec).quantize(Decimal('1'))
+                if p.discount_price_usd:
+                    p.discount_price = (p.discount_price_usd * new_rate_dec).quantize(Decimal('1'))
+
+            if products:
+                Product.objects.bulk_update(products, ['price', 'discount_price'])
+
+            # ── Variantlar: price + discount_price (cost_price'ga tegmaymiz) ──
+            variants = list(ProductVariant.objects.filter(price_usd__gt=0))
+            for v in variants:
+                v.price = (v.price_usd * new_rate_dec).quantize(Decimal('1'))
+                if v.discount_price_usd:
+                    v.discount_price = (v.discount_price_usd * new_rate_dec).quantize(Decimal('1'))
+
+            if variants:
+                ProductVariant.objects.bulk_update(variants, ['price', 'discount_price'])
+
         return Response({
-            'message': f'Kurs yangilandi: {new_rate_dec}. {len(products)} ta mahsulot va {len(variants)} ta variant narxi qayta hisoblandi.',
+            'message': (
+                f'Kurs yangilandi: {new_rate_dec}. '
+                f'{len(products)} ta mahsulot va {len(variants)} ta variant '
+                f'narxi va chegirma narxi qayta hisoblandi (tannarx o\'zgarmadi).'
+            ),
             'usd_rate': float(new_rate_dec)
         })
 

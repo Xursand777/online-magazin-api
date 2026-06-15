@@ -64,12 +64,12 @@ class GlobalSetting(models.Model):
 
         setting, _ = cls.objects.get_or_create(
             key='usd_rate',
-            defaults={'value': '12800', 'description': "1 USD kurs (so'mda)"},
+            defaults={'value': '12000', 'description': "1 USD kurs (so'mda)"},
         )
         try:
             rate = Decimal(setting.value)
         except Exception:
-            rate = Decimal('12800')
+            rate = Decimal('12000')
 
         cache.set(cache_key, str(rate), timeout=cls._CACHE_TTL)
         return rate
@@ -522,9 +522,15 @@ class Product(models.Model):
         else:
             self.is_discount = False
         
-        # USD dan So'm ga o'tkazish (agar USD kiritilgan bo'lsa)
-        # Eslatma: Bu faqat individual save() chaqirilganda ishlaydi. 
-        # Global kurs o'zgarganda bulk update kerak bo'ladi.
+        # USD → So'm: FAQAT sotuv narxi va chegirma narxi kursdan hisoblanadi.
+        # ─────────────────────────────────────────────────────────────────────
+        # TANNARX (cost_price) ataYIN bu yerda hisoblanMAYDI — u SuperAdmin
+        # kiritgan haqiqiy so'm xarid qiymati bo'lib qoladi va kursga bog'liq
+        # emas. Foydalanuvchi (mijoz) tomonida kurs o'zgarsa, faqat narx va
+        # chegirma narx o'zgaradi.
+        # Eslatma: Bu faqat individual save() da ishlaydi. Global kurs
+        # o'zgarganda AdminExchangeRateView bulk_update qiladi (faqat
+        # price + discount_price).
         if self.price_usd:
             rate = GlobalSetting.get_usd_rate()
             self.price = (self.price_usd * rate).quantize(Decimal('1'))
@@ -623,13 +629,18 @@ class ProductVariant(models.Model):
         ordering = ['position', 'id']
 
     def save(self, *args, **kwargs):
+        # USD → So'm: FAQAT sotuv narxi va chegirma narxi kursga bog'liq.
+        # ─────────────────────────────────────────────────────────────────────
+        # TANNARX (cost_price) ATAYIN bu yerga kiritilMAYDI: u SuperAdmin
+        # kiritgan haqiqiy so'm xarid qiymati bo'lib qolishi shart. Kurs
+        # o'zgarsa ham tannarx hech qachon qayta hisoblanmaydi — admin tovarni
+        # qancha so'mga olganini aniq bilib turishi uchun. (Product.save() ham
+        # aynan shunday ishlaydi.)
         if self.price_usd:
             rate = GlobalSetting.get_usd_rate()
             self.price = (self.price_usd * rate).quantize(Decimal('1'))
             if self.discount_price_usd:
                 self.discount_price = (self.discount_price_usd * rate).quantize(Decimal('1'))
-            if self.cost_price_usd:
-                self.cost_price = (self.cost_price_usd * rate).quantize(Decimal('1'))
         super().save(*args, **kwargs)
 
     def __str__(self):
