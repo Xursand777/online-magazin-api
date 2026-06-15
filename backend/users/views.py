@@ -55,6 +55,27 @@ def generate_otp() -> str:
     return f"{secrets.randbelow(1_000_000):06d}"
 
 
+def _is_privileged_account(user) -> bool:
+    """
+    Imtiyozli akkauntmi? — super_admin, yoki xodim (admin/sotuvchi/kuryer).
+
+    ── ULTRA-XAVFSIZLIK QOIDASI ─────────────────────────────────────────────────
+    Bunday akkauntlar uchun debug OTP (sobit 121212 kod) HECH QACHON ishlamaydi.
+    Faqat haqiqiy, kriptografik tasodifiy SMS kod qabul qilinadi — `OTP_DEBUG`
+    yoki `DEBUG` qanday bo'lishidan QAT'I NAZAR.
+
+    NIMA UCHUN MUHIM:
+        Agar production'da OTP_DEBUG=True bo'lsa (oddiy mijozlar uchun qulaylik
+        davrida), bu qoidasiz har kim `121212` bilan super_admin sifatida kira
+        olardi — bu KATASTROFA. Bu funksiya shu yo'lni butunlay yopadi.
+    """
+    return bool(
+        getattr(user, 'is_superuser', False)
+        or getattr(user, 'is_staff', False)
+        or getattr(user, 'role', None)
+    )
+
+
 def _set_auth_cookies(response: Response, access_str: str, refresh_str: str = None) -> None:
     """
     Access va Refresh tokenlarni httpOnly cookie sifatida response'ga yozadi.
@@ -121,7 +142,11 @@ class SendOTPView(views.APIView):
             )
 
         # DEV: qulay sobit kod. PROD: kriptografik xavfsiz tasodifiy kod.
-        use_debug_otp = _use_debug_otp()
+        # ── ULTRA-XAVFSIZLIK: imtiyozli akkauntlar (super_admin/xodim) uchun
+        # debug OTP umuman ishlatilmaydi — OTP_DEBUG=True bo'lsa ham haqiqiy
+        # SMS kod generatsiya qilinadi va yuboriladi.
+        privileged = _is_privileged_account(user)
+        use_debug_otp = _use_debug_otp() and not privileged
         otp_code = FAKE_OTP_CODE if use_debug_otp else generate_otp()
 
         cache.set(f"otp_{phone}", otp_code, timeout=OTP_TTL_SECONDS)
@@ -170,11 +195,21 @@ class VerifyOTPView(views.APIView):
                 status=status.HTTP_429_TOO_MANY_REQUESTS,
             )
 
+        # Foydalanuvchini oldinroq topamiz — imtiyozli akkaunt uchun debug
+        # kodni butunlay rad etish kerak (sobit 121212 super_admin'ga ishlamaydi).
+        user = find_user_by_phone(phone)
+        privileged = _is_privileged_account(user) if user else False
+
         cached_otp = cache.get(f"otp_{phone}")
 
         # DEV'da sobit kodga ruxsat; PROD'da FAQAT cache'dagi haqiqiy kod.
-        # Solishtirish constant-time (timing attack'dan himoya).
-        is_dev_code = _use_debug_otp() and secrets.compare_digest(code, FAKE_OTP_CODE)
+        # IMTIYOZLI AKKAUNT (super_admin/xodim): sobit kod HECH QACHON qabul
+        # qilinmaydi — faqat haqiqiy SMS kod. Solishtirish constant-time.
+        is_dev_code = (
+            not privileged
+            and _use_debug_otp()
+            and secrets.compare_digest(code, FAKE_OTP_CODE)
+        )
         is_real_code = bool(cached_otp) and secrets.compare_digest(code, str(cached_otp))
 
         if not (is_dev_code or is_real_code):
@@ -184,7 +219,6 @@ class VerifyOTPView(views.APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        user = find_user_by_phone(phone)
         if not user:
             return Response({"error": "User not found."}, status=status.HTTP_404_NOT_FOUND)
 
