@@ -723,6 +723,34 @@ RATE_LIMIT_ALERT_THRESHOLD = int(os.getenv('RATE_LIMIT_ALERT_THRESHOLD', '100'))
 BACKUP_SUPERUSER_PHONE = os.getenv('BACKUP_SUPERUSER_PHONE', '+998941126777')
 
 # ─────────────────────────────────────────────────────────────────────────────
+# DOIMIY SUPER ADMINLAR — canonical allowlist (FAQAT shu 2 raqam)
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# QOIDA:
+#   Tizimda FAQAT quyidagi telefon raqamlari super_admin bo'la oladi. Boshqa
+#   hech kim (test akkaunt, eski admin va h.k.) super_admin bo'lib qolmaydi.
+#
+#   `python manage.py sync_superusers` komandasi (Procfile release bosqichida
+#   HAR DEPLOY'da avtomatik ishlaydi) shu ro'yxatni majburlaydi:
+#     • Ro'yxatdagi raqamlar  → super_admin (mavjud bo'lsa)
+#     • Ro'yxatda yo'q super_admin → huquqi olib tashlanadi (akkaunt o'chmaydi)
+#
+#   LOCKOUT HIMOYASI: agar ro'yxatdagi birorta super_admin haqiqatan mavjud
+#   bo'lmasa, komanda HECH KIMNI tushirmaydi (hammani qulflab qo'ymaslik uchun).
+#
+#   1-raqam: +998 94 681 09 00 — asosiy (Xursand)
+#   2-raqam: +998 94 112 67 77 — backup (BACKUP_SUPERUSER_PHONE bilan bir xil)
+#
+#   Env orqali o'zgartirsa bo'ladi (vergul bilan):
+#     SUPERUSER_PHONES=+998946810900,+998941126777
+_DEFAULT_SUPERUSER_PHONES = f'+998946810900,{BACKUP_SUPERUSER_PHONE}'
+SUPERUSER_PHONES = [
+    p.strip()
+    for p in os.getenv('SUPERUSER_PHONES', _DEFAULT_SUPERUSER_PHONES).split(',')
+    if p.strip()
+]
+
+# ─────────────────────────────────────────────────────────────────────────────
 # BACKUP — Database backup'lar uchun
 # ─────────────────────────────────────────────────────────────────────────────
 # Backup ALOHIDA B2 bucket'ga yuklanadi (media bucket'dan farqli):
