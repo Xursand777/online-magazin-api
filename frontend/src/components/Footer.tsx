@@ -1,17 +1,71 @@
+import { useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { useTranslation } from '../i18n/useTranslation';
+
+/**
+ * FooterAccordion — footer ustuni.
+ *  • Desktop (md+): sarlavha + ro'yxat doim ochiq (oddiy ustun, accordion emas).
+ *  • Mobil (<md): sarlavha tugma bo'lib, bosilganda ro'yxat ochiladi/yopiladi.
+ *    Boshlang'ich holatda YOPIQ — footer ixcham bo'lishi uchun.
+ */
+const FooterAccordion = ({ title, children }: { title: string; children: ReactNode }) => {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <div className="border-t border-outline-variant/40 md:border-t-0">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
+        className="flex w-full items-center justify-between py-4 text-left md:mb-4 md:py-0 md:pointer-events-none"
+      >
+        <h3 className="font-bold text-on-surface text-sm uppercase tracking-wider">
+          {title}
+        </h3>
+        <span
+          className={`material-symbols-outlined text-[22px] text-on-surface-variant transition-transform duration-200 md:hidden ${
+            open ? 'rotate-180' : ''
+          }`}
+        >
+          expand_more
+        </span>
+      </button>
+
+      <div className={`${open ? 'block' : 'hidden'} pb-4 md:block md:pb-0`}>
+        {children}
+      </div>
+    </div>
+  );
+};
 
 const Footer = () => {
   const currentYear = new Date().getFullYear();
   const { t } = useTranslation();
 
+  const sectionLinks = [
+    { to: '/', label: t.footer.mainPage },
+    { to: '/catalog', label: t.footer.catalog },
+    { to: '/cart', label: t.footer.cart },
+    { to: '/favorites', label: t.footer.favorites },
+    { to: '/profile', label: t.footer.profile },
+  ];
+
+  const infoLinks = [
+    { to: '/payment-info', label: t.footer.paymentTypes },
+    { to: '/delivery', label: t.footer.delivery },
+    { to: '/returns', label: t.footer.returns },
+    { to: '/terms', label: t.footer.terms },
+    { to: '/privacy', label: t.footer.privacy },
+    { to: '/about', label: t.footer.about },
+  ];
+
   return (
     <footer className="bg-surface-container-lowest border-t border-outline-variant/60 w-full mt-16 pb-20 md:pb-0">
       <div className="max-w-container-max mx-auto px-margin-mobile md:px-margin-desktop py-10 md:py-14">
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-8 md:gap-12">
+        <div className="md:grid md:grid-cols-4 md:gap-12">
 
-          {/* Column 1 — Brand */}
-          <div className="col-span-2 md:col-span-1">
+          {/* Column 1 — Brand (mobilda ham ko'rinib turadi) */}
+          <div className="mb-6 md:mb-0">
             <Link to="/" className="inline-block mb-4">
               <span className="text-[28px] font-black tracking-tight text-primary">Bozor</span>
             </Link>
@@ -38,18 +92,9 @@ const Footer = () => {
           </div>
 
           {/* Column 2 — Navigation */}
-          <div>
-            <h3 className="font-bold text-on-surface text-sm uppercase tracking-wider mb-4">
-              {t.footer.sections}
-            </h3>
+          <FooterAccordion title={t.footer.sections}>
             <ul className="flex flex-col gap-2.5">
-              {[
-                { to: '/', label: t.footer.mainPage },
-                { to: '/catalog', label: t.footer.catalog },
-                { to: '/cart', label: t.footer.cart },
-                { to: '/favorites', label: t.footer.favorites },
-                { to: '/profile', label: t.footer.profile },
-              ].map(({ to, label }) => (
+              {sectionLinks.map(({ to, label }) => (
                 <li key={to}>
                   <Link
                     to={to}
@@ -63,22 +108,12 @@ const Footer = () => {
                 </li>
               ))}
             </ul>
-          </div>
+          </FooterAccordion>
 
           {/* Column 3 — Info */}
-          <div>
-            <h3 className="font-bold text-on-surface text-sm uppercase tracking-wider mb-4">
-              {t.footer.info}
-            </h3>
+          <FooterAccordion title={t.footer.info}>
             <ul className="flex flex-col gap-2.5">
-              {[
-                { to: '/payment-info', label: t.footer.paymentTypes },
-                { to: '/delivery', label: t.footer.delivery },
-                { to: '/returns', label: t.footer.returns },
-                { to: '/terms', label: t.footer.terms },
-                { to: '/privacy', label: t.footer.privacy },
-                { to: '/about', label: t.footer.about },
-              ].map(({ to, label }) => (
+              {infoLinks.map(({ to, label }) => (
                 <li key={to}>
                   <Link
                     to={to}
@@ -92,13 +127,10 @@ const Footer = () => {
                 </li>
               ))}
             </ul>
-          </div>
+          </FooterAccordion>
 
           {/* Column 4 — Social & Payment */}
-          <div>
-            <h3 className="font-bold text-on-surface text-sm uppercase tracking-wider mb-4">
-              {t.footer.social}
-            </h3>
+          <FooterAccordion title={t.footer.social}>
             <div className="flex flex-col gap-3">
               <a
                 href="https://t.me/bozoruz"
@@ -149,7 +181,7 @@ const Footer = () => {
                 ))}
               </div>
             </div>
-          </div>
+          </FooterAccordion>
         </div>
       </div>
 
