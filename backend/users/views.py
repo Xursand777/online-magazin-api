@@ -141,12 +141,14 @@ class SendOTPView(views.APIView):
                 status=status.HTTP_429_TOO_MANY_REQUESTS,
             )
 
-        # DEV: qulay sobit kod. PROD: kriptografik xavfsiz tasodifiy kod.
-        # ── ULTRA-XAVFSIZLIK: imtiyozli akkauntlar (super_admin/xodim) uchun
-        # debug OTP umuman ishlatilmaydi — OTP_DEBUG=True bo'lsa ham haqiqiy
-        # SMS kod generatsiya qilinadi va yuboriladi.
-        privileged = _is_privileged_account(user)
-        use_debug_otp = _use_debug_otp() and not privileged
+        # DEV / Eskiz hali sozlanmagan davr: qulay sobit kod (121212).
+        # PROD (OTP_DEBUG=False, Eskiz tayyor): kriptografik tasodifiy kod + SMS.
+        # ── XAVFSIZLIK BOSHQARUVI ────────────────────────────────────────────
+        # Sobit kod (121212) FAQAT `OTP_DEBUG=True` bo'lganda, ya'ni Eskiz SMS
+        # ruxsatnomasi olinmagan vaqtinchalik davrda ishlaydi. Eskiz tayyor
+        # bo'lib `OTP_DEBUG=False` qo'yilgach, BARCHA foydalanuvchilar (shu
+        # jumladan super_admin) AVTOMAT ravishda faqat haqiqiy SMS kodga o'tadi.
+        use_debug_otp = _use_debug_otp()
         otp_code = FAKE_OTP_CODE if use_debug_otp else generate_otp()
 
         cache.set(f"otp_{phone}", otp_code, timeout=OTP_TTL_SECONDS)
@@ -195,21 +197,12 @@ class VerifyOTPView(views.APIView):
                 status=status.HTTP_429_TOO_MANY_REQUESTS,
             )
 
-        # Foydalanuvchini oldinroq topamiz — imtiyozli akkaunt uchun debug
-        # kodni butunlay rad etish kerak (sobit 121212 super_admin'ga ishlamaydi).
-        user = find_user_by_phone(phone)
-        privileged = _is_privileged_account(user) if user else False
-
         cached_otp = cache.get(f"otp_{phone}")
 
-        # DEV'da sobit kodga ruxsat; PROD'da FAQAT cache'dagi haqiqiy kod.
-        # IMTIYOZLI AKKAUNT (super_admin/xodim): sobit kod HECH QACHON qabul
-        # qilinmaydi — faqat haqiqiy SMS kod. Solishtirish constant-time.
-        is_dev_code = (
-            not privileged
-            and _use_debug_otp()
-            and secrets.compare_digest(code, FAKE_OTP_CODE)
-        )
+        # DEV / Eskiz sozlanmagan davr (OTP_DEBUG=True): sobit kodga ruxsat.
+        # PROD (OTP_DEBUG=False): FAQAT cache'dagi haqiqiy SMS kod.
+        # Solishtirish constant-time (timing attack'dan himoya).
+        is_dev_code = _use_debug_otp() and secrets.compare_digest(code, FAKE_OTP_CODE)
         is_real_code = bool(cached_otp) and secrets.compare_digest(code, str(cached_otp))
 
         if not (is_dev_code or is_real_code):
@@ -219,6 +212,7 @@ class VerifyOTPView(views.APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        user = find_user_by_phone(phone)
         if not user:
             return Response({"error": "User not found."}, status=status.HTTP_404_NOT_FOUND)
 
@@ -282,11 +276,21 @@ class PasswordLoginView(views.APIView):
         phone = serializer.validated_data['phone']
         password = serializer.validated_data['password']
 
+        # ── XAVFSIZLIK: user-enumeration va timing-attack himoyasi ────────────
+        # Raqam topilmasa ham, parol noto'g'ri bo'lsa ham AYNAN bir xil javob
+        # qaytariladi — shunda tashqaridan qaysi raqam bazada borligini bilib
+        # bo'lmaydi. Raqam yo'q bo'lganda ham bir marta hash hisoblanadi
+        # (make_password) — javob vaqti bir xil bo'lib, timing orqali raqam
+        # mavjudligini aniqlab bo'lmaydi.
+        from django.contrib.auth.hashers import make_password
+        _GENERIC_LOGIN_ERROR = {"error": "Telefon raqami yoki parol noto'g'ri."}
+
         user = find_user_by_phone(phone)
-        if not user:
-            return Response({"error": "Telefon raqam topilmadi."}, status=status.HTTP_404_NOT_FOUND)
+        if user is None:
+            make_password(password)  # timing equalize
+            return Response(_GENERIC_LOGIN_ERROR, status=status.HTTP_401_UNAUTHORIZED)
         if not user.check_password(password):
-            return Response({"error": "Parol noto'g'ri."}, status=status.HTTP_400_BAD_REQUEST)
+            return Response(_GENERIC_LOGIN_ERROR, status=status.HTTP_401_UNAUTHORIZED)
         
         # Auto-activate user if not yet verified (SMS bypass)
         if not user.is_active:

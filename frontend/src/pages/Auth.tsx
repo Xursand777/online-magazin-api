@@ -4,13 +4,13 @@ import axios from 'axios';
 import { useAuthStore } from '../store/authStore';
 import { useCartStore } from '../store/cartStore';
 import { useFavoritesStore } from '../store/favoritesStore';
-import { registerUser, requestLoginOtp, verifyLoginOtp } from '../api/endpoints';
+import { registerUser, requestLoginOtp, verifyLoginOtp, loginWithPassword } from '../api/endpoints';
 import { recordTokenIssued } from '../api/client';
 import { toast } from '../utils/toast';
 import { useTranslation } from '../i18n/useTranslation';
 
 const OTP_LENGTH = 6;
-type LoginStep = 'phone' | 'otp';
+type LoginStep = 'phone' | 'otp' | 'password';
 
 // ─── Phone utils ─────────────────────────────────────────────────────────────
 
@@ -105,6 +105,10 @@ const Auth = () => {
 
   // Telefon: faqat 9 ta raqam saqlanadi (prefix +998 ko'rsatiladi, lekin saqlanmaydi)
   const [loginDigits, setLoginDigits] = useState('');
+  // Parol bilan kirish (asosan super_admin/xodim uchun; Eskiz SMS tayyor
+  // bo'lmagan vaqtinchalik davrda asosiy xavfsiz kirish yo'li)
+  const [loginPassword, setLoginPassword] = useState('');
+  const [showLoginPassword, setShowLoginPassword] = useState(false);
   const [otpDigits, setOtpDigits] = useState<string[]>(Array(OTP_LENGTH).fill(''));
   const [otpPhone, setOtpPhone] = useState(''); // OTP yuborilgan 9-raqamli digits
 
@@ -231,6 +235,29 @@ const Auth = () => {
     setLoading(true);
     try {
       const res = await verifyLoginOtp({ phone: toFullPhone(otpPhone), code });
+      await completeSession(res.data);
+    } catch (err) {
+      setError(extractError(err));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handlePasswordLogin = async (e: FormEvent) => {
+    e.preventDefault();
+    const digits = loginDigits.replace(/\D/g, '');
+    if (digits.length !== 9) {
+      setError(t.auth.errors.phoneRequired);
+      return;
+    }
+    if (!loginPassword) {
+      setError(t.auth.errors.passwordRequired);
+      return;
+    }
+    setError('');
+    setLoading(true);
+    try {
+      const res = await loginWithPassword({ phone: toFullPhone(digits), password: loginPassword });
       await completeSession(res.data);
     } catch (err) {
       setError(extractError(err));
@@ -398,6 +425,78 @@ const Auth = () => {
               >
                 {loading && <span className="material-symbols-outlined animate-spin text-[18px]">progress_activity</span>}
                 {t.auth.sendCode}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => { setError(''); setLoginStep('password'); }}
+                className="w-full text-center text-sm font-semibold text-primary hover:underline"
+              >
+                {t.auth.passwordLoginCta}
+              </button>
+            </form>
+          )}
+
+          {/* ── PASSWORD LOGIN STEP ── */}
+          {isLogin && loginStep === 'password' && (
+            <form className="space-y-6" onSubmit={handlePasswordLogin}>
+              <div>
+                <p className="mb-1 text-xl font-bold text-on-surface">{t.auth.passwordLoginTitle}</p>
+                <p className="text-sm leading-6 text-on-surface-variant">{t.auth.passwordLoginSubtitle}</p>
+              </div>
+
+              <div>
+                <label className="mb-2 block text-sm font-semibold text-on-surface" htmlFor="phone-pw-login">
+                  {t.auth.phoneLabel}
+                </label>
+                <PhoneInput
+                  id="phone-pw-login"
+                  digits={loginDigits}
+                  onChange={setLoginDigits}
+                  isComplete={loginDigits.replace(/\D/g, '').length === 9}
+                />
+              </div>
+
+              <div>
+                <label className="mb-2 block text-sm font-semibold text-on-surface" htmlFor="pw-login">
+                  {t.auth.passwordLabel}
+                </label>
+                <div className="relative">
+                  <input
+                    id="pw-login"
+                    type={showLoginPassword ? 'text' : 'password'}
+                    value={loginPassword}
+                    onChange={(e) => setLoginPassword(e.target.value)}
+                    autoComplete="current-password"
+                    placeholder="••••••••"
+                    className="w-full rounded-2xl border border-outline-variant bg-surface-bright px-4 py-4 pr-12 text-base text-on-surface outline-none transition-all focus:border-primary focus:ring-2 focus:ring-primary/15"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowLoginPassword((s) => !s)}
+                    aria-label={showLoginPassword ? t.auth.passwordHide : t.auth.passwordShow}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-on-surface-variant"
+                  >
+                    <span className="material-symbols-outlined text-[20px]">{showLoginPassword ? 'visibility_off' : 'visibility'}</span>
+                  </button>
+                </div>
+              </div>
+
+              <button
+                type="submit"
+                disabled={loading || loginDigits.replace(/\D/g, '').length !== 9 || !loginPassword}
+                className="flex w-full items-center justify-center gap-2 rounded-2xl bg-primary px-5 py-4 text-base font-semibold text-on-primary transition-opacity hover:opacity-92 disabled:opacity-50"
+              >
+                {loading && <span className="material-symbols-outlined animate-spin text-[18px]">progress_activity</span>}
+                {t.auth.passwordLoginButton}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => { setError(''); setLoginPassword(''); setLoginStep('phone'); }}
+                className="w-full text-center text-sm font-semibold text-primary hover:underline"
+              >
+                {t.auth.smsLoginCta}
               </button>
             </form>
           )}
