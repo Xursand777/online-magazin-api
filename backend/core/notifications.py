@@ -175,20 +175,31 @@ def send_admin_alert(
     message = _format_message(severity, text)
 
     try:
-        response = requests.post(
-            f'https://api.telegram.org/bot{config.token}/sendMessage',
-            json={
-                'chat_id': config.chat_id,
-                'text': message,
-                'parse_mode': parse_mode,
-                'disable_web_page_preview': True,
-            },
-            timeout=5,  # tarmoq sekin bo'lsa, 5s dan ko'p kutmaymiz
-        )
+        response = _send_telegram(config, message, parse_mode)
         if response.status_code == 200:
             return True
 
-        # Telegram xato qaytardi
+        # ── PARSE-XATOSI FALLBACK (400) ──────────────────────────────────────
+        # Markdown/HTML formatlash matn ichidagi maxsus belgi (`_`, `*`, `` ` ``)
+        # sababli buzilishi mumkin — masalan "super_admin" so'zidagi `_`. Bunday
+        # holatda Telegram 400 "can't parse entities" qaytaradi. Xabar YO'QOLMASLIGI
+        # uchun uni darhol FORMATSIZ (parse_mode=None) qayta yuboramiz: formatlash
+        # yo'qoladi, lekin ogohlantirish yetib boradi.
+        if response.status_code == 400 and parse_mode:
+            logger.warning(
+                'Telegram parse xatosi (%s) — formatsiz qayta yuborilmoqda. Body: %s',
+                parse_mode, response.text[:150],
+            )
+            retry = _send_telegram(config, _to_plain_text(message), None)
+            if retry.status_code == 200:
+                return True
+            logger.warning(
+                'Telegram qayta yuborish ham muvaffaqiyatsiz: status=%d, body=%s',
+                retry.status_code, retry.text[:200],
+            )
+            return False
+
+        # Boshqa xato (chat_id noto'g'ri, bot bloklangan va h.k.)
         logger.warning(
             'Telegram alert yuborilmadi: status=%d, body=%s',
             response.status_code,
@@ -200,6 +211,32 @@ def send_admin_alert(
         # Tarmoq xato — log'ga yozamiz, lekin server ishlashda davom etadi
         logger.warning('Telegram alert tarmoq xatosi: %s', exc)
         return False
+
+
+def _send_telegram(config: '_TelegramConfig', message: str, parse_mode):
+    """Telegram sendMessage POST — bitta joyda (asosiy + fallback uchun)."""
+    payload = {
+        'chat_id': config.chat_id,
+        'text': message,
+        'disable_web_page_preview': True,
+    }
+    # parse_mode None bo'lsa umuman yubormaymiz (toza matn)
+    if parse_mode:
+        payload['parse_mode'] = parse_mode
+    return requests.post(
+        f'https://api.telegram.org/bot{config.token}/sendMessage',
+        json=payload,
+        timeout=5,  # tarmoq sekin bo'lsa, 5s dan ko'p kutmaymiz
+    )
+
+
+def _to_plain_text(message: str) -> str:
+    """
+    Formatsiz qayta yuborish uchun Markdown markerlarini olib tashlaydi
+    (`*` qalin, `` ` `` kod). Telefon raqami, vaqt va h.k. bu belgilarni
+    o'z ichiga olmaydi, shuning uchun bu xavfsiz va matn toza ko'rinadi.
+    """
+    return message.replace('*', '').replace('`', '')
 
 
 # ── Yengil yordamchi funksiyalar ─────────────────────────────────────────────
