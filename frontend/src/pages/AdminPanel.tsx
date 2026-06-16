@@ -6229,6 +6229,19 @@ const ProductEditor = ({
     setFormError('');
   }, [product, mode]);
 
+  // ── Tahrirlash bosilganda formaga AVTOMAT SCROLL ───────────────────────────
+  // Forma jadval tepasida ochiladi. Admin pastdagi mahsulotni tahrirlasa, forma
+  // yuqorida ochilib, ko'rinmay qoladi — "ochildimi yo'qmi?" degan shubha tug'iladi.
+  // Shuning uchun forma ochilganda unga silliq scroll qilamiz (block:'start').
+  // Kichik timeout — forma DOM'da to'liq joylashgandan keyin scroll bo'lishi uchun.
+  const rootRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const id = window.setTimeout(() => {
+      rootRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 60);
+    return () => window.clearTimeout(id);
+  }, [product, mode]);
+
   const hasVariants = variants.length > 0;
 
   useEffect(() => {
@@ -6536,7 +6549,10 @@ const ProductEditor = ({
   };
 
   return (
-    <div className='rounded-2xl border border-outline-variant bg-surface-container-lowest p-6 shadow-sm'>
+    <div
+      ref={rootRef}
+      className='scroll-mt-4 rounded-2xl border-2 border-primary/50 bg-surface-container-lowest p-6 shadow-md ring-2 ring-primary/10'
+    >
       <div className='mb-6 flex flex-col gap-2 border-b border-outline-variant pb-4 md:flex-row md:items-center md:justify-between'>
         <div>
           <h3 className='font-h3 text-h3 text-on-surface'>
