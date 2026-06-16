@@ -480,10 +480,10 @@ const Home = () => {
           Rasm ko'rinadi, balandligi past, barmoq bilan yon tomonga suriladi
           (snap-x snap-mandatory). Desktop'da yashirin — desktop o'z hero'sini
           ko'rsatadi (pastda hidden md:block). */}
-      <section className="mb-lg md:hidden">
+      <section className="mb-md md:hidden">
         <div
           ref={mobileBannerRef}
-          className="-mx-margin-mobile flex snap-x snap-mandatory gap-3 overflow-x-auto px-margin-mobile pb-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+          className="flex snap-x snap-mandatory gap-3 overflow-x-auto pb-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
         >
           {bannerSlides.map((slide) => (
             <Link
@@ -495,7 +495,7 @@ const Home = () => {
                   ? `linear-gradient(100deg, ${slide.backgroundColor}f0 0%, ${slide.backgroundColor}cc 55%, ${slide.accentColor}99 100%), url(${slide.backgroundImage})`
                   : `linear-gradient(110deg, ${slide.backgroundColor} 0%, ${slide.backgroundColor} 50%, ${slide.accentColor} 100%)`,
               }}
-              className="relative flex w-[88%] shrink-0 snap-start items-stretch overflow-hidden rounded-[22px] bg-cover bg-center text-white shadow-[0_12px_30px_rgba(15,23,42,0.18)]"
+              className="relative flex w-full shrink-0 snap-center items-stretch overflow-hidden rounded-[22px] bg-cover bg-center text-white shadow-[0_12px_30px_rgba(15,23,42,0.18)]"
             >
               <div className="flex min-w-0 flex-1 flex-col justify-center p-4">
                 <span className="mb-2 inline-flex w-fit items-center rounded-full border border-white/30 bg-white/10 px-2.5 py-0.5 text-[10px] font-semibold tracking-wide backdrop-blur-sm">
@@ -566,24 +566,24 @@ const Home = () => {
         </div>
       </section>
 
-      <section className="mb-2xl">
-        <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5">
+      <section className="mb-lg md:mb-2xl">
+        <div className="grid grid-cols-2 gap-2 md:grid-cols-3 md:gap-3 xl:grid-cols-5">
           {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
           {displayCats.slice(0, 5).map((cat: any) => (
             <Link
               key={cat.id}
               to={`/catalog/${cat.slug}`}
-            className="group flex items-center gap-3 rounded-[24px] border border-outline-variant bg-surface-container-low px-4 py-3 shadow-sm transition-all hover:-translate-y-0.5 hover:border-primary/45 hover:bg-primary-container/10 dark:hover:border-outline dark:hover:bg-surface-container-high"
+            className="group flex items-center gap-2.5 rounded-2xl border border-outline-variant bg-surface-container-low px-3 py-2.5 shadow-sm transition-all hover:-translate-y-0.5 hover:border-primary/45 hover:bg-primary-container/10 dark:hover:border-outline dark:hover:bg-surface-container-high md:gap-3 md:rounded-[24px] md:px-4 md:py-3"
           >
-              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-surface-container-lowest text-primary shadow-sm">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-surface-container-lowest text-primary shadow-sm md:h-12 md:w-12 md:rounded-2xl">
                 {cat.image ? (
-                  <img src={cat.image} alt={cat.name} className="h-full w-full rounded-2xl object-cover" />
+                  <img src={cat.image} alt={cat.name} className="h-full w-full rounded-xl object-cover md:rounded-2xl" />
                 ) : (
-                  <span className="material-symbols-outlined text-[26px]">{categoryIcon(cat.name)}</span>
+                  <span className="material-symbols-outlined text-[22px] md:text-[26px]">{categoryIcon(cat.name)}</span>
                 )}
               </div>
-              <div className="min-w-0">
-                <div className="line-clamp-2 text-sm font-semibold leading-5 text-on-surface md:text-base">
+              <div className="min-w-0 flex-1">
+                <div className="line-clamp-2 break-words text-[13px] font-semibold leading-[1.2] text-on-surface md:text-base md:leading-5">
                   {cat.name}
                 </div>
               </div>
