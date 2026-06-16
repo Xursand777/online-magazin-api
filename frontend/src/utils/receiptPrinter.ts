@@ -596,7 +596,7 @@ export function generateCreditAgreementHtml(order: ReceiptOrder, store: StoreInf
     <ul class="terms-list">
       <li>Xaridor ko'rsatilgan muddatda to'lovni amalga oshirishga rozilik bildiradi.</li>
       <li>To'lov muddati o'tsa, sotuvchi xaridor bilan bog'lanib qo'shimcha kelishuvga erishadi.</li>
-      <li>To'lov naqd yoki elektron to'lov tizimi orqali amalga oshiriladi.</li>
+      <li>To'lov naqd pul orqali amalga oshiriladi.</li>
       <li>Ushbu hujjat ikki nusxada tuzildi; har ikki tomon shartlardan xabardor.</li>
     </ul>
   </div>
