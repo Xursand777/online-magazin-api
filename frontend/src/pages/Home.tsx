@@ -360,20 +360,20 @@ const Home = () => {
     };
     el.addEventListener('pointerdown', pause, { passive: true });
     const id = window.setInterval(() => {
-      // offsetParent === null → element yashirin (desktop md:hidden) → o'tkazib yuboramiz
-      if (paused || !el.isConnected || el.offsetParent === null) return;
-      const cards = Array.from(el.children) as HTMLElement[];
-      if (cards.length <= 1) return;
-      const elLeft = el.getBoundingClientRect().left;
-      let curIdx = 0;
-      let minDist = Infinity;
-      cards.forEach((c, i) => {
-        const d = Math.abs(c.getBoundingClientRect().left - elLeft);
-        if (d < minDist) { minDist = d; curIdx = i; }
-      });
-      const nextIdx = (curIdx + 1) % cards.length;
-      cards[nextIdx].scrollIntoView({ behavior: 'smooth', inline: 'start', block: 'nearest' });
-    }, 4000);
+      // Desktop'da yashirin (md:hidden) → o'tkazib yuboramiz
+      if (paused || el.offsetParent === null) return;
+      const count = el.children.length;
+      if (count <= 1) return;
+      // Qadam = karta eni + gap (ikki qardosh offsetLeft farqi — ishonchli).
+      const first = el.children[0] as HTMLElement;
+      const second = el.children[1] as HTMLElement;
+      const step = second.offsetLeft - first.offsetLeft;
+      if (step <= 0) return;
+      const current = Math.round(el.scrollLeft / step);
+      // FAQAT O'NGGA: keyingisi, oxirga yetganda boshiga qaytadi.
+      const next = current + 1 >= count ? 0 : current + 1;
+      el.scrollTo({ left: next * step, behavior: 'smooth' });
+    }, 3500);
     return () => {
       window.clearInterval(id);
       window.clearTimeout(resumeTimer);
