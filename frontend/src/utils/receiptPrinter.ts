@@ -429,7 +429,7 @@ export function generateCreditAgreementHtml(order: ReceiptOrder, store: StoreInf
 <html lang="uz">
 <head>
   <meta charset="UTF-8"/>
-  <title>Nasiya shartnomasi #${order.id}</title>
+  <title>Muddatli to'lov kelishuvi #${order.id}</title>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     @page { size: A4; margin: 20mm 15mm; }
@@ -516,8 +516,8 @@ export function generateCreditAgreementHtml(order: ReceiptOrder, store: StoreInf
       ${store.address ? `<div class="store-sub">${store.address}</div>` : ''}
     </div>
     <div class="doc-title">
-      <h1>NASIYA SHARTNOMASI</h1>
-      <p>Shartnoma №: <strong>${agreementNo}</strong></p>
+      <h1>MUDDATLI TO'LOV KELISHUVI</h1>
+      <p>Kelishuv №: <strong>${agreementNo}</strong></p>
       <p>Sana: <strong>${dateStr}</strong></p>
     </div>
   </div>
@@ -592,13 +592,12 @@ export function generateCreditAgreementHtml(order: ReceiptOrder, store: StoreInf
 
   <!-- ══════════ SHARTLAR ══════════ -->
   <div class="terms-section">
-    <h3>Shartnoma shartlari</h3>
+    <h3>Kelishuv shartlari</h3>
     <ul class="terms-list">
-      <li>Xaridor ko'rsatilgan to'lov muddatiga qat'iy rioya etishi shart.</li>
-      <li>To'lov muddati o'tib ketgan taqdirda, sotuvchi qo'shimcha choralar ko'rish huquqini o'zida saqlab qoladi.</li>
-      <li>Mahsulot to'liq to'lov qilinmaguncha sotuvchi mulki hisoblanadi.</li>
-      <li>To'lov naqd pul ko'rinishida sotuvchi manziliga yoki elektron to'lov tizimi orqali amalga oshiriladi.</li>
-      <li>Ushbu shartnoma ikki nusxada tuzildi va har ikki tomon uchun teng yuridik kuchga ega.</li>
+      <li>Xaridor ko'rsatilgan muddatda to'lovni amalga oshirishga rozilik bildiradi.</li>
+      <li>To'lov muddati o'tsa, sotuvchi xaridor bilan bog'lanib qo'shimcha kelishuvga erishadi.</li>
+      <li>To'lov naqd yoki elektron to'lov tizimi orqali amalga oshiriladi.</li>
+      <li>Ushbu hujjat ikki nusxada tuzildi; har ikki tomon shartlardan xabardor.</li>
     </ul>
   </div>
 
@@ -618,7 +617,7 @@ export function generateCreditAgreementHtml(order: ReceiptOrder, store: StoreInf
 
   <!-- ══════════ FOOTER ══════════ -->
   <div class="doc-footer">
-    ${store.name} · Shartnoma №${agreementNo} · ${dateStr}
+    ${store.name} · Kelishuv №${agreementNo} · ${dateStr}
   </div>
 
 </div>
