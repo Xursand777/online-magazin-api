@@ -438,7 +438,56 @@ const Home = () => {
   return (
     <div className="w-full pb-24 md:pb-8">
 
-      <section className="mb-xl">
+      {/* ── MOBIL — ixcham, yon-suriladigan banner carousel (FAQAT mobil) ──
+          Rasm ko'rinadi, balandligi past, barmoq bilan yon tomonga suriladi
+          (snap-x snap-mandatory). Desktop'da yashirin — desktop o'z hero'sini
+          ko'rsatadi (pastda hidden md:block). */}
+      <section className="mb-lg md:hidden">
+        <div className="-mx-margin-mobile flex snap-x snap-mandatory gap-3 overflow-x-auto px-margin-mobile pb-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          {bannerSlides.map((slide) => (
+            <Link
+              key={slide.id}
+              to={slide.ctaHref}
+              style={{
+                backgroundColor: slide.backgroundColor,
+                backgroundImage: slide.backgroundImage
+                  ? `linear-gradient(100deg, ${slide.backgroundColor}f0 0%, ${slide.backgroundColor}cc 55%, ${slide.accentColor}99 100%), url(${slide.backgroundImage})`
+                  : `linear-gradient(110deg, ${slide.backgroundColor} 0%, ${slide.backgroundColor} 50%, ${slide.accentColor} 100%)`,
+              }}
+              className="relative flex w-[88%] shrink-0 snap-center items-stretch overflow-hidden rounded-[22px] bg-cover bg-center text-white shadow-[0_12px_30px_rgba(15,23,42,0.18)]"
+            >
+              <div className="flex min-w-0 flex-1 flex-col justify-center p-4">
+                <span className="mb-2 inline-flex w-fit items-center rounded-full border border-white/30 bg-white/10 px-2.5 py-0.5 text-[10px] font-semibold tracking-wide backdrop-blur-sm">
+                  {slide.eyebrow}
+                </span>
+                <h3 className="line-clamp-2 text-[16px] font-black leading-tight">{slide.title}</h3>
+                {(slide.price || slide.oldPrice) && (
+                  <div className="mt-2 flex flex-wrap items-baseline gap-x-2">
+                    {slide.price && (
+                      <span className="text-[19px] font-black leading-none">{slide.price}</span>
+                    )}
+                    {slide.oldPrice && (
+                      <span className="text-[11px] opacity-70 line-through">{slide.oldPrice}</span>
+                    )}
+                  </div>
+                )}
+              </div>
+              {slide.image && (
+                <div className="flex w-[40%] shrink-0 items-center justify-center p-2">
+                  <img
+                    src={slide.image}
+                    alt={slide.title}
+                    className="max-h-[112px] w-full object-contain drop-shadow-[0_10px_18px_rgba(0,0,0,0.35)]"
+                  />
+                </div>
+              )}
+            </Link>
+          ))}
+        </div>
+      </section>
+
+      {/* ── DESKTOP hero (FAQAT desktop) ── */}
+      <section className="mb-xl hidden md:block">
         <div className="relative overflow-hidden rounded-[28px] border border-outline-variant bg-surface-container-lowest shadow-[0_24px_70px_rgba(15,23,42,0.12)]">
           <div className="relative min-h-[340px] md:min-h-[440px] lg:min-h-[480px]">
             {renderBannerSlide(currentSlide, true)}
