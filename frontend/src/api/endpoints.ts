@@ -177,6 +177,26 @@ export const adminGetReportOrders = (params?: {
   page_size?: number;
 }) => apiClient.get('/orders/admin/report/orders/', { params });
 
+/**
+ * Eksport (PDF / Excel) uchun — sana oralig'idagi BARCHA cheklarni yig'adi.
+ * Backend max_page_size = 100, shuning uchun `next` tugaguncha sahifalab olamiz.
+ * Xavfsizlik chegarasi: MAX_PAGES (10 000 buyurtma) — cheksiz siklning oldini oladi.
+ */
+export async function fetchAllReportOrders(params: {
+  date_from?: string;
+  date_to?: string;
+}): Promise<unknown[]> {
+  const all: unknown[] = [];
+  const MAX_PAGES = 100;
+  for (let page = 1; page <= MAX_PAGES; page += 1) {
+    const res = await adminGetReportOrders({ ...params, page, page_size: 100 });
+    const data = res.data as { results?: unknown[]; next?: string | null };
+    if (Array.isArray(data?.results)) all.push(...data.results);
+    if (!data?.next) break;
+  }
+  return all;
+}
+
 export const adminGetExchangeRate = () => apiClient.get('/admin/exchange-rate/');
 export const adminUpdateExchangeRate = (data: { usd_rate: number | string }) =>
   apiClient.post('/admin/exchange-rate/', data);

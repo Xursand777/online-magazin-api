@@ -12,7 +12,7 @@ import React, {
 } from 'react';
 import { useMutation, useQuery, useQueryClient, useInfiniteQuery } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
-import * as XLSX from 'xlsx';
+import type ExcelJSNS from 'exceljs';
 import { useAuthStore } from '../store/authStore';
 import { useCartStore } from '../store/cartStore';
 import {
@@ -74,8 +74,9 @@ import {
 } from '../utils/orderStatus';
 import { toast } from '../utils/toast';
 import { printReceipt, printCreditAgreement } from '../utils/receiptPrinter';
+import { printReport } from '../utils/reportPrinter';
 import { loadShopInfo, useShopInfo, updateShopInfoCache } from '../utils/shopInfoCache';
-import { adminPollOrders } from '../api/endpoints';
+import { adminPollOrders, fetchAllReportOrders } from '../api/endpoints';
 import ThemeToggle from '../components/ThemeToggle';
 import AdminPOS from '../components/AdminPOS';
 
@@ -4899,6 +4900,7 @@ const ReportsTab = () => {
   const [dateTo, setDateTo] = useState(TODAY);
   const [period, setPeriod] = useState<'daily' | 'monthly' | 'yearly'>('daily');
   const [search, setSearch] = useState('');
+  const [exporting, setExporting] = useState(false);
   const params = useMemo(
     () => ({ date_from: dateFrom || undefined, date_to: dateTo || undefined, period }),
     [dateFrom, dateTo, period],
@@ -4991,50 +4993,151 @@ const ReportsTab = () => {
       setPeriod('monthly');
     }
   };
-  const exportExcel = () => {
-    if (!filteredProducts.length) {
+  // ── Eksport uchun umumiy ma'lumot yig'ish (barcha cheklar + do'kon info) ────
+  const MONEY_FMT = '#,##0';
+  const rangeLabel = dateFrom || dateTo ? `${dateFrom || '...'} — ${dateTo || '...'}` : 'Barcha vaqt';
+
+  const gatherExportData = async () => {
+    const info = loadShopInfo();
+    const shop = { name: info.name || 'Bozor', phone: info.phone, address: info.address };
+    // Sana oralig'idagi BARCHA cheklarni olamiz (infinite-scroll emas)
+    const rawOrders = (await fetchAllReportOrders({
+      date_from: params.date_from,
+      date_to: params.date_to,
+    })) as ReportOrder[];
+    return { shop, orders: rawOrders, products: allProducts };
+  };
+
+  const exportPdf = async () => {
+    if (exporting) return;
+    if (!allProducts.length && !orders.length) {
       toast.error("Eksport qilish uchun ma'lumot yo'q");
       return;
     }
-    const wsData = [
-      [
-        '#',
-        'Tovar nomi',
-        'Sifat',
-        'Model',
-        'Xotira',
-        'Rang',
-        'SKU',
-        'Narxi',
-        'Chegirma',
-        'Sotilgan',
-        'Kirim',
-        'Sotildi',
-        'Tushum',
-        'Foyda',
-      ],
-      ...filteredProducts.map((p) => [
-        p.rank,
-        p.name,
-        p.quality || '—',
-        p.model || '—',
-        p.size || '—',
-        p.color || '—',
-        p.sku || '—',
-        p.price,
-        p.discount_price ?? '—',
-        p.sold_price,
-        p.cost_price,
-        p.quantity_sold,
-        p.total_revenue,
-        p.net_profit,
-      ]),
-    ];
-    const ws = XLSX.utils.aoa_to_sheet(wsData);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, 'Hisobot');
-    XLSX.writeFile(wb, `bozor_hisobot_${dateFrom || 'all'}_${dateTo || 'all'}.xlsx`);
-    toast.success('Excel fayl yuklab olindi!');
+    setExporting(true);
+    toast.info('Hisobot tayyorlanmoqda...');
+    try {
+      const { shop, orders: allOrders } = await gatherExportData();
+      printReport({ summary, products: allProducts, orders: allOrders, shop, dateFrom, dateTo });
+    } catch {
+      toast.error('Hisobotni tayyorlashda xatolik');
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  const exportExcel = async () => {
+    if (exporting) return;
+    if (!allProducts.length && !orders.length) {
+      toast.error("Eksport qilish uchun ma'lumot yo'q");
+      return;
+    }
+    setExporting(true);
+    toast.info('Excel tayyorlanmoqda...');
+    try {
+      // Dynamic import — exceljs (~165KB) faqat eksport bosilganda yuklanadi,
+      // har bir admin sahifa ochishida emas (yengil initial load).
+      const ExcelJS = (await import('exceljs')).default;
+      const { shop, orders: allOrders } = await gatherExportData();
+      const wb = new ExcelJS.Workbook();
+      wb.creator = shop.name;
+      wb.created = new Date();
+
+      const styleHeader = (row: ExcelJSNS.Row) => {
+        row.height = 20;
+        row.eachCell((cell) => {
+          cell.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+          cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF0A7C55' } };
+          cell.alignment = { vertical: 'middle' };
+        });
+      };
+
+      // ── 1) Xulosa ──
+      const s1 = wb.addWorksheet('Xulosa');
+      s1.columns = [{ width: 26 }, { width: 22 }];
+      const title = s1.addRow([shop.name]);
+      title.getCell(1).font = { bold: true, size: 16, color: { argb: 'FF0A7C55' } };
+      s1.addRow(['Savdo hisoboti']).getCell(1).font = { bold: true, size: 12 };
+      s1.addRow(['Davr', rangeLabel]);
+      s1.addRow(['Yaratilgan', new Date().toLocaleString('uz-UZ')]);
+      s1.addRow([]);
+      ([
+        ['Jami tushum', summary.total_revenue],
+        ['Sof foyda', summary.net_profit],
+        ['Jami chegirma', summary.total_discount],
+        ['Jami xarajat (kirim)', summary.total_cost],
+        ["O'rtacha buyurtma", summary.avg_order_value],
+        ['Jami buyurtmalar', summary.total_orders],
+        ['Yetkazildi', summary.delivered_orders],
+        ['Bekor qilindi', summary.cancelled_orders],
+        ['Kutilmoqda', summary.pending_orders],
+      ] as [string, number][]).forEach(([label, val]) => {
+        const r = s1.addRow([label, val]);
+        r.getCell(1).font = { bold: true };
+        r.getCell(2).numFmt = MONEY_FMT;
+      });
+
+      // ── 2) Tovarlar ──
+      const s2 = wb.addWorksheet('Tovarlar');
+      s2.addRow(['#', 'Tovar nomi', 'Sifat', 'Model', 'Xotira', 'Rang', 'SKU',
+        'Narx', 'Chegirma', 'Sotilgan narx', 'Kirim', 'Sotildi (dona)', 'Tushum', 'Foyda']);
+      s2.columns = [{ width: 5 }, { width: 30 }, { width: 12 }, { width: 14 }, { width: 12 },
+        { width: 12 }, { width: 14 }, { width: 13 }, { width: 13 }, { width: 14 },
+        { width: 13 }, { width: 14 }, { width: 14 }, { width: 14 }];
+      styleHeader(s2.getRow(1));
+      allProducts.forEach((p) => {
+        const r = s2.addRow([p.rank, p.name, p.quality || '', p.model || '', p.size || '',
+          p.color || '', p.sku || '', p.price, p.discount_price ?? null, p.sold_price,
+          p.cost_price, p.quantity_sold, p.total_revenue, p.net_profit]);
+        [8, 9, 10, 11, 13, 14].forEach((c) => (r.getCell(c).numFmt = MONEY_FMT));
+      });
+      const pTot = allProducts.reduce(
+        (a, p) => ({ qty: a.qty + p.quantity_sold, rev: a.rev + p.total_revenue, profit: a.profit + p.net_profit }),
+        { qty: 0, rev: 0, profit: 0 },
+      );
+      const pTotRow = s2.addRow(['', 'JAMI', '', '', '', '', '', '', '', '', '', pTot.qty, pTot.rev, pTot.profit]);
+      pTotRow.font = { bold: true };
+      [13, 14].forEach((c) => (pTotRow.getCell(c).numFmt = MONEY_FMT));
+      s2.autoFilter = 'A1:N1';
+      s2.views = [{ state: 'frozen', ySplit: 1 }];
+
+      // ── 3) Buyurtmalar (barcha cheklar) ──
+      const s3 = wb.addWorksheet('Buyurtmalar');
+      s3.addRow(['ID', 'Sana', 'Qabul qiluvchi', 'Telefon', 'Dona', 'Chegirma', 'Summa']);
+      s3.columns = [{ width: 8 }, { width: 20 }, { width: 24 }, { width: 16 },
+        { width: 8 }, { width: 14 }, { width: 16 }];
+      styleHeader(s3.getRow(1));
+      allOrders.forEach((o) => {
+        const itemsCount = (o.items ?? []).reduce((s, it) => s + (it.quantity || 0), 0);
+        const r = s3.addRow([o.id, new Date(o.created_at).toLocaleString('uz-UZ'),
+          o.receiver_name, o.receiver_phone || '', itemsCount,
+          Number(o.total_discount ?? 0), Number(o.total_price ?? 0)]);
+        [6, 7].forEach((c) => (r.getCell(c).numFmt = MONEY_FMT));
+      });
+      const oTot = allOrders.reduce((s, o) => s + Number(o.total_price ?? 0), 0);
+      const oTotRow = s3.addRow(['', '', '', 'JAMI', '', '', oTot]);
+      oTotRow.font = { bold: true };
+      oTotRow.getCell(7).numFmt = MONEY_FMT;
+      s3.autoFilter = 'A1:G1';
+      s3.views = [{ state: 'frozen', ySplit: 1 }];
+
+      // ── Yuklab olish ──
+      const buf = await wb.xlsx.writeBuffer();
+      const blob = new Blob([buf], {
+        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `bozor_hisobot_${dateFrom || 'all'}_${dateTo || 'all'}.xlsx`;
+      a.click();
+      URL.revokeObjectURL(url);
+      toast.success('Excel fayl yuklab olindi!');
+    } catch {
+      toast.error('Excel tayyorlashda xatolik');
+    } finally {
+      setExporting(false);
+    }
   };
   const fmt = (v: number) => v.toLocaleString('uz-UZ');
   const kpiCards = [
@@ -5100,15 +5203,21 @@ const ReportsTab = () => {
         <div className='flex flex-wrap items-center gap-2'>
           <button
             onClick={exportExcel}
-            className='flex items-center gap-2 rounded-lg border border-[#22c55e] bg-[#22c55e]/10 px-4 py-2 text-sm font-semibold text-[#22c55e] hover:bg-[#22c55e] hover:text-white'
+            disabled={exporting}
+            className='flex items-center gap-2 rounded-lg border border-[#22c55e] bg-[#22c55e]/10 px-4 py-2 text-sm font-semibold text-[#22c55e] hover:bg-[#22c55e] hover:text-white disabled:opacity-50 disabled:cursor-not-allowed'
           >
-            <span className='material-symbols-outlined text-[18px]'>table_view</span>Excel Yuklash
+            <span className='material-symbols-outlined text-[18px]'>
+              {exporting ? 'progress_activity' : 'table_view'}
+            </span>Excel Yuklash
           </button>
           <button
-            onClick={() => window.print()}
-            className='flex items-center gap-2 rounded-lg border border-error bg-error/10 px-4 py-2 text-sm font-semibold text-error hover:bg-error hover:text-white'
+            onClick={exportPdf}
+            disabled={exporting}
+            className='flex items-center gap-2 rounded-lg border border-error bg-error/10 px-4 py-2 text-sm font-semibold text-error hover:bg-error hover:text-white disabled:opacity-50 disabled:cursor-not-allowed'
           >
-            <span className='material-symbols-outlined text-[18px]'>picture_as_pdf</span>PDF
+            <span className={`material-symbols-outlined text-[18px] ${exporting ? 'animate-spin' : ''}`}>
+              {exporting ? 'progress_activity' : 'picture_as_pdf'}
+            </span>PDF
           </button>
         </div>
       </div>
