@@ -7,6 +7,7 @@ import '../../../../core/network/api_client.dart';
 import '../../../../core/network/api_constants.dart';
 import '../../../../core/i18n/language_extension.dart';
 import '../../../../core/widgets/coming_soon_sheet.dart';
+import '../../../../core/widgets/payment_methods_sheet.dart';
 import '../../../auth/presentation/bloc/auth_bloc.dart';
 import '../cubit/favorites_cubit.dart';
 import '../cubit/favorites_state.dart';
@@ -643,19 +644,12 @@ class _AuthenticatedProfileState extends State<_AuthenticatedProfile> {
               title: context.tr('profile.myAddress'),
               onTap: () => context.push('/profile-edit'),
             ),
-            // To'lov usullari — kelajakda Click, Payme integratsiyasi
+            // To'lov usullari — mavjud (naqd) + tez orada (Payme) + ustalar (muddatli)
             _menuTile(
               theme,
               icon: Icons.credit_card,
               title: context.tr('profile.paymentMethods'),
-              onTap: () => showComingSoonSheet(
-                context,
-                icon: Icons.credit_card_rounded,
-                title: context.tr('profile.paymentMethods'),
-                description: "Click, Payme, Uzcard va Humo kartalaringizni "
-                    "saqlash va tezkor to'lov qilish imkoniyati tez orada "
-                    "qo'shiladi.",
-              ),
+              onTap: () => showPaymentMethodsSheet(context),
             ),
             // Sozlamalar — endi to'liq ishlaydi (til tanlash + bo'lajak features)
             _menuTile(

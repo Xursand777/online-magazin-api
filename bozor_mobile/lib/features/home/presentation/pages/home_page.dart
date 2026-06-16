@@ -114,9 +114,6 @@ class HomeView extends StatelessWidget {
           fontWeight: FontWeight.w900,
         ),
       ),
-      actions: [
-        IconButton(icon: const Icon(Icons.grid_view), onPressed: () {}),
-      ],
       bottom: PreferredSize(
         preferredSize: const Size.fromHeight(60),
         child: Padding(

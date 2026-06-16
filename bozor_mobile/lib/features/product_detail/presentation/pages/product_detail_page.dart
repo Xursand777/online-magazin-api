@@ -66,7 +66,6 @@ class _ProductDetailView extends StatelessWidget {
               );
             },
           ),
-          IconButton(icon: const Icon(Icons.share), onPressed: () {}),
         ],
       ),
       body: BlocBuilder<ProductDetailBloc, ProductDetailState>(
