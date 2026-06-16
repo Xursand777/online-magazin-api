@@ -1,6 +1,6 @@
 import { type FormEvent, useDeferredValue, useEffect, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { searchProducts } from '../api/endpoints';
 import { useTranslation } from '../i18n/useTranslation';
 
@@ -21,6 +21,9 @@ const GlobalSearch = () => {
   const [query, setQuery] = useState('');
   const [isOpen, setIsOpen] = useState(false);
   const navigate = useNavigate();
+  const location = useLocation();
+  // Katalog tugmasi toggle: katalogda bo'lsak — X (yopish), bosilsa Asosiyga.
+  const isOnCatalog = location.pathname.startsWith('/catalog');
   const containerRef = useRef<HTMLDivElement>(null);
   const deferredQuery = useDeferredValue(query);
   const normalizedQuery = deferredQuery.trim();
@@ -80,13 +83,17 @@ const GlobalSearch = () => {
   return (
     <div className="relative flex-1 w-full max-w-[840px] mx-auto" ref={containerRef}>
       <form onSubmit={handleSubmit} className="flex h-[44px] md:h-[48px] w-full gap-2">
-        <Link
-          to="/catalog"
+        <button
+          type="button"
+          onClick={() => navigate(isOnCatalog ? '/' : '/catalog')}
+          aria-pressed={isOnCatalog}
           className="hidden md:flex h-full items-center justify-center gap-2 rounded-[10px] border-2 border-primary bg-primary-container/10 px-5 text-primary transition-colors hover:bg-primary-container/20"
         >
-          <span className="material-symbols-outlined text-[20px]">menu</span>
+          <span className="material-symbols-outlined text-[20px] transition-transform duration-200">
+            {isOnCatalog ? 'close' : 'menu'}
+          </span>
           <span className="text-[15px] font-bold">{t.search.catalog}</span>
-        </Link>
+        </button>
 
         <div className="flex flex-1 items-center rounded-[10px] border-2 border-primary bg-surface-container-lowest overflow-hidden transition-shadow focus-within:shadow-[0_0_0_4px_rgba(34,197,94,0.15)]">
           <input

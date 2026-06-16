@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 
@@ -343,6 +343,44 @@ const Home = () => {
     return () => window.clearTimeout(timer);
   }, [activeSlide, animationPhase, bannerSlides.length, changeSlide]);
 
+  // ── MOBIL banner AUTO-ROTATION — har 4s da o'ngga keyingi kartaga suriladi,
+  //    oxiriga yetganda boshiga qaytadi. Foydalanuvchi qo'l bilan surganda 6s
+  //    pauza qiladi (qarama-qarshilik bo'lmasin). Faqat mobil (md:hidden) DOM'da.
+  const mobileBannerRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (bannerSlides.length <= 1) return;
+    const el = mobileBannerRef.current;
+    if (!el) return;
+    let paused = false;
+    let resumeTimer: number | undefined;
+    const pause = () => {
+      paused = true;
+      window.clearTimeout(resumeTimer);
+      resumeTimer = window.setTimeout(() => { paused = false; }, 6000);
+    };
+    el.addEventListener('pointerdown', pause, { passive: true });
+    const id = window.setInterval(() => {
+      // offsetParent === null → element yashirin (desktop md:hidden) → o'tkazib yuboramiz
+      if (paused || !el.isConnected || el.offsetParent === null) return;
+      const cards = Array.from(el.children) as HTMLElement[];
+      if (cards.length <= 1) return;
+      const elLeft = el.getBoundingClientRect().left;
+      let curIdx = 0;
+      let minDist = Infinity;
+      cards.forEach((c, i) => {
+        const d = Math.abs(c.getBoundingClientRect().left - elLeft);
+        if (d < minDist) { minDist = d; curIdx = i; }
+      });
+      const nextIdx = (curIdx + 1) % cards.length;
+      cards[nextIdx].scrollIntoView({ behavior: 'smooth', inline: 'start', block: 'nearest' });
+    }, 4000);
+    return () => {
+      window.clearInterval(id);
+      window.clearTimeout(resumeTimer);
+      el.removeEventListener('pointerdown', pause);
+    };
+  }, [bannerSlides.length]);
+
   const jumpToSlide = useCallback((index: number) => {
     if (index === activeSlide) return;
     const isWrappedForward = activeSlide === bannerSlides.length - 1 && index === 0;
@@ -443,7 +481,10 @@ const Home = () => {
           (snap-x snap-mandatory). Desktop'da yashirin — desktop o'z hero'sini
           ko'rsatadi (pastda hidden md:block). */}
       <section className="mb-lg md:hidden">
-        <div className="-mx-margin-mobile flex snap-x snap-mandatory gap-3 overflow-x-auto px-margin-mobile pb-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+        <div
+          ref={mobileBannerRef}
+          className="-mx-margin-mobile flex snap-x snap-mandatory gap-3 overflow-x-auto px-margin-mobile pb-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+        >
           {bannerSlides.map((slide) => (
             <Link
               key={slide.id}
@@ -454,7 +495,7 @@ const Home = () => {
                   ? `linear-gradient(100deg, ${slide.backgroundColor}f0 0%, ${slide.backgroundColor}cc 55%, ${slide.accentColor}99 100%), url(${slide.backgroundImage})`
                   : `linear-gradient(110deg, ${slide.backgroundColor} 0%, ${slide.backgroundColor} 50%, ${slide.accentColor} 100%)`,
               }}
-              className="relative flex w-[88%] shrink-0 snap-center items-stretch overflow-hidden rounded-[22px] bg-cover bg-center text-white shadow-[0_12px_30px_rgba(15,23,42,0.18)]"
+              className="relative flex w-[88%] shrink-0 snap-start items-stretch overflow-hidden rounded-[22px] bg-cover bg-center text-white shadow-[0_12px_30px_rgba(15,23,42,0.18)]"
             >
               <div className="flex min-w-0 flex-1 flex-col justify-center p-4">
                 <span className="mb-2 inline-flex w-fit items-center rounded-full border border-white/30 bg-white/10 px-2.5 py-0.5 text-[10px] font-semibold tracking-wide backdrop-blur-sm">
