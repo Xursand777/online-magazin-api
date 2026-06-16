@@ -272,25 +272,17 @@ export function generateReceiptHtml(order: ReceiptOrder, store: StoreInfo = DEFA
       color: #555;
       margin-top: 8px;
     }
-    .footer-thanks {
-      font-size: 13px;
-      font-weight: bold;
-      color: #000;
-      margin-bottom: 2px;
-    }
-    .barcode-placeholder {
-      font-size: 22px;
-      letter-spacing: 3px;
-      margin: 4px 0 2px;
-      color: #000;
-    }
     .order-ref {
       font-size: 10px;
       color: #444;
     }
 
     @media print {
-      html, body { width: 80mm; }
+      /* Standart termal chek apparati o'lchami: 80mm kenglik, uzunligi avto
+         (uzluksiz rulon). margin:0 — A4 emas, aynan chek kengligida chiqadi. */
+      @page { size: 80mm auto; margin: 0; }
+      html, body { width: 80mm; margin: 0; padding: 0; }
+      .receipt { width: 80mm; padding: 3mm 4mm 5mm; }
     }
   </style>
 </head>
@@ -386,9 +378,6 @@ export function generateReceiptHtml(order: ReceiptOrder, store: StoreInfo = DEFA
 
   <!-- ══════════ FOOTER ══════════ -->
   <div class="footer">
-    <div class="footer-thanks">Xarid uchun rahmat! 🙏</div>
-    <div>Tovarlar qaytarilmaydi va almashinmaydi</div>
-    <div class="barcode-placeholder">||| || ||| || |||</div>
     <div class="order-ref">Ref: ${store.name.replace(/\s/g, '').toUpperCase()}-${String(order.id).padStart(6, '0')}</div>
   </div>
 
