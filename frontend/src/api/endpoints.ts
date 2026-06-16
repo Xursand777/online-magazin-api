@@ -144,7 +144,14 @@ export const adminDeleteBanner = (id: number) => apiClient.delete(`/admin/banner
 export const adminGetCategories = () => apiClient.get('/admin/categories/');
 export const adminCreateCategory = (data: FormData | object) => 
   apiClient.post('/admin/categories/', data, { headers: { 'Content-Type': 'multipart/form-data' } });
-export const adminUpdateCategory = (id: number, data: object) => apiClient.patch(`/admin/categories/${id}/`, data);
+export const adminUpdateCategory = (id: number, data: FormData | object) =>
+  apiClient.patch(
+    `/admin/categories/${id}/`,
+    data,
+    data instanceof FormData
+      ? { headers: { 'Content-Type': 'multipart/form-data' } }
+      : undefined,
+  );
 export const adminDeleteCategory = (id: number) => apiClient.delete(`/admin/categories/${id}/`);
 export const adminGetOrders = (params?: { q?: string; status?: string; date_from?: string; date_to?: string; payment_method?: string; is_credit?: string; payment_status?: string; page?: number; page_size?: number }) => apiClient.get('/orders/admin/', { params });
 export const adminGetDashboard = () => apiClient.get('/orders/admin/dashboard/');

@@ -18,6 +18,7 @@ import { useCartStore } from '../store/cartStore';
 import {
   adminCreateBanner,
   adminCreateCategory,
+  adminUpdateCategory,
   adminCreateProduct,
   adminDeleteBanner,
   adminDeleteCategory,
@@ -3261,9 +3262,44 @@ const CategoriesTab = ({
 }) => {
   const qc = useQueryClient();
   const [showForm, setShowForm] = useState(false);
+  const [editingId, setEditingId] = useState<number | null>(null);
   const [form, setForm] = useState({ name: '', parent: '', is_popular: false });
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const formRef = useRef<HTMLDivElement>(null);
+
+  const resetForm = () => {
+    setForm({ name: '', parent: '', is_popular: false });
+    setImageFile(null);
+    setEditingId(null);
+  };
+
+  // "Kategoriya qo'shish" tugmasi — yaratish rejimini ochadi/yopadi.
+  const openCreate = () => {
+    if (showForm && editingId === null) {
+      setShowForm(false);
+      return;
+    }
+    resetForm();
+    setShowForm(true);
+  };
+
+  // Tahrirlash — formani to'ldirib, formaga scroll qiladi.
+  const openEdit = (cat: AdminCategory) => {
+    setEditingId(cat.id);
+    setForm({
+      name: cat.name,
+      parent: cat.parent ? String(cat.parent) : '',
+      is_popular: !!cat.is_popular,
+    });
+    setImageFile(null);
+    setShowForm(true);
+    setTimeout(
+      () => formRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }),
+      60,
+    );
+  };
+
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     setSubmitting(true);
@@ -3274,12 +3310,15 @@ const CategoriesTab = ({
       fd.append('is_active', 'true');
       fd.append('is_popular', String(form.is_popular));
       if (imageFile) fd.append('image', imageFile);
-      await adminCreateCategory(fd);
+      if (editingId !== null) {
+        await adminUpdateCategory(editingId, fd);
+      } else {
+        await adminCreateCategory(fd);
+      }
       qc.invalidateQueries({ queryKey: ['admin-categories'] });
       qc.invalidateQueries({ queryKey: ['categories'] });
       setShowForm(false);
-      setForm({ name: '', parent: '', is_popular: false });
-      setImageFile(null);
+      resetForm();
     } catch (err) {
       alert(extractErrorMessage(err));
     } finally {
@@ -3294,18 +3333,23 @@ const CategoriesTab = ({
           <h2 className='font-h3 text-h3 text-on-surface'>Kategoriyalar ({flat.length})</h2>
         </div>
         <button
-          onClick={() => setShowForm((c) => !c)}
+          onClick={openCreate}
           className='flex items-center gap-2 rounded-lg bg-primary px-4 py-2 font-label-md text-on-primary hover:opacity-90'
         >
           <span className='material-symbols-outlined text-[18px]'>
-            {showForm ? 'close' : 'add'}
+            {showForm && editingId === null ? 'close' : 'add'}
           </span>
-          {showForm ? 'Yopish' : "Kategoriya qo'shish"}
+          {showForm && editingId === null ? 'Yopish' : "Kategoriya qo'shish"}
         </button>
       </div>
       {showForm && (
-        <div className='mb-6 rounded-xl border border-outline-variant bg-surface-container-lowest p-6 shadow-sm'>
-          <h3 className='mb-4 font-h3 text-h3 text-on-surface'>Yangi kategoriya</h3>
+        <div
+          ref={formRef}
+          className='mb-6 scroll-mt-4 rounded-xl border-2 border-primary/50 bg-surface-container-lowest p-6 shadow-md ring-2 ring-primary/10'
+        >
+          <h3 className='mb-4 font-h3 text-h3 text-on-surface'>
+            {editingId !== null ? 'Kategoriyani tahrirlash' : 'Yangi kategoriya'}
+          </h3>
           <form onSubmit={handleSubmit} className='grid grid-cols-1 gap-4 md:grid-cols-2'>
             <div>
               <label className='mb-1 block text-label-md font-label-md text-on-surface-variant'>
@@ -3330,7 +3374,7 @@ const CategoriesTab = ({
               >
                 <option value=''>-- Asosiy katalog --</option>
                 {flat
-                  .filter((c) => !c.parent)
+                  .filter((c) => !c.parent && c.id !== editingId)
                   .map((c) => (
                     <option key={c.id} value={c.id}>
                       {c.name}
@@ -3348,6 +3392,11 @@ const CategoriesTab = ({
                 onChange={(e) => setImageFile(e.target.files?.[0] || null)}
                 className='w-full cursor-pointer rounded-lg border border-outline-variant bg-surface-bright px-3 py-2 file:mr-4 file:rounded-md file:border-0 file:bg-primary file:px-3 file:py-1 file:text-sm file:text-on-primary'
               />
+              {editingId !== null && !imageFile && (
+                <p className='mt-1 text-[11px] text-on-surface-variant'>
+                  Yangi rasm tanlamasangiz, avvalgi rasm saqlanib qoladi.
+                </p>
+              )}
             </div>
             <div className='flex items-center gap-6 pt-4'>
               <label className='flex cursor-pointer items-center gap-2'>
@@ -3365,7 +3414,7 @@ const CategoriesTab = ({
             <div className='md:col-span-2 flex justify-end gap-3'>
               <button
                 type='button'
-                onClick={() => setShowForm(false)}
+                onClick={() => { setShowForm(false); resetForm(); }}
                 className='rounded-lg border border-outline-variant px-4 py-2 font-label-md text-on-surface hover:bg-surface-container'
               >
                 Bekor
@@ -3380,7 +3429,7 @@ const CategoriesTab = ({
                     progress_activity
                   </span>
                 )}
-                Saqlash
+                {editingId !== null ? "O'zgarishlarni saqlash" : 'Saqlash'}
               </button>
             </div>
           </form>
@@ -3429,12 +3478,22 @@ const CategoriesTab = ({
                   </td>
                   <td className='px-4 py-3 font-mono text-body-sm text-outline'>{cat.slug}</td>
                   <td className='px-4 py-3'>
-                    <button
-                      onClick={() => onDelete(cat.id)}
-                      className='rounded p-1 text-error hover:bg-error-container/20'
-                    >
-                      <span className='material-symbols-outlined text-[20px]'>delete</span>
-                    </button>
+                    <div className='flex items-center gap-1'>
+                      <button
+                        onClick={() => openEdit(cat)}
+                        className='rounded p-1 text-primary hover:bg-primary-container/20'
+                        title='Tahrirlash'
+                      >
+                        <span className='material-symbols-outlined text-[20px]'>edit</span>
+                      </button>
+                      <button
+                        onClick={() => onDelete(cat.id)}
+                        className='rounded p-1 text-error hover:bg-error-container/20'
+                        title="O'chirish"
+                      >
+                        <span className='material-symbols-outlined text-[20px]'>delete</span>
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}
