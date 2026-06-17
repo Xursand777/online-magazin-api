@@ -4152,7 +4152,33 @@ const KassaTab = () => {
             {data?.history?.length || 0} ta yozuv
           </span>
         </div>
-        <div className='overflow-x-auto'>
+        {/* ── MOBIL KARTALAR (telefon) ── */}
+        <div className='divide-y divide-outline-variant md:hidden'>
+          {(data?.history?.length ?? 0) === 0 ? (
+            <div className='px-4 py-10 text-center text-on-surface-variant'>
+              <span className='material-symbols-outlined mb-2 block text-4xl opacity-50'>receipt_long</span>
+              Hozircha hech qanday pul yechilmagan
+            </div>
+          ) : (
+            data?.history?.map((w) => (
+              <div key={w.id} className='flex items-start justify-between gap-2 p-3'>
+                <div className='min-w-0 flex-1'>
+                  <div className='text-sm font-medium text-on-surface'>{w.reason}</div>
+                  <div className='mt-0.5 text-xs text-on-surface-variant'>
+                    {new Date(w.created_at).toLocaleString('uz-UZ', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' })}
+                  </div>
+                  <div className='mt-0.5 flex items-center gap-1 text-xs text-on-surface-variant'>
+                    <span className='material-symbols-outlined text-[14px]'>account_circle</span>
+                    {w.admin_name}
+                  </div>
+                </div>
+                <div className='shrink-0 text-sm font-bold text-error'>−{fmt(w.amount)} so'm</div>
+              </div>
+            ))
+          )}
+        </div>
+        {/* ── DESKTOP JADVAL ── */}
+        <div className='hidden overflow-x-auto md:block'>
           <table className='w-full text-left text-sm'>
             <thead className='bg-surface-container/40 border-b border-outline-variant'>
               <tr>
@@ -5925,7 +5951,61 @@ const NasiyaTab = () => {
           </p>
         </div>
       ) : (
-        <div className='overflow-x-auto rounded-2xl border border-outline-variant bg-surface-container-lowest shadow-sm'>
+        <>
+        {/* ── MOBIL KARTALAR (telefon) ── */}
+        <div className='divide-y divide-outline-variant overflow-hidden rounded-2xl border border-outline-variant bg-surface-container-lowest md:hidden'>
+          {filtered.map((order) => {
+            const dueDate = order.credit_due_date ? new Date(order.credit_due_date) : null;
+            const diffDays = dueDate ? Math.ceil((dueDate.getTime() - today.getTime()) / 86_400_000) : null;
+            const isOverdue = order.credit_is_overdue;
+            const isPaid = order.credit_paid;
+            return (
+              <div key={order.id} className={`p-3 ${isOverdue && !isPaid ? 'bg-error/5' : ''}`}>
+                <div className='flex items-start justify-between gap-2'>
+                  <div className='min-w-0 flex-1'>
+                    <div className='flex items-center gap-1.5'>
+                      <span className='font-mono text-xs font-bold text-on-surface'>#{order.id}</span>
+                      {isPaid ? (
+                        <span className='rounded bg-[#22c55e]/10 px-1.5 py-0.5 text-[10px] font-bold text-[#22c55e]'>To'langan</span>
+                      ) : isOverdue ? (
+                        <span className='rounded bg-error/10 px-1.5 py-0.5 text-[10px] font-bold text-error'>Muddati o'tdi</span>
+                      ) : (
+                        <span className='rounded bg-[#f59e0b]/10 px-1.5 py-0.5 text-[10px] font-bold text-[#f59e0b]'>Kutilmoqda</span>
+                      )}
+                    </div>
+                    <div className='mt-0.5 truncate text-sm font-semibold text-on-surface'>{order.receiver_name}</div>
+                    <div className='text-xs text-on-surface-variant'>{order.receiver_phone}</div>
+                  </div>
+                  <div className='shrink-0 text-right'>
+                    <div className='text-sm font-bold text-primary'>{fmt(order.total_price)} so'm</div>
+                    {!isPaid && diffDays !== null && (
+                      <div className={`text-xs font-semibold ${isOverdue ? 'text-error' : diffDays <= 3 ? 'text-[#f59e0b]' : 'text-on-surface-variant'}`}>
+                        {isOverdue ? `${Math.abs(diffDays)} kun o'tdi` : `${diffDays} kun qoldi`}
+                      </div>
+                    )}
+                  </div>
+                </div>
+                <div className='mt-2 flex items-center justify-between gap-2'>
+                  <span className='text-xs text-on-surface-variant'>
+                    {order.credit_days ?? '—'} kun · {dueDate ? dueDate.toLocaleDateString('uz-UZ', { day: '2-digit', month: '2-digit', year: '2-digit' }) : '—'}
+                  </span>
+                  {!isPaid && (
+                    <button
+                      onClick={() => setNasiyaConfirmOrder(order)}
+                      disabled={payMutation.isPending}
+                      className='flex shrink-0 items-center gap-1 rounded-lg bg-primary px-3 py-1.5 text-xs font-bold text-on-primary hover:opacity-90 disabled:opacity-50'
+                    >
+                      <span className='material-symbols-outlined text-[14px]'>payments</span>
+                      To'landi
+                    </button>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+        {/* ── DESKTOP JADVAL ── */}
+        <div className='hidden overflow-x-auto rounded-2xl border border-outline-variant bg-surface-container-lowest shadow-sm md:block'>
           <table className='w-full min-w-[900px] text-left text-sm'>
             <thead className='bg-surface-container'>
               <tr>
@@ -6014,6 +6094,7 @@ const NasiyaTab = () => {
             </tbody>
           </table>
         </div>
+        </>
       )}
 
       {/* Pagination */}
