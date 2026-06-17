@@ -1785,7 +1785,59 @@ const ProductsTab = ({
         </div>
       ) : (
         <div className='overflow-hidden rounded-xl border border-outline-variant bg-surface-container-lowest shadow-sm'>
-          <div className='overflow-x-auto'>
+          {/* ── MOBIL KARTALAR (telefon) — jadval o'rniga ── */}
+          <div className='divide-y divide-outline-variant md:hidden'>
+            {products.map((product) => (
+              <div key={product.id} className='flex gap-3 p-3'>
+                <div className='h-16 w-16 shrink-0 overflow-hidden rounded-lg border border-outline-variant bg-surface-bright'>
+                  {product.main_image ? (
+                    <img src={product.main_image} alt={product.name} className='h-full w-full object-cover' />
+                  ) : (
+                    <div className='flex h-full w-full items-center justify-center text-outline'>
+                      <span className='material-symbols-outlined'>image</span>
+                    </div>
+                  )}
+                </div>
+                <div className='min-w-0 flex-1'>
+                  <div className='line-clamp-2 text-sm font-semibold text-on-surface'>{product.name}</div>
+                  <div className='mt-0.5 text-xs text-on-surface-variant'>
+                    {product.category_name || 'Biriktirilmagan'}
+                  </div>
+                  <div className='mt-1 flex flex-wrap items-center gap-x-2 text-xs'>
+                    <span className='font-bold text-primary'>{formatMoney(product.price)} so'm</span>
+                    <span className='text-on-surface-variant'>{product.stock} dona</span>
+                    {(product.variants?.length ?? 0) > 0 && (
+                      <span className='text-on-surface-variant'>{product.variants?.length} variant</span>
+                    )}
+                  </div>
+                  <div className='mt-1.5 flex flex-wrap gap-1'>
+                    <StatusBadge active={product.is_active} activeLabel='Faol' inactiveLabel='Yopiq' />
+                    {product.is_new && <MiniBadge tone='primary'>Yangi</MiniBadge>}
+                    {product.is_popular && <MiniBadge tone='secondary'>Ommabop</MiniBadge>}
+                    {product.is_discount && <MiniBadge tone='tertiary'>Chegirma</MiniBadge>}
+                  </div>
+                </div>
+                <div className='flex shrink-0 flex-col gap-1'>
+                  <button
+                    onClick={() => setEditorState({ mode: 'edit', product })}
+                    className='rounded-lg p-2 text-primary hover:bg-primary-container/20'
+                    title='Tahrirlash'
+                  >
+                    <span className='material-symbols-outlined text-[20px]'>edit</span>
+                  </button>
+                  <button
+                    onClick={() => onDelete(product.id)}
+                    className='rounded-lg p-2 text-error hover:bg-error-container/20'
+                    title="O'chirish"
+                  >
+                    <span className='material-symbols-outlined text-[20px]'>delete</span>
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+          {/* ── DESKTOP JADVAL ── */}
+          <div className='hidden overflow-x-auto md:block'>
             <table className='w-full min-w-[980px] text-left'>
               <thead className='border-b border-outline-variant bg-surface-container'>
                 <tr>
@@ -3444,7 +3496,38 @@ const CategoriesTab = ({
         </div>
       ) : (
         <div className='overflow-hidden rounded-xl border border-outline-variant bg-surface-container-lowest shadow-sm'>
-          <table className='w-full text-left'>
+          {/* ── MOBIL KARTALAR (telefon) ── */}
+          <div className='divide-y divide-outline-variant md:hidden'>
+            {flat.map((cat, i) => (
+              <div key={cat.id} className='flex items-center gap-3 p-3'>
+                <span className='w-5 shrink-0 text-xs text-on-surface-variant'>{i + 1}</span>
+                <div className='min-w-0 flex-1'>
+                  <div className='flex items-center gap-2'>
+                    {cat.parent && (
+                      <span className='inline-block h-2.5 w-2.5 shrink-0 border-b-2 border-l-2 border-outline' />
+                    )}
+                    <span className='truncate text-sm font-semibold text-on-surface'>{cat.name}</span>
+                  </div>
+                  <div className='mt-1 flex items-center gap-2'>
+                    <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold ${cat.parent ? 'bg-surface-container text-on-surface-variant' : 'bg-primary-container text-on-primary-container'}`}>
+                      {cat.parent ? 'Kategoriya' : 'Katalog'}
+                    </span>
+                    <span className='truncate font-mono text-[11px] text-outline'>{cat.slug}</span>
+                  </div>
+                </div>
+                <div className='flex shrink-0 items-center gap-1'>
+                  <button onClick={() => openEdit(cat)} className='rounded p-1.5 text-primary hover:bg-primary-container/20' title='Tahrirlash'>
+                    <span className='material-symbols-outlined text-[20px]'>edit</span>
+                  </button>
+                  <button onClick={() => onDelete(cat.id)} className='rounded p-1.5 text-error hover:bg-error-container/20' title="O'chirish">
+                    <span className='material-symbols-outlined text-[20px]'>delete</span>
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+          {/* ── DESKTOP JADVAL ── */}
+          <table className='hidden w-full text-left md:table'>
             <thead className='border-b border-outline-variant bg-surface-container'>
               <tr>
                 {['#', 'Nomi', 'Turi', 'Slug', 'Amal'].map((h) => (
