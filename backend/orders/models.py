@@ -320,6 +320,11 @@ class Order(models.Model):
 
             # Foydalanuvchi buyurtmalari (OrderListView)
             models.Index(fields=['user', '-created_at'], name='order_user_created_idx'),
+
+            # Real-time polling: Max(updated_at) signali har 5-6s so'raladi —
+            # AdminOrdersPollView har qanday o'zgarishni (status, kredit, ...) shu
+            # orqali aniqlaydi. Indeks Max'ni O(log n) qiladi (seq scan emas).
+            models.Index(fields=['-updated_at'], name='order_updated_at_idx'),
         ]
 
 

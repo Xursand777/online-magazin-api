@@ -31,6 +31,9 @@ class _AdminOrdersPageState extends State<AdminOrdersPage>
   final AdminRepository _repo = sl<AdminRepository>();
   Timer? _pollTimer;
   int _lastNotifiedId = -1;          // -1 = baseline hali o'rnatilmagan
+  // HAR QANDAY o'zgarish signali (status/kredit/yangi). Bu o'zgarsa ro'yxat
+  // jim refetch qilinadi — status o'zgarishlari ham real-time ko'rinadi.
+  String? _lastUpdateSeen;           // null = baseline hali o'rnatilmagan
   bool _polling = false;             // bir vaqtning o'zida bitta so'rov
   AppLifecycleState _appState = AppLifecycleState.resumed;
 
@@ -78,21 +81,32 @@ class _AdminOrdersPageState extends State<AdminOrdersPage>
       final r = await _repo.pollOrders(_lastNotifiedId < 0 ? 0 : _lastNotifiedId);
       if (!mounted) return;
 
+      // Birinchi marta — baseline o'rnatamiz (mavjud holatni "yangi/o'zgargan"
+      // deb sanamaslik uchun).
       if (_lastNotifiedId < 0) {
-        _lastNotifiedId = r.latestId; // baseline — mavjudlar uchun eslatma yo'q
+        _lastNotifiedId = r.latestId;
+        _lastUpdateSeen = r.lastUpdate;
         return;
       }
-      if (r.latestId > _lastNotifiedId) {
+
+      final hasNewOrder = r.latestId > _lastNotifiedId;
+      // HAR QANDAY o'zgarish — status/kredit/bekor (id o'zgarmaydi, lekin
+      // last_update oldinga siljiydi). Bu real-time'ning KALITI.
+      final hasAnyChange =
+          r.lastUpdate != null && r.lastUpdate != _lastUpdateSeen;
+
+      // 1) ENG MUHIM — har qanday o'zgarishda ro'yxatni JIM yangilaymiz
+      //    (loading flash yo'q, joriy filtr saqlanadi). Status o'zgarishi
+      //    SuperAdmin/Admin/Sotuvchi/Kuryer hammasida real-time ko'rinadi.
+      if (hasNewOrder || hasAnyChange) {
+        _lastUpdateSeen = r.lastUpdate;
+        context.read<AdminOrdersBloc>().add(const SilentReloadOrders());
+      }
+
+      // 2) Snackbar — FAQAT yangi buyurtma kelganda (status o'zgarishida emas).
+      if (hasNewOrder) {
         final justArrived = r.latestId - _lastNotifiedId; // id ketma-ket = aniq son
         _lastNotifiedId = r.latestId;
-        if (!mounted) return;
-
-        // 1) ENG MUHIM — ro'yxatni JIM yangilaymiz (loading flash yo'q, joriy
-        //    filtr saqlanadi). Bu snackbar'dan ALOHIDA va undan OLDIN bajariladi
-        //    — snackbar xatosi reload'ni HECH QACHON to'xtatmaydi.
-        context.read<AdminOrdersBloc>().add(const SilentReloadOrders());
-
-        // 2) Toast (faqat ko'rsatma — alohida try, xatosi reload'ga ta'sir qilmaydi)
         try {
           _showSnack(
             context,

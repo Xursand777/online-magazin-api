@@ -884,6 +884,29 @@ const useOrdersPolling = (enabled: boolean, isOnOrdersTab: boolean) => {
 
   const latestId = poll.data?.latest_id ?? 0;
   const newCount = poll.data?.new_count ?? 0;
+  // KRITIK real-time signali — server'dagi eng so'nggi o'zgarish vaqti.
+  // Bu qiymat o'zgarsa = biror buyurtma o'zgargan (status/kredit/yangi...).
+  const lastUpdate = (poll.data as { last_update?: string } | undefined)?.last_update ?? null;
+
+  // ── REAL-TIME REFETCH — HAR QANDAY o'zgarishda ro'yxatni yangilash ─────────
+  // Avval faqat YANGI buyurtmada (latestId) refetch bo'lardi → status o'zgarishlari
+  // abnovit qilmaguncha ko'rinmasdi. Endi last_update o'zgarsa darhol refetch.
+  const lastUpdateRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!enabled || !lastUpdate) return;
+    // Birinchi marta — baseline (mavjud holatni "o'zgargan" deb sanamaslik uchun)
+    if (lastUpdateRef.current === null) {
+      lastUpdateRef.current = lastUpdate;
+      return;
+    }
+    if (lastUpdate !== lastUpdateRef.current) {
+      lastUpdateRef.current = lastUpdate;
+      // Active query'lar (har bir rolning Buyurtmalar tabi) avtomat refetch bo'ladi.
+      qc.invalidateQueries({ queryKey: ['admin-orders'] });
+      qc.invalidateQueries({ queryKey: ['admin-dashboard'] });
+      qc.invalidateQueries({ queryKey: ['admin-nasiya-summary'] });
+    }
+  }, [enabled, lastUpdate, qc]);
 
   // ── DETECTION — har bir yangi buyurtmani KAFOLATLI ushlash ─────────────────
   // lastNotifiedId: eslatma chiqarilgan eng katta order id. Bu badge'ning
@@ -2921,9 +2944,11 @@ const OrdersTab = () => {
                                   hali kuryer kerakmas — buyurtma yig'ilmagan
                                 • POS buyurtmalarda yo'q (do'kondan olib ketiladi)
                                 • Bekor qilingan buyurtmalarda yo'q
+                                • RECEIVED (xaridorga topshirilgan) da YO'Q —
+                                  yetkazib berish tugadi, navigatsiya kerakmas
                                 • Koordinata bo'lmasa ham ko'rinadi — sahifa
                                   Yandex/Google/2GIS deep link ko'rsatadi */}
-                          {['PACKING', 'SHIPPING', 'DELIVERED', 'RECEIVED'].includes(
+                          {['PACKING', 'SHIPPING', 'DELIVERED'].includes(
                               order.status,
                             ) &&
                             !order.delivery_address?.includes('POS') && (

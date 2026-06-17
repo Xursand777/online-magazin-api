@@ -15,7 +15,14 @@ import '../models/admin_stock_model.dart';
 class OrdersPollResult {
   final int latestId;
   final int newCount;
-  const OrdersPollResult({required this.latestId, required this.newCount});
+  // HAR QANDAY o'zgarish signali (status/kredit/yangi...) — bu o'zgarsa
+  // ro'yxat refetch qilinadi. Backend Max(updated_at).
+  final String? lastUpdate;
+  const OrdersPollResult({
+    required this.latestId,
+    required this.newCount,
+    this.lastUpdate,
+  });
 }
 
 class AdminRepository {
@@ -187,6 +194,7 @@ class AdminRepository {
     return OrdersPollResult(
       latestId: (data['latest_id'] as num?)?.toInt() ?? 0,
       newCount: (data['new_count'] as num?)?.toInt() ?? 0,
+      lastUpdate: data['last_update'] as String?,
     );
   }
 

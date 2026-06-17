@@ -470,11 +470,17 @@ class AdminOrdersPollView(views.APIView):
         except (ValueError, TypeError):
             since_id = 0
 
-        # Bitta agregat — joriy eng katta order id
-        agg = Order.objects.aggregate(latest_id=Max('id'))
+        # Bitta agregat — eng katta order id (yangi buyurtma) + eng so'nggi
+        # updated_at (HAR QANDAY o'zgarish signali: status, kredit, bekor...).
+        # Ikkalasi ham indekslangan (PK + order_updated_at_idx) → millisekund.
+        agg = Order.objects.aggregate(
+            latest_id=Max('id'),
+            last_update=Max('updated_at'),
+        )
         latest_id = agg['latest_id'] or 0
+        last_update = agg['last_update']
 
-        # Yangi soni — faqat tongdan kichik bo'lsa qo'shimcha query
+        # Yangi soni — faqat since'dan katta bo'lsa qo'shimcha query
         if latest_id > since_id:
             new_count = Order.objects.filter(id__gt=since_id).count()
         else:
@@ -485,6 +491,9 @@ class AdminOrdersPollView(views.APIView):
             'has_new': new_count > 0,
             'new_count': new_count,
             'latest_id': latest_id,
+            # KRITIK real-time signali: bu qiymat o'zgarsa — biror buyurtma
+            # o'zgargan (yangi YOKI status/maydon yangilangan) → ro'yxatni refetch.
+            'last_update': last_update.isoformat() if last_update else None,
             'server_time': timezone.now().isoformat(),
         })
 

@@ -115,16 +115,18 @@ class AdminOrder {
   /// Phase 3.1 — "Xaritadan borish" tugmasi ko'rinishi kerakmi.
   ///
   /// MUKAMMAL LOGIKA:
-  ///   • Faqat PACKING/SHIPPING/DELIVERED/RECEIVED holatlarda ko'rinadi
-  ///     (kuryer aktiv ishlayotgan vaqt — buyurtma yig'ilgan)
+  ///   • Faqat PACKING/SHIPPING/DELIVERED holatlarda ko'rinadi
+  ///     (kuryer aktiv ishlayotgan vaqt — buyurtma yig'ilgan/yo'lda)
   ///   • PENDING/AWAITING_PAYMENT/CONFIRMED da hali kuryer kerakmas
+  ///   • RECEIVED (xaridorga topshirilgan) da YO'Q — yetkazib berish tugadi,
+  ///     navigatsiya kerakmas (barcha rollarda yo'qoladi)
   ///   • POS buyurtmalarda yo'q (do'kondan olib ketiladi)
   ///   • Bekor qilingan buyurtmalarda yo'q
   ///   • Koordinata bo'lmasa ham ko'rinadi — sahifa fallback bilan
   ///     tashqi xaritalar (Yandex/Google/2GIS) deep link ko'rsatadi.
   bool get canShowRouteButton {
     if (isPos) return false;
-    const allowed = {'PACKING', 'SHIPPING', 'DELIVERED', 'RECEIVED'};
+    const allowed = {'PACKING', 'SHIPPING', 'DELIVERED'};
     return allowed.contains(status);
   }
 
