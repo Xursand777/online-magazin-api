@@ -297,6 +297,10 @@ interface AdminOrder {
   credit_paid_at: string | null;
   credit_is_overdue: boolean;
   can_admin_cancel?: boolean;
+  // Backend-avtoritar: nasiyani yopa oladimi (faqat admin/super).
+  can_pay_credit?: boolean;
+  // Backend-avtoritar: shu xodim o'tkaza oladigan oldinga holatlar (rol bo'yicha).
+  allowed_transitions?: string[];
   payment?: { status: string; method: string; amount: string | number } | null;
   items: Array<{
     id: number;
@@ -2712,11 +2716,17 @@ const OrdersTab = () => {
       ) : (
         <div className={`space-y-4 transition-opacity ${isFetching ? 'opacity-60' : 'opacity-100'}`}>
           {orders.map((order) => {
-            const nextFwdStatus = STATUS_FORWARD_TRANSITION[order.status] ?? null;
+            // Oldinga tugma — ROL bo'yicha backend-avtoritar `allowed_transitions`dan.
+            // Kuryer faqat SHIPPING→DELIVERED / DELIVERED→RECEIVED ko'radi; sotuvchi
+            // PACKING→SHIPPING gacha. Eski (cache) ma'lumot uchun status-fallback.
+            const nextFwdStatus = order.allowed_transitions
+              ? (order.allowed_transitions[0] ?? null)
+              : (STATUS_FORWARD_TRANSITION[order.status] ?? null);
             const isFinalStatus = ORDER_FINAL_STATUSES.has(order.status);
 
-            // To'lov usuliga qarab admin bekor qila oladimi
-            const canAdminCancel = (() => {
+            // Bekor qilish — backend-avtoritar (kuryer uchun doim false). Eski
+            // ma'lumotda mahalliy to'lov-usuli mantig'iga qaytamiz.
+            const canAdminCancel = order.can_admin_cancel ?? (() => {
               if (isFinalStatus) return false;
               const pm = order.payment_method;
               const st = order.status;
@@ -3093,7 +3103,8 @@ const OrdersTab = () => {
                             </div>
                           )}
                         </div>
-                        {!order.credit_paid && (
+                        {/* Nasiyani yopish — faqat kassa huquqiga ega xodim (backend-avtoritar). */}
+                        {(order.can_pay_credit ?? !order.credit_paid) && (
                           <button
                             type='button'
                             onClick={() => setCreditConfirmOrder(order)}

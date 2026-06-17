@@ -104,6 +104,13 @@ class OrderSerializer(serializers.ModelSerializer):
     can_cancel = serializers.SerializerMethodField()
     can_admin_cancel = serializers.SerializerMethodField()
     credit_is_overdue = serializers.SerializerMethodField()
+    # Nasiyani yopa oladimi — FAQAT admin/super (kassa huquqi). Kuryer/sotuvchi
+    # uchun False, shunda "Nasiyani yopish" tugmasi UI'da ham ko'rinmaydi.
+    can_pay_credit = serializers.SerializerMethodField()
+    # So'rov yuborgan xodim shu buyurtmani O'TKAZA OLADIGAN oldinga holatlar.
+    # Frontend (web + mobil) shu ro'yxat bo'yicha tugma chizadi — rol bo'yicha
+    # tugma ko'rsatishning yagona avtoritar manbai (bekor qilish KIRMAYDI).
+    allowed_transitions = serializers.SerializerMethodField()
 
     class Meta:
         model = Order
@@ -134,6 +141,8 @@ class OrderSerializer(serializers.ModelSerializer):
             'updated_at',
             'can_cancel',
             'can_admin_cancel',
+            'can_pay_credit',
+            'allowed_transitions',
             'items',
             'payment',
             'history',
@@ -157,16 +166,67 @@ class OrderSerializer(serializers.ModelSerializer):
             'credit_is_overdue',
             'can_cancel',
             'can_admin_cancel',
+            'can_pay_credit',
+            'allowed_transitions',
         )
 
     def get_can_cancel(self, obj):
         return obj.status in Order.CANCELLABLE_STATUSES
+
+    def get_allowed_transitions(self, obj) -> list:
+        """
+        So'rov yuborgan xodim shu buyurtmani o'tkaza oladigan oldinga holatlar.
+
+        Mantiq = NIMA (kanonik oldinga zanjir `STATUS_TRANSITIONS`) ∩ KIM
+        (`can_transition` — rol bo'yicha ruxsat). Bekor qilish bu yerga kirmaydi
+        (u alohida `can_admin_cancel` bilan boshqariladi).
+
+        Misol:
+          • kuryer + SHIPPING  → ['DELIVERED']
+          • kuryer + DELIVERED → ['RECEIVED']
+          • kuryer + PACKING   → []           (kuryer tegmaydi)
+          • sotuvchi + PACKING → ['SHIPPING']
+          • admin + har bir holat → kanonik keyingi holat
+        """
+        request = self.context.get('request')
+        user = getattr(request, 'user', None)
+        if user is None or not user.is_authenticated:
+            return []
+        # Lazy import — aylanma importni oldini olish uchun.
+        from .services import STATUS_TRANSITIONS
+        from users.permissions import can_transition
+
+        targets = STATUS_TRANSITIONS.get(obj.status, set())
+        return [
+            target for target in targets
+            if can_transition(user, obj.status, target)
+        ]
+
+    def get_can_pay_credit(self, obj) -> bool:
+        """Nasiyani yopish — faqat kassa huquqiga ega xodim (admin/super)."""
+        if not obj.is_credit or obj.credit_paid:
+            return False
+        if obj.status in Order.CANCELLATION_STATUSES:
+            return False
+        request = self.context.get('request')
+        user = getattr(request, 'user', None)
+        if user is None or not user.is_authenticated:
+            return False
+        # CanAccessKassa bilan bir xil qoida: super yoki admin.
+        return bool(user.is_superuser or getattr(user, 'role', None) == 'admin')
 
     def get_can_admin_cancel(self, obj) -> bool:
         """
         Backend'dan keluvchi, admin UI uchun ishonchli manba.
         Har bir to'lov usuli va holat kombinatsiyasi uchun hisoblanadi.
         """
+        # Kuryer hech qachon bekor qila olmaydi (chuqurlikdagi mudofaa) —
+        # uning ROLE_TRANSITIONS'ida bekor qilish yo'q.
+        request = self.context.get('request')
+        user = getattr(request, 'user', None)
+        if user is not None and getattr(user, 'role', None) == 'courier' \
+                and not user.is_superuser:
+            return False
         if obj.status in Order.CANCELLATION_STATUSES:
             return False
         if obj.status == Order.STATUS_RECEIVED:

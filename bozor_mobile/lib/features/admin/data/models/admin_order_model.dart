@@ -64,6 +64,12 @@ class AdminOrder {
   final bool creditIsOverdue;
   final DateTime? createdAt;
   final bool canAdminCancel;
+  // Backend-avtoritar: nasiyani yopa oladimi (faqat admin/super). Kuryer/sotuvchi
+  // uchun false → "Nasiyani yopish" tugmasi ko'rinmaydi.
+  final bool canPayCredit;
+  // Backend-avtoritar: shu xodim o'tkaza oladigan oldinga holatlar (rol bo'yicha).
+  // Kuryer: SHIPPING→['DELIVERED'], DELIVERED→['RECEIVED']. Tugmalar shu bo'yicha.
+  final List<String> allowedTransitions;
   final String? userPhone;
   final List<AdminOrderItem> items;
   final AdminPayment? payment;
@@ -91,6 +97,8 @@ class AdminOrder {
     required this.creditIsOverdue,
     required this.createdAt,
     required this.canAdminCancel,
+    required this.canPayCredit,
+    required this.allowedTransitions,
     required this.userPhone,
     required this.items,
     required this.payment,
@@ -145,6 +153,10 @@ class AdminOrder {
       creditIsOverdue: json['credit_is_overdue'] as bool? ?? false,
       createdAt: DateTime.tryParse(json['created_at'] as String? ?? '')?.toLocal(),
       canAdminCancel: json['can_admin_cancel'] as bool? ?? false,
+      canPayCredit: json['can_pay_credit'] as bool? ?? false,
+      allowedTransitions: ((json['allowed_transitions'] as List?) ?? const [])
+          .map((e) => e.toString())
+          .toList(),
       userPhone: user is Map ? user['phone'] as String? : null,
       items: ((json['items'] as List?) ?? [])
           .map((e) => AdminOrderItem.fromJson(e as Map<String, dynamic>))

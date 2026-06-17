@@ -312,7 +312,13 @@ class _OrderCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final color = OrderStatusHelper.badgeColor(order.status);
-    final next = OrderStatusHelper.nextStatus(order.status);
+    // Oldinga tugma — ROL bo'yicha backend-avtoritar `allowedTransitions`dan.
+    // Kuryer faqat SHIPPING→DELIVERED ("Yetkazildi") yoki DELIVERED→RECEIVED
+    // ("Xaridorga topshirildi") ko'radi; sotuvchi PACKING→SHIPPING gacha.
+    // Bo'sh ro'yxat = bu rol uchun oldinga tugma yo'q.
+    final next = order.allowedTransitions.isNotEmpty
+        ? order.allowedTransitions.first
+        : null;
     final dateStr = order.createdAt != null
         ? DateFormat('dd/MM/yyyy HH:mm').format(order.createdAt!)
         : '';
@@ -515,8 +521,7 @@ class _OrderCard extends StatelessWidget {
             ),
           ),
           // Actions
-          if (next != null || order.canAdminCancel ||
-              (order.isCredit && !order.creditPaid)) ...[
+          if (next != null || order.canAdminCancel || order.canPayCredit) ...[
             const Divider(height: 1),
             Padding(
               padding: const EdgeInsets.fromLTRB(14, 10, 14, 12),
@@ -534,7 +539,7 @@ class _OrderCard extends StatelessWidget {
                           ? null
                           : () => _confirmAdvance(context, order, next),
                     ),
-                  if (order.isCredit && !order.creditPaid)
+                  if (order.canPayCredit)
                     _ActionButton(
                       icon: Icons.price_check_rounded,
                       label: "Nasiyani yopish",

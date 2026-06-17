@@ -22,6 +22,7 @@ _STOCK     = frozenset({ROLE_SUPER_ADMIN, ROLE_ADMIN, ROLE_SELLER})
 # ┌─ SOTUVCHI (ROLE_SELLER) ──────────────────────────────────────────────────┐
 # │  PENDING   → CONFIRMED          Yangi buyurtmani tasdiqlash               │
 # │  CONFIRMED → PACKING            Yig'ishni boshlash                        │
+# │  PACKING   → SHIPPING           "Yo'lda (kuryerda)" — kuryerga topshirish │
 # │  PENDING   → CANCELLED_BY_ADMIN Tasdiqlashdan avval bekor qilish          │
 # │  CONFIRMED → CANCELLED_BY_ADMIN Tasdiqdan keyin bekor qilish              │
 # └───────────────────────────────────────────────────────────────────────────┘
@@ -34,6 +35,7 @@ ROLE_TRANSITIONS: dict = {
     ROLE_SELLER: {
         ('PENDING',    'CONFIRMED'),            # Yangi buyurtmani tasdiqlash
         ('CONFIRMED',  'PACKING'),              # Yig'ishni boshlash
+        ('PACKING',    'SHIPPING'),             # "Yo'lda (kuryerda)" — kuryerga topshirish
         ('PENDING',    'CANCELLED_BY_ADMIN'),   # Tasdiqlashdan avval bekor qilish
         ('CONFIRMED',  'CANCELLED_BY_ADMIN'),   # Tasdiqdan keyin bekor qilish
     },
