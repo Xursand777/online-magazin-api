@@ -36,6 +36,11 @@ class AuthRepository {
       final refresh  = response.data['refresh'] as String?;
       final user     = response.data['user'];
       final isAdmin  = (user is Map && user['is_admin'] == true);
+      // Xodim roli: 'admin' | 'seller' | 'courier' | null.
+      final roleRaw  = (user is Map) ? user['role'] : null;
+      final role     = (roleRaw is String && roleRaw.isNotEmpty) ? roleRaw : null;
+      // Super-admin = is_admin va role bo'sh (saytdagi mantiq bilan bir xil).
+      final isSuper  = isAdmin && role == null;
 
       if (access == null || refresh == null) {
         throw Exception('Invalid tokens received');
@@ -47,6 +52,8 @@ class AuthRepository {
         refresh: refresh,
         isAdmin: isAdmin,
       );
+      // Role + super flag'ni alohida saqlaymiz (drawer filtrlash uchun).
+      await tokenService.saveRoleInfo(role: role, isSuper: isSuper);
 
       return isAdmin;
     } on DioException catch (e) {

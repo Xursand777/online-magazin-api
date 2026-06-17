@@ -104,6 +104,15 @@ class _CourierRouteMapPageState extends State<CourierRouteMapPage> {
   _RouteTarget? _target;
   String? _targetError;
 
+  // Aniqlangan manzil koordinatasi. Backend aniq koordinata bersa — o'sha.
+  // Bermasa (mijoz PIN qo'ymagan) — manzil matnidan GEOKODLANGAN taxminiy nuqta.
+  LatLng? _destination;
+  // _destination geokodlash orqali olinganmi (taxminiy) — foydalanuvchiga
+  // ogohlantirish bannerini ko'rsatish uchun.
+  bool _isApproxDest = false;
+  // Geokodlash hozir davom etyaptimi (loading spinner uchun).
+  bool _isGeocoding = false;
+
   LatLng? _courierPos;
   RouteResult? _route;
   bool _isLoadingRoute = false;
@@ -139,11 +148,30 @@ class _CourierRouteMapPageState extends State<CourierRouteMapPage> {
         ApiConstants.orderRouteTarget(widget.orderId),
       );
       if (!mounted) return;
+      final target = _RouteTarget.fromJson(response.data!);
       setState(() {
-        _target = _RouteTarget.fromJson(response.data!);
+        _target = target;
+        _destination = target.destination; // aniq koordinata bo'lsa — o'sha
+        _isApproxDest = false;
       });
-      // Manzil olingach, GPS kuzatuvini boshlaymiz
-      if (_target?.destination != null) {
+
+      // Aniq koordinata YO'Q, lekin matn manzil bor → geokodlab taxminiy
+      // nuqtaga aylantiramiz. Shunda xarita baribir ochiladi (mukammal UX).
+      if (_destination == null && target.addressText.trim().isNotEmpty) {
+        setState(() => _isGeocoding = true);
+        final approx = await geocodeAddress(target.addressText);
+        if (!mounted) return;
+        setState(() {
+          _isGeocoding = false;
+          if (approx != null) {
+            _destination = approx;
+            _isApproxDest = true;
+          }
+        });
+      }
+
+      // Manzil (aniq yoki taxminiy) olingach, GPS kuzatuvini boshlaymiz
+      if (_destination != null) {
         await _startLocationStream();
       }
     } on DioException catch (e) {
@@ -204,11 +232,11 @@ class _CourierRouteMapPageState extends State<CourierRouteMapPage> {
 
   // ── 3. Yo'lni qayta hisoblash (throttled) ──────────────────────────────
   Future<void> _maybeRefreshRoute(LatLng pos) async {
-    if (_target?.destination == null) return;
+    if (_destination == null) return;
     if (!shouldRefreshRoute(pos, _lastRouteFetch)) return;
 
     setState(() => _isLoadingRoute = true);
-    final dest = _target!.destination!;
+    final dest = _destination!;
     final newRoute = await fetchRoute(pos, dest);
 
     if (!mounted) return;
@@ -258,8 +286,10 @@ class _CourierRouteMapPageState extends State<CourierRouteMapPage> {
 
   // ── 4. Manzilga yaqinlashish detect ────────────────────────────────────
   void _checkArrival(LatLng pos) {
-    if (_arrived || _target?.destination == null) return;
-    final dist = haversineDistance(pos, _target!.destination!);
+    // Taxminiy (geokodlangan) manzilda "yetib keldi" detektsiyasi noto'g'ri
+    // bo'lishi mumkin — faqat ANIQ koordinatada tekshiramiz.
+    if (_arrived || _destination == null || _isApproxDest) return;
+    final dist = haversineDistance(pos, _destination!);
     if (dist < 50) {
       setState(() => _arrived = true);
     }
@@ -328,8 +358,25 @@ class _CourierRouteMapPageState extends State<CourierRouteMapPage> {
       );
     }
 
-    // Koordinata yo'q — matn manzil bo'yicha boring
-    if (_target!.destination == null) {
+    // Manzil matnidan koordinata aniqlanmoqda (geokodlash) — qisqa loading.
+    if (_isGeocoding) {
+      return Scaffold(
+        appBar: AppBar(title: Text('Buyurtma #${_target!.orderId}')),
+        body: const Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              CircularProgressIndicator(),
+              SizedBox(height: 16),
+              Text('Manzil xaritada aniqlanmoqda...'),
+            ],
+          ),
+        ),
+      );
+    }
+
+    // Koordinata umuman yo'q (geokodlash ham topolmadi) — matn manzil + tashqi xarita.
+    if (_destination == null) {
       return _NoCoordinatesView(target: _target!, onCall: _callCustomer);
     }
 
@@ -360,7 +407,7 @@ class _CourierRouteMapPageState extends State<CourierRouteMapPage> {
 
   Widget _buildMapView(ThemeData theme) {
     final target = _target!;
-    final dest = target.destination!;
+    final dest = _destination!;
 
     return Scaffold(
       body: Stack(
@@ -562,6 +609,40 @@ class _CourierRouteMapPageState extends State<CourierRouteMapPage> {
                   ),
                 ],
               ),
+              // ── Taxminiy joylashuv ogohlantirishi (geokodlangan) ───────────
+              if (_isApproxDest) ...[
+                const SizedBox(height: 8),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 6,
+                  ),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFFB923C).withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(
+                      color: const Color(0xFFFB923C).withValues(alpha: 0.4),
+                    ),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.info_outline,
+                          size: 16, color: Color(0xFFC2410C)),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: Text(
+                          'Taxminiy joylashuv (manzil matnidan). Aniq joyni '
+                          'mijozdan so\'rang yoki manzilni o\'qing.',
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: const Color(0xFF9A3412),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
               if (target.notes.isNotEmpty) ...[
                 const SizedBox(height: 8),
                 Container(

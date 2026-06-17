@@ -6,6 +6,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 import '../../../../core/di/injection_container.dart';
 import '../bloc/auth_bloc.dart';
+import '../../../admin/presentation/utils/admin_access.dart';
 
 class AuthPage extends StatelessWidget {
   const AuthPage({super.key});
@@ -133,7 +134,9 @@ class _AuthViewState extends State<AuthView> {
             if (state is AuthAuthenticated) {
               _stopSlowServerTimer();
               if (state.isAdmin) {
-                context.go('/admin');
+                // Rolega qarab birinchi ruxsat etilgan tab (kuryer → buyurtmalar, h.k.)
+                context.go(AdminAccess.firstAllowedRoute(
+                    role: state.role, isSuper: state.isSuper));
               } else {
                 // Foydalanuvchi muvaffaqiyatli kirganda doim Home (/) sahifasiga yo'naltiriladi
                 context.go('/');

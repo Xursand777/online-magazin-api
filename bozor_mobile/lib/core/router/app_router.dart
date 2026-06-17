@@ -31,6 +31,7 @@ import '../../features/admin/presentation/pages/admin_stock_page.dart';
 import '../../features/admin/presentation/pages/admin_users_page.dart';
 import '../../features/admin/presentation/pages/admin_user_detail_page.dart';
 import '../../features/admin/presentation/bloc/admin_users_bloc.dart';
+import '../../features/admin/presentation/utils/admin_access.dart';
 import '../../features/admin/presentation/pages/courier_route/courier_route_map_page.dart';
 import '../../features/admin/presentation/bloc/admin_dashboard_bloc.dart';
 import '../../features/admin/presentation/bloc/admin_orders_bloc.dart';
@@ -122,9 +123,17 @@ class AppRouter {
           final isAdmin = authState.isAdmin;
 
           if (isAdmin) {
-            // 2a. Admin — hamisha admin panelga
-            if (isAuthRoute) return '/admin';
-            if (!isAdminRoute) return '/admin';
+            // 2a. Admin/xodim — rolega qarab birinchi ruxsat etilgan tabga.
+            // Super-admin → /admin (dashboard), kuryer → /admin/orders, h.k.
+            final adminHome = AdminAccess.firstAllowedRoute(
+                role: authState.role, isSuper: authState.isSuper);
+            if (isAuthRoute) return adminHome;
+            if (!isAdminRoute) return adminHome;
+            // Admin sahifa, lekin bu role ko'ra olmaydi → ruxsat etilganiga.
+            if (!AdminAccess.canSeeLocation(loc,
+                role: authState.role, isSuper: authState.isSuper)) {
+              return adminHome;
+            }
           } else {
             // 2b. Oddiy foydalanuvchi — doim Home (/) sahifasiga
             if (isAuthRoute) return '/';

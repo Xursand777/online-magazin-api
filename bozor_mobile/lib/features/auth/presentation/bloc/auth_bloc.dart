@@ -89,15 +89,22 @@ class AuthAuthenticated extends AuthState {
   final bool isAdmin;
   final bool isMaster;
   final bool canUseCredit;
-  
+  /// Xodim roli: 'admin' | 'seller' | 'courier' | null (oddiy/super).
+  final String? role;
+  /// Super-admin — barcha tablar (role'siz is_admin).
+  final bool isSuper;
+
   const AuthAuthenticated({
     this.isAdmin = false,
     this.isMaster = false,
     this.canUseCredit = false,
+    this.role,
+    this.isSuper = false,
   });
-  
+
   @override
-  List<Object?> get props => [isAdmin, isMaster, canUseCredit];
+  List<Object?> get props =>
+      [isAdmin, isMaster, canUseCredit, role, isSuper];
 }
 
 /// 🔒 Tizimdan chiqqan — login sahifasiga yo'naltirish kerak.
@@ -159,15 +166,24 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     final hasTokens = await tokenService.hasTokens();
     if (hasTokens) {
       final admin = await tokenService.isAdmin();
+      // Offline baseline — oxirgi saqlangan role/super (profil tushmasa ham ishlaydi).
+      String? role = await tokenService.getRole();
+      bool isSuper = await tokenService.isSuper();
       bool isMaster = false;
       bool canUseCredit = false;
       try {
         final profile = await repository.getProfile();
         isMaster = profile['is_master'] == true;
         canUseCredit = profile['can_use_credit'] == true;
+        // Server — yagona haqiqat manbai; baseline'ni yangilaymiz.
+        final roleRaw = profile['role'];
+        role = (roleRaw is String && roleRaw.isNotEmpty) ? roleRaw : null;
+        isSuper = profile['is_superuser'] == true;
+        await tokenService.saveRoleInfo(role: role, isSuper: isSuper);
       } catch (_) {}
       emit(AuthAuthenticated(
-          isAdmin: admin, isMaster: isMaster, canUseCredit: canUseCredit));
+          isAdmin: admin, isMaster: isMaster, canUseCredit: canUseCredit,
+          role: role, isSuper: isSuper));
 
       // ⭐ APP RESTART SINKRONIZATSIYA (Cart + Favorites)
       // Foydalanuvchi sayt'da yoki boshqa qurilmada cart yoki sevimlilarga
@@ -220,15 +236,24 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     emit(AuthLoading());
     try {
       final isAdmin = await repository.verifyOtp(event.phone, event.otp);
+      // verifyOtp role/super'ni allaqachon saqladi — baseline sifatida o'qiymiz.
+      String? role = await tokenService.getRole();
+      bool isSuper = await tokenService.isSuper();
       bool isMaster = false;
       bool canUseCredit = false;
       try {
         final profile = await repository.getProfile();
         isMaster = profile['is_master'] == true;
         canUseCredit = profile['can_use_credit'] == true;
+        // Profil to'liqroq (is_superuser bor) — baseline'ni aniqlashtiramiz.
+        final roleRaw = profile['role'];
+        role = (roleRaw is String && roleRaw.isNotEmpty) ? roleRaw : null;
+        isSuper = profile['is_superuser'] == true;
+        await tokenService.saveRoleInfo(role: role, isSuper: isSuper);
       } catch (_) {}
       emit(AuthAuthenticated(
-          isAdmin: isAdmin, isMaster: isMaster, canUseCredit: canUseCredit));
+          isAdmin: isAdmin, isMaster: isMaster, canUseCredit: canUseCredit,
+          role: role, isSuper: isSuper));
 
       // ⭐ KROSS-PLATFORM SINKRONIZATSIYA (Cart + Favorites)
       //

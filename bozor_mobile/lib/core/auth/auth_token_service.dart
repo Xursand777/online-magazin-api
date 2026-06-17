@@ -47,6 +47,11 @@ class AuthTokenService {
   static const _keyAccess  = 'access_token';
   static const _keyRefresh = 'refresh_token';
   static const _keyIsAdmin = 'is_admin';
+  // Xodim roli: 'admin' | 'seller' | 'courier' | null (oddiy foydalanuvchi).
+  // isSuper: super-admin (is_admin == true && role bo'sh).
+  // Bular drawer/tablarni rolega qarab filtrlash uchun saqlanadi (offline baseline).
+  static const _keyRole    = 'staff_role';
+  static const _keySuper   = 'is_super';
 
   final FlutterSecureStorage _storage;
 
@@ -101,6 +106,16 @@ class AuthTokenService {
   Future<bool> isAdmin() async =>
       await _storage.read(key: _keyIsAdmin) == 'true';
 
+  /// Xodim roli ('admin' | 'seller' | 'courier') yoki null.
+  Future<String?> getRole() async {
+    final r = await _storage.read(key: _keyRole);
+    return (r == null || r.isEmpty) ? null : r;
+  }
+
+  /// Super-admin (role'siz is_admin) — barcha tablar.
+  Future<bool> isSuper() async =>
+      await _storage.read(key: _keySuper) == 'true';
+
   // ── Write / Delete ─────────────────────────────────────────────────────────
 
   Future<void> saveTokens({
@@ -120,6 +135,19 @@ class AuthTokenService {
     });
   }
 
+  /// Xodim roli + super flag'ni saqlaydi (tokenlardan alohida, login/profile'dan).
+  /// role == null/'' bo'lsa kalit o'chiriladi (oddiy foydalanuvchi).
+  Future<void> saveRoleInfo({String? role, required bool isSuper}) async {
+    await _storageLock.run(() async {
+      if (role == null || role.isEmpty) {
+        await _storage.delete(key: _keyRole);
+      } else {
+        await _storage.write(key: _keyRole, value: role);
+      }
+      await _storage.write(key: _keySuper, value: isSuper.toString());
+    });
+  }
+
   Future<void> clearTokens() async {
     // Lock ichida — refresh-writeback bir vaqtda ishlamaydi.
     // Bu logout vaqtida token rezurreksiya (zombie session) muammosini oldini oladi.
@@ -136,6 +164,8 @@ class AuthTokenService {
         safeDelete(_keyAccess),
         safeDelete(_keyRefresh),
         safeDelete(_keyIsAdmin),
+        safeDelete(_keyRole),
+        safeDelete(_keySuper),
       ]);
     });
   }

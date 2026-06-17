@@ -121,6 +121,71 @@ Future<RouteResult?> fetchRoute(LatLng from, LatLng to) async {
   }
 }
 
+// ── Geokodlash (manzil matnidan koordinata) ────────────────────────────────
+// Mijoz xaritadan PIN qo'ymagan bo'lsa, buyurtmada faqat matn manzil bo'ladi
+// (delivery_lat/lng = null). Shunda kuryer xaritasi ochilmaydi. Yechim: matn
+// manzilni OSM Nominatim orqali TAXMINIY koordinataga aylantiramiz — xarita
+// shahar/tuman markaziga yaqin ochiladi va kuryer yo'lni ko'radi.
+//
+// Nominatim — tekin, API key kerak emas. Foydalanish qoidasi: 1 req/sek +
+// User-Agent majburiy. Bizning hajm (kuryer kamdan-kam ochadi) limitga sig'adi.
+const String _nominatimEndpoint =
+    'https://nominatim.openstreetmap.org/search';
+
+/// Bir xil manzil uchun takroriy so'rovni oldini olish (sessiya davomida).
+final Map<String, LatLng?> _geocodeCache = {};
+
+/// Manzil matnini taxminiy koordinataga aylantiradi (geokodlash).
+///
+/// Muvaffaqiyatsiz bo'lsa (manzil topilmadi / tarmoq xatosi) `null` qaytaradi.
+/// Natija TAXMINIY — odatda tuman/shahar markazi aniqligida.
+Future<LatLng?> geocodeAddress(String address) async {
+  final query = address.trim();
+  if (query.isEmpty) return null;
+  if (_geocodeCache.containsKey(query)) return _geocodeCache[query];
+
+  try {
+    final response = await _dio.get<dynamic>(
+      _nominatimEndpoint,
+      queryParameters: {
+        'q': query,
+        'format': 'json',
+        'limit': 1,
+        // O'zbekiston bilan cheklaymiz — noto'g'ri davlatga tushmaslik uchun.
+        'countrycodes': 'uz',
+        'accept-language': 'uz,ru,en',
+      },
+      options: Options(
+        responseType: ResponseType.json,
+        headers: {'User-Agent': 'BozorMobile/1.0 (delivery navigation)'},
+      ),
+    );
+
+    final data = response.data;
+    final list = (data is String) ? jsonDecode(data) as List : data as List;
+    if (list.isEmpty) {
+      _geocodeCache[query] = null;
+      return null;
+    }
+
+    final first = list.first as Map<String, dynamic>;
+    final lat = double.tryParse(first['lat']?.toString() ?? '');
+    final lng = double.tryParse(first['lon']?.toString() ?? '');
+    if (lat == null || lng == null) {
+      _geocodeCache[query] = null;
+      return null;
+    }
+
+    final result = LatLng(lat, lng);
+    _geocodeCache[query] = result;
+    return result;
+  } catch (err) {
+    // ignore: avoid_print
+    print('[routing] geocodeAddress xato: $err');
+    return null;
+  }
+}
+
 /// Haversine — ikki nuqta orasidagi to'g'ri masofa metrda.
 double haversineDistance(LatLng a, LatLng b) {
   const earthRadiusMeters = 6371000.0;

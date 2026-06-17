@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import '../../../../core/di/injection_container.dart';
 import '../../../auth/presentation/bloc/auth_bloc.dart';
+import '../utils/admin_access.dart';
 
 /// Saytdagi admin sidebar'ining mobil ko'rinishi.
 /// Har bir admin sahifasida `drawer:` sifatida ishlatiladi.
@@ -43,6 +44,29 @@ class AdminDrawer extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final current = GoRouterState.of(context).matchedLocation;
+
+    // ── Rolega qarab navigatsiyani filtrlash (saytdagi canSeeTab bilan bir xil) ──
+    final authState = sl<AuthBloc>().state;
+    final String? role =
+        authState is AuthAuthenticated ? authState.role : null;
+    final bool isSuper =
+        authState is AuthAuthenticated ? authState.isSuper : false;
+
+    // Faqat shu role ko'ra oladigan itemlarni qoldiramiz; bo'sh guruhlar tushib qoladi.
+    final visibleGroups = <_NavGroup>[
+      for (final group in _groups)
+        if (group.items
+            .where((i) =>
+                AdminAccess.canSee(i.route, role: role, isSuper: isSuper))
+            .isNotEmpty)
+          _NavGroup(
+            group.title,
+            group.items
+                .where((i) =>
+                    AdminAccess.canSee(i.route, role: role, isSuper: isSuper))
+                .toList(),
+          ),
+    ];
 
     return Drawer(
       backgroundColor: theme.colorScheme.surface,
@@ -94,7 +118,7 @@ class AdminDrawer extends StatelessWidget {
               child: ListView(
                 padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 10),
                 children: [
-                  for (final group in _groups) ...[
+                  for (final group in visibleGroups) ...[
                     Padding(
                       padding: const EdgeInsets.fromLTRB(12, 12, 12, 6),
                       child: Text(
