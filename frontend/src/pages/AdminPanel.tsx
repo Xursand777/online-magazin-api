@@ -3760,7 +3760,43 @@ const StockTab = () => {
             <p className='text-on-surface-variant'>Topilmadi</p>
           </div>
         ) : (
-          <div className='overflow-x-auto'>
+          <>
+          {/* ── MOBIL KARTALAR (telefon) ── */}
+          <div className='divide-y divide-outline-variant md:hidden'>
+            {filteredItems.map((item) => (
+              <div key={`m-${item.type}-${item.id}`} className='flex gap-3 p-3'>
+                <div className='h-12 w-12 shrink-0 overflow-hidden rounded-xl border border-outline-variant bg-surface-container'>
+                  {item.image ? (
+                    <img src={item.image} alt={item.name} className='h-full w-full object-contain p-1' />
+                  ) : (
+                    <div className='flex h-full w-full items-center justify-center text-outline'>
+                      <span className='material-symbols-outlined text-[20px]'>image</span>
+                    </div>
+                  )}
+                </div>
+                <div className='min-w-0 flex-1'>
+                  <div className='truncate text-sm font-semibold text-on-surface'>{item.name}</div>
+                  <div className='truncate text-xs text-on-surface-variant'>
+                    {item.variant_info || 'Standart'} · {item.category_name || 'Kategoriyasiz'}
+                  </div>
+                  <div className='mt-1 flex flex-wrap items-center gap-2 text-xs'>
+                    <span className='font-semibold text-on-surface'>{fmt(item.price)} so'm</span>
+                    <span className='rounded bg-surface-container px-1.5 py-0.5 font-mono text-[10px] text-on-surface-variant'>{item.sku}</span>
+                  </div>
+                </div>
+                <div className='flex shrink-0 flex-col items-center gap-1'>
+                  <div className={`inline-flex h-9 w-9 items-center justify-center rounded-full text-sm font-bold ${item.status === 'critical' ? 'bg-error-container text-error' : 'bg-[#f59e0b]/10 text-[#f59e0b]'}`}>
+                    {item.stock}
+                  </div>
+                  <span className={`rounded px-1.5 py-0.5 text-[9px] font-bold uppercase ${item.status === 'critical' ? 'bg-error text-on-error' : 'bg-[#f59e0b] text-white'}`}>
+                    {item.status === 'critical' ? 'Kritik' : 'Kam'}
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+          {/* ── DESKTOP JADVAL ── */}
+          <div className='hidden overflow-x-auto md:block'>
             <table className='w-full min-w-[900px] text-left text-sm'>
               <thead className='bg-surface-container/60'>
                 <tr>
@@ -3835,6 +3871,7 @@ const StockTab = () => {
               </tbody>
             </table>
           </div>
+          </>
         )}
       </div>
     </div>
@@ -8631,13 +8668,13 @@ const StaffTab = () => {
         ) : (
           <div className='divide-y divide-outline-variant'>
             {staffList.map(member => (
-              <div key={member.id} className='flex items-center justify-between px-6 py-4 hover:bg-surface-container/50'>
-                <div className='flex items-center gap-3'>
-                  <div className='w-10 h-10 rounded-full bg-surface-container flex items-center justify-center'>
+              <div key={member.id} className='flex flex-col gap-2 px-6 py-4 hover:bg-surface-container/50 sm:flex-row sm:items-center sm:justify-between'>
+                <div className='flex min-w-0 items-center gap-3'>
+                  <div className='w-10 h-10 shrink-0 rounded-full bg-surface-container flex items-center justify-center'>
                     <span className='material-symbols-outlined text-[20px] text-on-surface-variant'>person</span>
                   </div>
-                  <div>
-                    <p className='text-sm font-semibold text-on-surface'>
+                  <div className='min-w-0'>
+                    <p className='truncate text-sm font-semibold text-on-surface'>
                       {member.first_name || member.last_name
                         ? `${member.first_name} ${member.last_name}`.trim()
                         : member.phone}
@@ -8967,13 +9004,13 @@ const MastersTab = () => {
         ) : (
           <div className='divide-y divide-outline-variant'>
             {masterList.map(master => (
-              <div key={master.id} className='flex items-center justify-between px-6 py-4 hover:bg-surface-container/50'>
-                <div className='flex items-center gap-3'>
-                  <div className='w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center'>
+              <div key={master.id} className='flex flex-col gap-2 px-6 py-4 hover:bg-surface-container/50 sm:flex-row sm:items-center sm:justify-between'>
+                <div className='flex min-w-0 items-center gap-3'>
+                  <div className='w-10 h-10 shrink-0 rounded-full bg-primary/10 flex items-center justify-center'>
                     <span className='material-symbols-outlined text-[20px] text-primary'>construction</span>
                   </div>
-                  <div>
-                    <p className='text-sm font-semibold text-on-surface'>
+                  <div className='min-w-0'>
+                    <p className='truncate text-sm font-semibold text-on-surface'>
                       {master.full_name !== master.phone ? master.full_name : master.phone}
                     </p>
                     <p className='text-xs text-on-surface-variant'>{master.phone}</p>
