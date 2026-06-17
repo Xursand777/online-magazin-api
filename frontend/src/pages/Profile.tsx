@@ -329,7 +329,7 @@ const Profile = () => {
 
       <div className="grid grid-cols-1 md:grid-cols-[280px_1fr] gap-6 lg:gap-8 items-start">
         {/* Sidebar Navigation */}
-        <aside className="bg-surface-container-lowest rounded-2xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-outline-variant/30 overflow-hidden sticky top-24">
+        <aside className="bg-surface-container-lowest rounded-2xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-outline-variant/30 overflow-hidden md:sticky md:top-24">
           <nav className="flex flex-col py-3">
             {user?.is_admin && (
               <Link
