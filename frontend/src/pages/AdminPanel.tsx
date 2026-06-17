@@ -2510,8 +2510,15 @@ const OrdersTab = () => {
         page: filters.page,
       }).then((r) => r.data),
     placeholderData: (prev) => prev,
-    // Yengil: ro'yxat FAQAT yangi buyurtma aniqlanganda (poll invalidatsiyasi)
-    // va fokusga qaytganda yangilanadi — keraksiz takroriy og'ir so'rov yo'q.
+    // ── REAL-TIME (KAFOLATLI) ─────────────────────────────────────────────
+    // Ro'yxat O'ZI har 7s yangilanadi — status o'zgarishlari (Yetkazildi,
+    // Xaridorga topshirildi, ...) abnovit qilmasdan darhol ko'rinadi.
+    // refetchIntervalInBackground: true — sayt boshqa oynada/ekranda bo'lsa
+    // ham (siz mobil bilan ishlayotganda) jonli yangilanib turadi.
+    // FAQAT Buyurtmalar tabi ochiq bo'lganda ishlaydi (query mount bo'lganda),
+    // shuning uchun yuk chegaralangan. Poll (Max id) — yangi-buyurtma toast/ovoz.
+    refetchInterval: 7000,
+    refetchIntervalInBackground: true,
     refetchOnWindowFocus: true,
   });
 
