@@ -171,16 +171,24 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
       bool isSuper = await tokenService.isSuper();
       bool isMaster = false;
       bool canUseCredit = false;
-      try {
-        final profile = await repository.getProfile();
+      final profile = await repository.getProfile();
+      // KRITIK: getProfile xatoda bo'sh {} qaytaradi. Bo'sh profilni HAQIQIY
+      // ma'lumot deb qabul qilsak, role/isSuper'ni null/false bilan ustiga
+      // yozib, baseline'ni (verifyOtp/storage) BUZAMIZ → drawer bo'sh qoladi,
+      // kuryer aniqlanmaydi. Shuning uchun faqat haqiqiy profil bo'lsa yangilaymiz.
+      if (profile.containsKey('is_superuser') || profile.containsKey('role')) {
         isMaster = profile['is_master'] == true;
         canUseCredit = profile['can_use_credit'] == true;
-        // Server — yagona haqiqat manbai; baseline'ni yangilaymiz.
         final roleRaw = profile['role'];
         role = (roleRaw is String && roleRaw.isNotEmpty) ? roleRaw : null;
         isSuper = profile['is_superuser'] == true;
         await tokenService.saveRoleInfo(role: role, isSuper: isSuper);
-      } catch (_) {}
+      }
+      // Aks holda baseline (storage'dagi oxirgi to'g'ri role/isSuper) saqlanadi.
+      // MANTIQIY KAFOLAT: backend get_is_admin = is_superuser OR role. Demak
+      // is_admin BO'LIB role YO'Q bo'lsa — bu super-admin. getProfile tushsa yoki
+      // storage buzilsa ham super-admin tablari bo'sh qolmaydi (o'z-o'zini davolash).
+      if (admin && role == null) isSuper = true;
       emit(AuthAuthenticated(
           isAdmin: admin, isMaster: isMaster, canUseCredit: canUseCredit,
           role: role, isSuper: isSuper));
@@ -241,16 +249,19 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
       bool isSuper = await tokenService.isSuper();
       bool isMaster = false;
       bool canUseCredit = false;
-      try {
-        final profile = await repository.getProfile();
+      final profile = await repository.getProfile();
+      // KRITIK: getProfile xatoda bo'sh {} qaytaradi — bo'sh profil bilan
+      // verifyOtp saqlagan to'g'ri role/isSuper'ni ustiga yozmaymiz.
+      if (profile.containsKey('is_superuser') || profile.containsKey('role')) {
         isMaster = profile['is_master'] == true;
         canUseCredit = profile['can_use_credit'] == true;
-        // Profil to'liqroq (is_superuser bor) — baseline'ni aniqlashtiramiz.
         final roleRaw = profile['role'];
         role = (roleRaw is String && roleRaw.isNotEmpty) ? roleRaw : null;
         isSuper = profile['is_superuser'] == true;
         await tokenService.saveRoleInfo(role: role, isSuper: isSuper);
-      } catch (_) {}
+      }
+      // MANTIQIY KAFOLAT: is_admin BO'LIB role YO'Q ⟹ super-admin.
+      if (isAdmin && role == null) isSuper = true;
       emit(AuthAuthenticated(
           isAdmin: isAdmin, isMaster: isMaster, canUseCredit: canUseCredit,
           role: role, isSuper: isSuper));

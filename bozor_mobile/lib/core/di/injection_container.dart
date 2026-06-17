@@ -115,8 +115,16 @@ Future<void> init() async {
   final tokenService = sl<AuthTokenService>();
   final hasTokens    = await tokenService.hasTokens();
   final isAdmin      = hasTokens ? await tokenService.isAdmin() : false;
+  // KRITIK: role + isSuper'ni storage baseline'idan O'QIYMIZ (verifyOtp saqlagan).
+  // Avval bu yerda faqat isAdmin o'rnatilardi — role=null, isSuper=false bo'lib
+  // qolardi: super-admin/kuryer drawer'i bo'sh, tugmalar noto'g'ri ko'rinardi.
+  String? role  = hasTokens ? await tokenService.getRole()  : null;
+  bool   isSuper = hasTokens ? await tokenService.isSuper() : false;
+  // Mantiqiy kafolat: backend get_is_admin = is_superuser OR role. Demak
+  // is_admin BO'LIB role YO'Q ⟹ super-admin (baseline buzilgan bo'lsa ham tiklaydi).
+  if (isAdmin && role == null) isSuper = true;
   final initialState = hasTokens
-      ? AuthAuthenticated(isAdmin: isAdmin)
+      ? AuthAuthenticated(isAdmin: isAdmin, role: role, isSuper: isSuper)
       : AuthUnauthenticated();
 
   // AuthBloc — SINGLETON (bir nusxa butun ilova davomida)
