@@ -264,11 +264,14 @@
   .admin-shell .p-5 { padding: 0.75rem; }
   .admin-shell .px-8 { padding-left: 0.875rem; padding-right: 0.875rem; }
   .admin-shell .px-6 { padding-left: 0.875rem; padding-right: 0.875rem; }
+  .admin-shell .px-5 { padding-left: 0.875rem; padding-right: 0.875rem; }
   .admin-shell .py-8 { padding-top: 1rem; padding-bottom: 1rem; }
   .admin-shell .py-6 { padding-top: 0.875rem; padding-bottom: 0.875rem; }
+  .admin-shell .py-5 { padding-top: 0.75rem; padding-bottom: 0.75rem; }
 
   .admin-shell .gap-8 { gap: 0.875rem; }
   .admin-shell .gap-6 { gap: 0.75rem; }
+  .admin-shell .gap-5 { gap: 0.75rem; }
 
   /* Jadvallar mobilда gorizontal scroll bilan to'liq ko'rinsin (kesilmasin) */
   .admin-shell table { font-size: 13px; }

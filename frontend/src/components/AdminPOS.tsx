@@ -286,8 +286,8 @@ const AllBuyersHistory = () => {
   };
 
   return (
-    <div className="flex gap-4 h-[calc(100vh-160px)]">
-      <div className="w-72 shrink-0 flex flex-col rounded-xl border border-outline-variant bg-surface-container-lowest p-4">
+    <div className="flex flex-col md:flex-row gap-4 md:h-[calc(100vh-160px)]">
+      <div className="w-full md:w-72 md:shrink-0 flex flex-col rounded-xl border border-outline-variant bg-surface-container-lowest p-4">
         <h3 className="font-bold text-on-surface mb-3">Xaridor qidirish</h3>
         <div className="flex gap-2 mb-3">
           <div className="flex-1 flex items-center rounded-lg border border-outline-variant bg-surface overflow-hidden focus-within:border-primary">
@@ -314,7 +314,7 @@ const AllBuyersHistory = () => {
         </p>
       </div>
 
-      <div className="flex-1 rounded-xl border border-outline-variant bg-surface-container-lowest p-4 overflow-hidden flex flex-col">
+      <div className="flex-1 min-h-[420px] md:min-h-0 rounded-xl border border-outline-variant bg-surface-container-lowest p-4 overflow-hidden flex flex-col">
         {activePhone ? (
           <CustomerHistoryPanel phone={activePhone} onClose={() => setActivePhone('')} />
         ) : (
@@ -339,6 +339,8 @@ const AdminPOS = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [cart, setCart] = useState<POSItem[]>([]);
   const [checkoutModalOpen, setCheckoutModalOpen] = useState(false);
+  // Mobil (telefon) uchun — bir vaqtda bitta panel: mahsulotlar yoki savat.
+  const [mobileView, setMobileView] = useState<'products' | 'cart'>('products');
 
   // POS ochilganda shared cache'ni server'dan to'ldiramiz (idempotent).
   // AdminDashboard'da useShopInfo() ham bor — bu yerda ikkilamchi himoya:
@@ -625,9 +627,30 @@ const AdminPOS = () => {
       {posTab === 'history' && <AllBuyersHistory />}
 
       {posTab === 'sale' && (
-        <div className="flex h-[calc(100vh-220px)] gap-4">
+        <>
+          {/* Mobil panel toggle — bir vaqtda bitta panel (faqat telefon) */}
+          <div className="flex gap-2 md:hidden">
+            <button
+              type="button"
+              onClick={() => setMobileView('products')}
+              className={`flex flex-1 items-center justify-center gap-1.5 rounded-lg py-2 text-sm font-semibold ${mobileView === 'products' ? 'bg-primary text-on-primary' : 'bg-surface-container text-on-surface'}`}
+            >
+              <span className="material-symbols-outlined text-[18px]">inventory_2</span>
+              Mahsulotlar
+            </button>
+            <button
+              type="button"
+              onClick={() => setMobileView('cart')}
+              className={`flex flex-1 items-center justify-center gap-1.5 rounded-lg py-2 text-sm font-semibold ${mobileView === 'cart' ? 'bg-primary text-on-primary' : 'bg-surface-container text-on-surface'}`}
+            >
+              <span className="material-symbols-outlined text-[18px]">shopping_cart</span>
+              Savat{cart.length > 0 ? ` (${cart.length})` : ''}
+            </button>
+          </div>
+
+        <div className="flex flex-col md:flex-row h-[calc(100dvh-250px)] md:h-[calc(100vh-220px)] gap-3 md:gap-4">
           {/* LEFT: Products grid */}
-          <div className="flex w-2/3 flex-col rounded-xl border border-outline-variant bg-surface-container-lowest p-4">
+          <div className={`${mobileView === 'products' ? 'flex' : 'hidden'} md:flex w-full md:w-2/3 flex-col rounded-xl border border-outline-variant bg-surface-container-lowest p-3 md:p-4`}>
             <div className="relative mb-4 w-full">
               <input
                 type="text"
@@ -744,7 +767,7 @@ const AdminPOS = () => {
           </div>
 
           {/* RIGHT: Cart */}
-          <div className="flex w-1/3 flex-col rounded-xl border border-outline-variant bg-surface-container-lowest p-4">
+          <div className={`${mobileView === 'cart' ? 'flex' : 'hidden'} md:flex w-full md:w-1/3 flex-col rounded-xl border border-outline-variant bg-surface-container-lowest p-3 md:p-4`}>
             <h2 className="mb-3 font-bold text-lg text-on-surface flex items-center gap-2">
               <span className="material-symbols-outlined text-[20px] text-primary">shopping_cart</span>
               Savat
@@ -810,6 +833,7 @@ const AdminPOS = () => {
             </div>
           </div>
         </div>
+        </>
       )}
 
       {/* ─── CHECKOUT MODAL ─── */}

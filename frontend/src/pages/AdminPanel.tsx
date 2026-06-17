@@ -4350,8 +4350,8 @@ const UsersTab = () => {
         </div>
       )}
 
-      {/* List panel */}
-      <div className={`flex flex-col gap-4 transition-all ${selectedId ? 'w-full lg:w-[55%]' : 'w-full'}`}>
+      {/* List panel — mobilда foydalanuvchi tanlanса yashirinadi (tafsilot to'liq ekranda) */}
+      <div className={`flex-col gap-4 transition-all ${selectedId ? 'hidden lg:flex w-full lg:w-[55%]' : 'flex w-full'}`}>
         {/* Filters */}
         <div className='flex flex-wrap items-center gap-2 rounded-xl border border-outline-variant bg-surface-container-lowest p-3'>
           <form
@@ -4534,10 +4534,10 @@ const UsersTab = () => {
         )}
       </div>
 
-      {/* Detail panel */}
+      {/* Detail panel — mobilда to'liq ekranda ko'rinadi (X bilan ro'yxatga qaytish) */}
       {selectedId && (
-        <div className='hidden flex-1 lg:block'>
-          <div className='sticky top-20 overflow-hidden rounded-xl border border-outline-variant bg-surface-container-lowest'>
+        <div className='block flex-1 lg:block'>
+          <div className='overflow-hidden rounded-xl border border-outline-variant bg-surface-container-lowest lg:sticky lg:top-20'>
             {/* Header */}
             <div className='flex items-center justify-between border-b border-outline-variant bg-surface-container px-5 py-3'>
               <p className='font-semibold text-on-surface'>Foydalanuvchi ma'lumotlari</p>
