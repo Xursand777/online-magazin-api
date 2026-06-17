@@ -6,6 +6,7 @@ import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 
 import '../../../../core/di/injection_container.dart';
+import '../../../auth/presentation/bloc/auth_bloc.dart';
 import '../../data/models/admin_order_model.dart';
 import '../../data/models/order_status_helper.dart';
 import '../../data/repositories/admin_repository.dart';
@@ -245,6 +246,13 @@ class _AdminOrdersPageState extends State<AdminOrdersPage>
     );
   }
 
+  /// Joriy foydalanuvchi kuryermi — backend kechiksa ham mijoz tomonida
+  /// xavfli tugmalarni (bekor / nasiya) ko'rsatmaslik uchun ishonchli himoya.
+  bool get _isCourier {
+    final s = sl<AuthBloc>().state;
+    return s is AuthAuthenticated && s.role == 'courier';
+  }
+
   Widget _buildList(BuildContext context, AdminOrdersState state) {
     if (state.status == OrdersStatus.loading && state.orders.isEmpty) {
       return const Center(child: CircularProgressIndicator());
@@ -276,7 +284,11 @@ class _AdminOrdersPageState extends State<AdminOrdersPage>
           if (i == state.orders.length) {
             return _Pagination(state: state);
           }
-          return _OrderCard(order: state.orders[i], isMutating: state.isMutating);
+          return _OrderCard(
+            order: state.orders[i],
+            isMutating: state.isMutating,
+            isCourier: _isCourier,
+          );
         },
       ),
     );
@@ -304,9 +316,16 @@ class _AdminOrdersPageState extends State<AdminOrdersPage>
 
 // ─── Order card ────────────────────────────────────────────────────────────────
 class _OrderCard extends StatelessWidget {
-  const _OrderCard({required this.order, required this.isMutating});
+  const _OrderCard({
+    required this.order,
+    required this.isMutating,
+    this.isCourier = false,
+  });
   final AdminOrder order;
   final bool isMutating;
+  // Kuryer — mijoz tomonidagi himoya: bekor qilish / nasiya tugmalari
+  // hech qachon ko'rsatilmaydi (backend ham buni rad etadi).
+  final bool isCourier;
 
   @override
   Widget build(BuildContext context) {
@@ -316,9 +335,17 @@ class _OrderCard extends StatelessWidget {
     // Kuryer faqat SHIPPING→DELIVERED ("Yetkazildi") yoki DELIVERED→RECEIVED
     // ("Xaridorga topshirildi") ko'radi; sotuvchi PACKING→SHIPPING gacha.
     // Bo'sh ro'yxat = bu rol uchun oldinga tugma yo'q.
-    final next = order.allowedTransitions.isNotEmpty
+    final rawNext = order.allowedTransitions.isNotEmpty
         ? order.allowedTransitions.first
         : null;
+    // Qat'iy himoya: kuryer FAQAT ikki yetkazish o'tishini ko'ra oladi —
+    // backend kechiksa/xato qilsa ham "Tasdiqlash" kabi tugma chiqmaydi.
+    final next = (isCourier && rawNext != 'DELIVERED' && rawNext != 'RECEIVED')
+        ? null
+        : rawNext;
+    // Kuryerga bekor qilish / nasiya hech qachon ko'rsatilmaydi.
+    final showCancel = order.canAdminCancel && !isCourier;
+    final showPayCredit = order.canPayCredit && !isCourier;
     final dateStr = order.createdAt != null
         ? DateFormat('dd/MM/yyyy HH:mm').format(order.createdAt!)
         : '';
@@ -521,7 +548,7 @@ class _OrderCard extends StatelessWidget {
             ),
           ),
           // Actions
-          if (next != null || order.canAdminCancel || order.canPayCredit) ...[
+          if (next != null || showCancel || showPayCredit) ...[
             const Divider(height: 1),
             Padding(
               padding: const EdgeInsets.fromLTRB(14, 10, 14, 12),
@@ -539,7 +566,7 @@ class _OrderCard extends StatelessWidget {
                           ? null
                           : () => _confirmAdvance(context, order, next),
                     ),
-                  if (order.canPayCredit)
+                  if (showPayCredit)
                     _ActionButton(
                       icon: Icons.price_check_rounded,
                       label: "Nasiyani yopish",
@@ -548,7 +575,7 @@ class _OrderCard extends StatelessWidget {
                           ? null
                           : () => _confirmPayCredit(context, order),
                     ),
-                  if (order.canAdminCancel)
+                  if (showCancel)
                     _ActionButton(
                       icon: Icons.cancel_outlined,
                       label: 'Bekor qilish',

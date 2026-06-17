@@ -2458,6 +2458,10 @@ const ORDER_STATUS_COLORS: Record<string, string> = {
 
 const OrdersTab = () => {
   const qc = useQueryClient();
+  // Kuryer — mijoz tomonidagi himoya: backend kechiksa ham bekor qilish /
+  // nasiya tugmalari ko'rsatilmaydi, oldinga tugma faqat DELIVERED/RECEIVED.
+  const currentRole = useAuthStore((s) => s.user?.role);
+  const isCourier = currentRole === 'courier';
   const [filters, setFilters] = useState({
     q: '',
     status: '',
@@ -2719,14 +2723,19 @@ const OrdersTab = () => {
             // Oldinga tugma — ROL bo'yicha backend-avtoritar `allowed_transitions`dan.
             // Kuryer faqat SHIPPING→DELIVERED / DELIVERED→RECEIVED ko'radi; sotuvchi
             // PACKING→SHIPPING gacha. Eski (cache) ma'lumot uchun status-fallback.
-            const nextFwdStatus = order.allowed_transitions
+            const rawNextFwd = order.allowed_transitions
               ? (order.allowed_transitions[0] ?? null)
               : (STATUS_FORWARD_TRANSITION[order.status] ?? null);
+            // Qat'iy himoya: kuryer FAQAT ikki yetkazish o'tishini ko'ra oladi.
+            const nextFwdStatus =
+              isCourier && rawNextFwd !== 'DELIVERED' && rawNextFwd !== 'RECEIVED'
+                ? null
+                : rawNextFwd;
             const isFinalStatus = ORDER_FINAL_STATUSES.has(order.status);
 
             // Bekor qilish — backend-avtoritar (kuryer uchun doim false). Eski
-            // ma'lumotda mahalliy to'lov-usuli mantig'iga qaytamiz.
-            const canAdminCancel = order.can_admin_cancel ?? (() => {
+            // ma'lumotda mahalliy to'lov-usuli mantig'iga qaytamiz; kuryerga hech qachon.
+            const canAdminCancel = isCourier ? false : (order.can_admin_cancel ?? (() => {
               if (isFinalStatus) return false;
               const pm = order.payment_method;
               const st = order.status;
@@ -2734,7 +2743,7 @@ const OrdersTab = () => {
               if (pm === 'card') return st === 'AWAITING_PAYMENT';
               // Naqd / Muddatli: faqat PENDING va CONFIRMED (yig'ilish boshlashdan oldin)
               return st === 'PENDING' || st === 'CONFIRMED';
-            })();
+            })());
             // Default selection: next forward status (pre-selected, ready to save)
             const draft = drafts[order.id] || {
               status: nextFwdStatus ?? order.status,
@@ -3104,7 +3113,7 @@ const OrdersTab = () => {
                           )}
                         </div>
                         {/* Nasiyani yopish — faqat kassa huquqiga ega xodim (backend-avtoritar). */}
-                        {(order.can_pay_credit ?? !order.credit_paid) && (
+                        {!isCourier && (order.can_pay_credit ?? !order.credit_paid) && (
                           <button
                             type='button'
                             onClick={() => setCreditConfirmOrder(order)}
