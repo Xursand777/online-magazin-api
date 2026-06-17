@@ -82,14 +82,21 @@ flutter {
 //   • flutter build appbundle      → xuddi shu
 //   • flutter run --debug          → upload qilmaydi (debug uchun shart emas)
 // ─────────────────────────────────────────────────────────────────────────────
+// Sentry'ga upload faqat AUTH TOKEN mavjud bo'lganda bajariladi.
+// Mahalliy build (token yo'q) → upload o'tkazib yuboriladi, build muvaffaqiyatli.
+// CI/release (SENTRY_AUTH_TOKEN env yoki android/sentry.properties bor) → yuklaydi.
+val sentryUploadEnabled =
+    !System.getenv("SENTRY_AUTH_TOKEN").isNullOrBlank() ||
+        rootProject.file("sentry.properties").exists()
+
 sentry {
     // R8/ProGuard mapping fayli — release crash trace'lari o'qiladigan bo'lishi uchun
     includeProguardMapping.set(true)
-    autoUploadProguardMapping.set(true)
+    autoUploadProguardMapping.set(sentryUploadEnabled)
 
     // Native debug symbols (NDK .so fayllari)
     // Native crash trace'lari "?" yo'q, real funksiya nomlari bilan keladi
-    uploadNativeSymbols.set(true)
+    uploadNativeSymbols.set(sentryUploadEnabled)
     includeNativeSources.set(false)  // Source kod yuklamaymiz (xavfsizlik)
 
     // Auto-instrumentatsiya — kelajakda performance monitoring uchun foydali
