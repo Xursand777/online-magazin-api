@@ -1093,7 +1093,7 @@ const AdminDashboard = () => {
     NAV_GROUPS.flatMap((g) => g.items).find((i) => i.key === activeTab)?.label || '';
 
   return (
-    <div className='min-h-screen bg-surface-container-low'>
+    <div className='admin-shell min-h-screen bg-surface-container-low'>
       {/* Mobile overlay */}
       {sidebarOpen && (
         <div
@@ -5842,7 +5842,7 @@ const NasiyaTab = () => {
           </p>
         </div>
       ) : (
-        <div className='overflow-hidden rounded-2xl border border-outline-variant bg-surface-container-lowest shadow-sm'>
+        <div className='overflow-x-auto rounded-2xl border border-outline-variant bg-surface-container-lowest shadow-sm'>
           <table className='w-full min-w-[900px] text-left text-sm'>
             <thead className='bg-surface-container'>
               <tr>

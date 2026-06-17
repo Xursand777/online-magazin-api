@@ -240,3 +240,38 @@
     display: none;             /* Chrome, Safari, Edge */
   }
 }
+
+/* ─────────────────────────────────────────────────────────────────────────
+   ADMIN PANEL — MOBIL IXCHAMLASH (faqat telefon: < 768px)
+   ───────────────────────────────────────────────────────────────────────
+   Admin panel desktop uchun mo'ljallangan (katta sarlavhalar, p-6/p-8,
+   text-h1=48px ...). Mobilда bu "bahaybat" va noqulay. 17 ta tabni alohida
+   tahrirlamasdan, responsive BO'LMAGAN katta o'lchamlarni shu yerda
+   ixchamlaymiz. Bu qoidalar @layer'dan TASHQARIDA → Tailwind utility'lardan
+   ustun (har doim qo'llanadi). FAQAT literal klasslarga ta'sir qiladi —
+   "p-4 md:p-6" kabilarga tegmaydi (ularning mobil bazasi p-4).
+   ───────────────────────────────────────────────────────────────────────── */
+@media (max-width: 767px) {
+  .admin-shell .text-h1 { font-size: 24px; line-height: 1.2; }
+  .admin-shell .text-h2 { font-size: 20px; line-height: 1.25; }
+  .admin-shell .text-h3 { font-size: 17px; line-height: 1.35; }
+  .admin-shell .text-4xl { font-size: 24px; line-height: 1.2; }
+  .admin-shell .text-3xl { font-size: 22px; line-height: 1.2; }
+  .admin-shell .text-2xl { font-size: 19px; line-height: 1.3; }
+
+  .admin-shell .p-8 { padding: 0.875rem; }
+  .admin-shell .p-6 { padding: 0.875rem; }
+  .admin-shell .p-5 { padding: 0.75rem; }
+  .admin-shell .px-8 { padding-left: 0.875rem; padding-right: 0.875rem; }
+  .admin-shell .px-6 { padding-left: 0.875rem; padding-right: 0.875rem; }
+  .admin-shell .py-8 { padding-top: 1rem; padding-bottom: 1rem; }
+  .admin-shell .py-6 { padding-top: 0.875rem; padding-bottom: 0.875rem; }
+
+  .admin-shell .gap-8 { gap: 0.875rem; }
+  .admin-shell .gap-6 { gap: 0.75rem; }
+
+  /* Jadvallar mobilда gorizontal scroll bilan to'liq ko'rinsin (kesilmasin) */
+  .admin-shell table { font-size: 13px; }
+  .admin-shell th,
+  .admin-shell td { padding-left: 0.5rem; padding-right: 0.5rem; }
+}
