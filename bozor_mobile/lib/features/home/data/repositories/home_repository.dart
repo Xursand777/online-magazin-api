@@ -180,7 +180,9 @@ class HomeRepository {
 
   Future<List<CategoryModel>> getPopularCategories() async {
     try {
-      final response = await apiClient.dio.get(ApiConstants.categories);
+      // Home chiplari — admin "homeda ko'rsatish" (is_popular) flagli kategoriyalar.
+      // Sayt bilan AYNAN bir xil endpoint → home kategoriyalari 100% bir xil.
+      final response = await apiClient.dio.get(ApiConstants.categoriesHome);
       return ApiResponse.listFrom(
         response.data,
       ).map((json) => CategoryModel.fromJson(json)).toList();

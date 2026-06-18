@@ -19,7 +19,7 @@ from recommendations.services import (
 )
 from django.shortcuts import get_object_or_404
 from .serializers import (
-    CategorySerializer, ProductListSerializer, ProductDetailSerializer, ProductSearchSerializer,
+    CategorySerializer, HomeCategorySerializer, ProductListSerializer, ProductDetailSerializer, ProductSearchSerializer,
     AdminCategorySerializer, AdminHomeBannerSerializer, AdminProductSerializer, HomeBannerSerializer,
     PhoneBrandSerializer,
     CompatibilityWriteSerializer, CompatibilityBulkSeriesSerializer, ProductCompatibilityReadSerializer,
@@ -249,6 +249,27 @@ class CategoryListView(generics.ListAPIView):
     queryset = Category.objects.filter(parent=None, is_active=True) # Only top level categories as tree roots
     serializer_class = CategorySerializer
     permission_classes = (AllowAny,)
+
+
+class HomeCategoryListView(generics.ListAPIView):
+    """
+    Home sahifa kategoriya chiplari — admin "homeda ko'rsatish" (is_popular)
+    flagini belgilagan kategoriyalar (HAR QANDAY darajada: top-level yoki child),
+    `order` bo'yicha tartiblangan, rasm bilan.
+
+    ⭐ Web (Home.tsx) va Mobil (home_page) IKKALASI shu endpointni ishlatadi →
+    home kategoriyalari 100% bir xil, admin flagiga bog'langan (single source).
+    """
+    serializer_class = HomeCategorySerializer
+    permission_classes = (AllowAny,)
+    pagination_class = None  # to'liq ro'yxat — sahifalashsiz
+
+    def get_queryset(self):
+        return (
+            Category.objects
+            .filter(is_active=True, is_popular=True)
+            .order_by('order', 'name')
+        )
 
 class ProductListView(VariantExpandMixin, generics.ListAPIView):
     serializer_class = ProductListSerializer

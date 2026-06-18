@@ -51,6 +51,9 @@ class ApiConstants {
   static const String productsSimilar = '/api/products/{id}/similar/';
   static const String searchProducts = '/api/search/products/';
   static const String categories = '/api/categories/';
+  // Home chiplari — admin "homeda ko'rsatish" (is_popular) flagli kategoriyalar.
+  // Sayt bilan AYNAN bir xil manba (single source).
+  static const String categoriesHome = '/api/categories/home/';
   static const String categoryProducts = '/api/categories/{id}/products/';
   static const String discounts = '/api/products/discounts/';
   static const String newProducts = '/api/products/new/';

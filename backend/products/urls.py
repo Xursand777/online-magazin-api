@@ -1,7 +1,7 @@
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
 from .views import (
-    CategoryListView, ProductListView, ProductDetailView, MainPageView,
+    CategoryListView, HomeCategoryListView, ProductListView, ProductDetailView, MainPageView,
     ProductDiscountListView, ProductNewListView, ProductPopularListView,
     ProductRecommendedListView, CategoryProductListView, ProductSearchView,
     ProductSimilarListView, RecentlyViewedView,
@@ -38,6 +38,7 @@ urlpatterns = [
     path('admin/bulk-import/', AdminBulkImportView.as_view(), name='admin_bulk_import'),
 
     path('search/products/', ProductSearchView.as_view(),     name='product_search'),
+    path('categories/home/', HomeCategoryListView.as_view(),  name='category_home_list'),
     path('categories/',      CategoryListView.as_view(),      name='category_list'),
     path('categories/<int:pk>/products/', CategoryProductListView.as_view(), name='category_product_list'),
 

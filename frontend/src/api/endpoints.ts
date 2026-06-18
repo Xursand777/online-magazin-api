@@ -53,6 +53,9 @@ export const clearRecentlyViewed = () => apiClient.delete('/recently-viewed/');
 
 // CATEGORIES
 export const getCategories = () => apiClient.get('/categories/');
+// Home sahifa chiplari — admin "homeda ko'rsatish" (is_popular) flagli kategoriyalar.
+// Web va mobil IKKALASI shu endpointni ishlatadi → 100% bir xil.
+export const getHomeCategories = () => apiClient.get('/categories/home/');
 export const getCategoryProducts = (id: number | string) =>
   apiClient.get(`/categories/${id}/products/`, { params: EXPAND });
 

@@ -70,9 +70,11 @@ class HomeView extends StatelessWidget {
                 if (state.error != null && state.isStale)
                   _buildOfflineBanner(context, state, theme),
                 _buildAdvertisementBanner(context, state, theme),
-                const SizedBox(height: 24),
+                // Kategoriya chiplari atrofida ixcham ochiqlik (sayt kabi —
+                // ortiqcha bo'sh joy yo'q, ozgina nafas oladigan masofa).
+                const SizedBox(height: 12),
                 _buildCategoryChips(context, state, theme),
-                const SizedBox(height: 24),
+                const SizedBox(height: 12),
                 if (state.recommended.isNotEmpty) ...[
                   _buildSectionHeader(context, context.tr('home.recommended'), theme),
                   const SizedBox(height: 16),
@@ -269,9 +271,34 @@ class HomeView extends StatelessWidget {
       scrollDirection: Axis.horizontal,
       child: Row(
         children: state.categories.map((category) {
+          // Rasm bor bo'lsa — grid-icon o'rniga RASM (sayt bilan bir xil mantiq).
+          // .avif kabi qo'llab-quvvatlanmaydigan format yoki tarmoq xatosida
+          // errorBuilder grid-iconga qaytadi (xatosiz, professional).
+          final hasImage =
+              category.iconUrl != null && category.iconUrl!.isNotEmpty;
+          final Widget avatar = hasImage
+              ? ClipOval(
+                  child: Image.network(
+                    category.iconUrl!,
+                    width: 26,
+                    height: 26,
+                    fit: BoxFit.cover,
+                    errorBuilder: (_, __, ___) => Icon(
+                      Icons.grid_view_rounded,
+                      size: 18,
+                      color: theme.colorScheme.primary,
+                    ),
+                  ),
+                )
+              : Icon(
+                  Icons.grid_view_rounded,
+                  size: 18,
+                  color: theme.colorScheme.primary,
+                );
           return Padding(
             padding: const EdgeInsets.only(right: 8),
             child: ActionChip(
+              avatar: avatar,
               label: Text(category.name),
               // ─── Kategoriya bosilganda mahsulotlar sahifasiga o'tamiz ───
               // Sayt bilan bir xil — categoryId + name CategoryProductsPage'ga

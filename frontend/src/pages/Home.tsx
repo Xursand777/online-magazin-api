@@ -5,7 +5,7 @@ import { Link } from 'react-router-dom';
 import ProductCard from '../components/ProductCard';
 import type { Product } from '../components/ProductCard';
 import ProductSkeleton from '../components/ProductSkeleton';
-import { getMainPage, getDiscountProducts, getNewProducts, getPopularProducts, getCategories, getRecentlyViewed, clearRecentlyViewed } from '../api/endpoints';
+import { getMainPage, getDiscountProducts, getNewProducts, getPopularProducts, getHomeCategories, getRecentlyViewed, clearRecentlyViewed } from '../api/endpoints';
 import { useAuthStore } from '../store/authStore';
 import { useTranslation } from '../i18n/useTranslation';
 
@@ -229,16 +229,15 @@ const Home = () => {
     [heroProducts, xiaomiHero]
   );
 
-  const { data: categories = [] } = useQuery({
-    queryKey: ['categories-home', language],
-    queryFn: () => getCategories().then(res => res.data.results || res.data),
+  // Home kategoriya chiplari — admin "homeda ko'rsatish" (is_popular) flagini
+  // belgilagan kategoriyalar. Backend filtrlaydi → mobil bilan 100% bir xil.
+  const { data: homeCategories = [] } = useQuery({
+    queryKey: ['home-categories', language],
+    queryFn: () => getHomeCategories().then(res => res.data.results || res.data),
   });
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const displayCats = categories.some((c: any) => c.is_popular)
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    ? categories.filter((c: any) => c.is_popular).slice(0, 6)
-    : categories.slice(0, 6);
+  const displayCats: any[] = homeCategories;
 
   const fallbackBannerSlides = useMemo<BannerSlide[]>(
     () => [
@@ -566,10 +565,11 @@ const Home = () => {
         </div>
       </section>
 
+      {displayCats.length > 0 && (
       <section className="mb-lg md:mb-2xl">
         <div className="grid grid-cols-2 gap-2 md:grid-cols-3 md:gap-3 xl:grid-cols-5">
           {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
-          {displayCats.slice(0, 5).map((cat: any) => (
+          {displayCats.map((cat: any) => (
             <Link
               key={cat.id}
               to={`/catalog/${cat.slug}`}
@@ -591,6 +591,7 @@ const Home = () => {
           ))}
         </div>
       </section>
+      )}
 
       {/* ─── Ko'rgan mahsulotlar ─────────────────────────────── */}
       <RecentlyViewedSection />

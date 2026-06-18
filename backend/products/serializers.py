@@ -98,6 +98,23 @@ class CategorySerializer(serializers.ModelSerializer):
             return CategorySerializer(qs, many=True, context=self.context).data
         return []
 
+
+class HomeCategorySerializer(serializers.ModelSerializer):
+    """
+    Home sahifa kategoriya chiplari uchun YENGIL serializer (children'siz).
+    Til-aware nom + rasm (absolyut URL — request kontekstdan). Web va mobil
+    IKKALASI shu serializer orqali keladigan ma'lumotni ishlatadi → 100% bir xil.
+    """
+    name = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Category
+        fields = ('id', 'name', 'slug', 'image', 'is_popular')
+
+    def get_name(self, obj):
+        return localized(obj, 'name', get_lang(self.context))
+
+
 class ProductImageSerializer(serializers.ModelSerializer):
     class Meta:
         model = ProductImage
