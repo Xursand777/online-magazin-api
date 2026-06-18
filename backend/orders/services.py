@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import datetime
 from datetime import timedelta
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from uuid import uuid4
 
 from django.conf import settings
@@ -44,6 +44,19 @@ def get_line_price(product, variant=None):
     if product.is_discount and product.discount_price:
         return product.discount_price
     return product.price
+
+
+def get_line_cost(product, variant=None) -> Decimal:
+    """Mahsulot (yoki variant) tannarxi — POS'da chegirma uchun "pol" (floor).
+
+    Variant tannarxi ustunlik qiladi; aks holda mahsulotning o'zi.
+    POS'da sotuvchi narxni shu qiymatdan PASTGA tushira olmaydi (zararga
+    sotish taqiqlangan — biznes qoidasi). Hech qachon None qaytarmaydi:
+    o'rnatilmagan tannarx 0 sifatida qaraladi (ya'ni amalda pol yo'q).
+    """
+    if variant is not None and variant.cost_price is not None:
+        return variant.cost_price
+    return product.cost_price if product.cost_price is not None else Decimal('0.00')
 
 
 # ────────────────────────────────────────────────────────────────────────────
@@ -350,6 +363,7 @@ def create_order_with_items(
     *, user, receiver_name, receiver_phone, delivery_address,
     payment_method, items, credit_days=None, skip_credit_check=False,
     delivery_lat=None, delivery_lng=None, delivery_notes='',
+    allow_price_override=False,
 ):
     import logging
     _log = logging.getLogger('orders.create')
@@ -454,25 +468,69 @@ def create_order_with_items(
         credit_paid=False,
     )
 
+    # ── Narx hisoblash ───────────────────────────────────────────────────────
+    # `total_price`    — haqiqatda sotilgan narx (price_snapshot yig'indisi).
+    # `normal_subtotal`— hech qanday POS kelishuvisiz, mahsulotda KO'RSATILGAN
+    #                    narx bo'yicha yig'indi (chegirma bazasi).
+    # INVARIANT: total_price == Σ(price_snapshot · quantity) — hisobotlar shu
+    # tenglikka tayanadi (summary.total_revenue ↔ products[].total_revenue).
     total_price = Decimal('0.00')
+    normal_subtotal = Decimal('0.00')
     for item in items:
         product = item['product']
         variant = item.get('variant')
         quantity = int(item.get('quantity', 1))
         ensure_stock_available(product, quantity, variant)
         reserve_inventory(product, quantity, variant)
-        price = apply_master_discount(get_line_price(product, variant), master_pct)
+
+        # Ko'rsatilgan (kelishuvsiz) narx — usta chegirmasi hisobga olingan holda.
+        normal_unit = apply_master_discount(get_line_price(product, variant), master_pct)
+
+        # ── POS kelishuv narxi (faqat allow_price_override) ──────────────────
+        # Admin POS'da har bir mahsulotning narxini qo'lda kiritishi mumkin
+        # (kelishtirib chegirma / erkin narx). Oddiy mijoz checkout'ida bu
+        # YO'Q — narxni faqat tizim belgilaydi (allow_price_override=False).
+        price_override = item.get('price') if allow_price_override else None
+        if price_override is not None:
+            try:
+                final_unit = Decimal(str(price_override)).quantize(Decimal('0.01'))
+            except (InvalidOperation, TypeError, ValueError):
+                raise serializers.ValidationError(
+                    {'error': f"\"{product.name}\" uchun narx noto'g'ri formatda."}
+                )
+            if final_unit < 0:
+                raise serializers.ValidationError(
+                    {'error': f"\"{product.name}\" narxi manfiy bo'lishi mumkin emas."}
+                )
+            # Tannarxdan PAST sotish taqiqlangan (zararga sotish yo'q).
+            cost_unit = get_line_cost(product, variant)
+            if cost_unit > 0 and final_unit < cost_unit:
+                raise serializers.ValidationError({
+                    'error': (
+                        f"\"{product.name}\" narxi tannarxdan past bo'lishi mumkin "
+                        f"emas (tannarx: {cost_unit:.0f} so'm)."
+                    ),
+                    'code': 'below_cost',
+                })
+        else:
+            final_unit = normal_unit
+
         OrderItem.objects.create(
             order=order,
             product=product,
             variant=variant,
             quantity=quantity,
-            price_snapshot=price,
+            price_snapshot=final_unit,
         )
-        total_price += price * quantity
+        total_price += final_unit * quantity
+        normal_subtotal += normal_unit * quantity
 
     order.total_price = total_price
-    order.save(update_fields=['total_price', 'updated_at'])
+    # Umumiy chegirma = ko'rsatilgan narx − sotilgan narx (chek va hisobot uchun).
+    # Manfiy bo'lsa (narx ko'tarilgan / markup), chegirma 0 deb yoziladi.
+    discount_total = normal_subtotal - total_price
+    order.discount_price = discount_total if discount_total > 0 else Decimal('0.00')
+    order.save(update_fields=['total_price', 'discount_price', 'updated_at'])
 
     Payment.objects.create(
         order=order,

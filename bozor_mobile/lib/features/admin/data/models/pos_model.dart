@@ -124,8 +124,9 @@ class PosCartItem {
   final String model;
   final String size;
   final String color;
-  final double price;
-  final double costPrice;
+  final double price; // mahsulotda KO'RSATILGAN narx (chegirma bazasi)
+  final double soldPrice; // kelishuv (sotiladigan) narx — admin tahrirlaydi
+  final double costPrice; // tannarx — narx bundan past bo'la olmaydi
   final int quantity;
   final int stock;
   final String sku;
@@ -140,19 +141,28 @@ class PosCartItem {
     required this.size,
     required this.color,
     required this.price,
+    double? soldPrice,
     required this.costPrice,
     required this.quantity,
     required this.stock,
     required this.sku,
-  });
+  }) : soldPrice = soldPrice ?? price;
 
   String get variantText =>
       [color, size, model].where((e) => e.trim().isNotEmpty).join(' · ');
 
-  double get lineTotal => price * quantity;
-  double get lineProfit => (price - costPrice) * quantity;
+  double get lineTotal => soldPrice * quantity;
+  double get normalLineTotal => price * quantity;
+  double get lineProfit => (soldPrice - costPrice) * quantity;
+  double get lineDiscount {
+    final d = (price - soldPrice) * quantity;
+    return d > 0 ? d : 0;
+  }
 
-  PosCartItem copyWith({int? quantity}) => PosCartItem(
+  /// Tannarxdan past sotilyaptimi — bo'lsa sotuv bloklanadi.
+  bool get belowCost => soldPrice < costPrice;
+
+  PosCartItem copyWith({int? quantity, double? soldPrice}) => PosCartItem(
         cartId: cartId,
         productId: productId,
         variantId: variantId,
@@ -162,6 +172,7 @@ class PosCartItem {
         size: size,
         color: color,
         price: price,
+        soldPrice: soldPrice ?? this.soldPrice,
         costPrice: costPrice,
         quantity: quantity ?? this.quantity,
         stock: stock,

@@ -279,6 +279,8 @@ class AdminRepository {
                 'product_id': i.productId,
                 if (i.variantId != null) 'variant_id': i.variantId,
                 'quantity': i.quantity,
+                // Kelishuv (sotiladigan) narx — backend price_snapshot sifatida saqlaydi.
+                'price': i.soldPrice,
               })
           .toList(),
     };

@@ -214,6 +214,7 @@ export function generateReceiptHtml(order: ReceiptOrder, store: StoreInfo = DEFA
       margin: 2px 0;
       font-size: 11px;
     }
+    .totals-note { font-size: 9px; color: #666; font-style: italic; margin: 2px 0 4px; }
     .total-final {
       display: flex;
       justify-content: space-between;
@@ -346,8 +347,13 @@ export function generateReceiptHtml(order: ReceiptOrder, store: StoreInfo = DEFA
   <div class="totals-section">
     ${
       discountPrice > 0
-        ? `<div class="totals-row"><span class="label">Mahsulotlar jami:</span><span>${money(num(order.total_price) + discountPrice - deliveryPrice)} so'm</span></div>
-           <div class="totals-row"><span class="label">Chegirma:</span><span>- ${money(discountPrice)} so'm</span></div>`
+        ? `<div class="totals-row"><span class="label">Asl narx jami:</span><span>${money(num(order.total_price) + discountPrice - deliveryPrice)} so'm</span></div>
+           <div class="totals-row"><span class="label">Chegirma (kelishuv):</span><span>- ${money(discountPrice)} so'm</span></div>`
+        : ''
+    }
+    ${
+      discountPrice > 0
+        ? `<div class="totals-note">* Quyidagi ro'yxatdagi narxlar chegirma qo'llangan yakuniy narxlardir</div>`
         : ''
     }
     ${
@@ -558,7 +564,7 @@ export function generateCreditAgreementHtml(order: ReceiptOrder, store: StoreInf
   <!-- ══════════ TOTALS ══════════ -->
   <div class="totals">
     <div class="totals-box">
-      ${num(order.discount_price) > 0 ? `<div class="total-row"><span>Chegirma:</span><span>- ${money(num(order.discount_price))} so'm</span></div>` : ''}
+      ${num(order.discount_price) > 0 ? `<div class="total-row"><span>Chegirma (kelishuv):</span><span>- ${money(num(order.discount_price))} so'm</span></div>` : ''}
       ${num(order.delivery_price) > 0 ? `<div class="total-row"><span>Yetkazib berish:</span><span>${money(num(order.delivery_price))} so'm</span></div>` : ''}
       <div class="total-final-row">
         <span>JAMI SUMMA:</span>

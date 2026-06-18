@@ -27,8 +27,9 @@ interface POSItem {
   model: string;
   size: string;
   color: string;
-  price: number;
-  costPrice: number;
+  price: number;       // mahsulotda KO'RSATILGAN narx (chegirma bazasi)
+  soldPrice: number;   // kelishuv (sotiladigan) narx — admin tahrirlaydi
+  costPrice: number;   // tannarx — sotuv narxi bundan past bo'la olmaydi
   quantity: number;
   stock: number;
   sku: string;
@@ -341,6 +342,8 @@ const AdminPOS = () => {
   const [checkoutModalOpen, setCheckoutModalOpen] = useState(false);
   // Mobil (telefon) uchun — bir vaqtda bitta panel: mahsulotlar yoki savat.
   const [mobileView, setMobileView] = useState<'products' | 'cart'>('products');
+  // "Jami'dan qaytarib berish" — umumiy chegirma summasi (so'm) kiritish maydoni.
+  const [orderDiscountInput, setOrderDiscountInput] = useState('');
 
   // POS ochilganda shared cache'ni server'dan to'ldiramiz (idempotent).
   // AdminDashboard'da useShopInfo() ham bor — bu yerda ikkilamchi himoya:
@@ -436,6 +439,7 @@ const AdminPOS = () => {
             size: v.size || '',
             color: v.color || '',
             price: Number(v.discount_price || v.price || p.discount_price || p.price),
+            soldPrice: Number(v.discount_price || v.price || p.discount_price || p.price),
             costPrice: Number(v.cost_price || p.cost_price),
             quantity: 1,
             stock: v.stock,
@@ -449,6 +453,7 @@ const AdminPOS = () => {
           name: p.name,
           quality: '', model: '', size: '', color: '',
           price: Number(p.discount_price || p.price),
+          soldPrice: Number(p.discount_price || p.price),
           costPrice: Number(p.cost_price),
           quantity: 1, stock: p.stock, sku: '',
         });
@@ -481,8 +486,44 @@ const AdminPOS = () => {
     }));
   };
 
-  const totalAmount = cart.reduce((a, i) => a + i.price * i.quantity, 0);
-  const totalProfit = cart.reduce((a, i) => a + (i.price - i.costPrice) * i.quantity, 0);
+  // ── Kelishuv narxi (chegirma / qaytarib berish) ──────────────────────────
+  // Har bir mahsulotning SOTILADIGAN narxini admin qo'lda tahrirlaydi.
+  // `soldPrice` — yakuniy narx; `price` — mahsulotda ko'rsatilgan narx (baza).
+  // Tannarxdan (costPrice) past narx — taqiqlangan: checkout o'chadi.
+  const setItemSoldPrice = (cartId: string, value: number) => {
+    setCart((p) => p.map((i) =>
+      i.cartId === cartId ? { ...i, soldPrice: Math.max(0, Math.round(value || 0)) } : i
+    ));
+  };
+  const resetItemSoldPrice = (cartId: string) => {
+    setCart((p) => p.map((i) => i.cartId === cartId ? { ...i, soldPrice: i.price } : i));
+  };
+
+  // "Jami'dan qaytarib berish": umumiy chegirma summasini har bir mahsulotga
+  // KO'RSATILGAN narx ulushiga proporsional taqsimlaydi (butun so'mga
+  // yaxlitlanadi). Natija har bir item.soldPrice'iga yoziladi — keyin admin
+  // alohida tuzatishi mumkin. Backend yakuniy jami'ni shu narxlardan qayta
+  // hisoblaydi (yagona avtoritar manba).
+  const applyOrderDiscount = (amount: number) => {
+    const amt = Math.max(0, Math.round(amount || 0));
+    setCart((prev) => {
+      const base = prev.reduce((a, i) => a + i.price * i.quantity, 0);
+      if (base <= 0) return prev;
+      const factor = Math.max(0, (base - amt) / base);
+      return prev.map((i) => ({ ...i, soldPrice: Math.max(0, Math.round(i.price * factor)) }));
+    });
+  };
+  const resetAllPrices = () => setCart((p) => p.map((i) => ({ ...i, soldPrice: i.price })));
+
+  // ── Hisob-kitob (juda aniq, xatoliksiz) ──────────────────────────────────
+  const normalSubtotal = cart.reduce((a, i) => a + i.price * i.quantity, 0);      // ko'rsatilgan narx jami
+  const totalAmount = cart.reduce((a, i) => a + i.soldPrice * i.quantity, 0);     // sotiladigan jami
+  const totalDiscount = Math.max(0, normalSubtotal - totalAmount);               // umumiy chegirma
+  const discountPct = normalSubtotal > 0 ? (totalDiscount / normalSubtotal) * 100 : 0;
+  const totalProfit = cart.reduce((a, i) => a + (i.soldPrice - i.costPrice) * i.quantity, 0);
+  // Tannarxdan past narxli mahsulot bormi — bo'lsa sotishni bloklaymiz.
+  const hasBelowCost = cart.some((i) => i.soldPrice < i.costPrice);
+  const belowCostCount = cart.filter((i) => i.soldPrice < i.costPrice).length;
 
   // Phone lookup (debounced)
   useEffect(() => {
@@ -531,7 +572,7 @@ const AdminPOS = () => {
         ? order.items
         : cart.map((item) => ({
             quantity: item.quantity,
-            price_snapshot: item.price,
+            price_snapshot: item.soldPrice,
             product_details: { name: item.name },
             variant_details: {
               color: item.color || null,
@@ -560,6 +601,7 @@ const AdminPOS = () => {
       }, si.name ? si : undefined);
 
       setCart([]);
+      setOrderDiscountInput('');
       setCheckoutModalOpen(false);
       resetCheckoutForm();
     },
@@ -593,6 +635,11 @@ const AdminPOS = () => {
       return toast.error("Bu mijozga muddatli to'lov taqiqlangan!");
     }
 
+    // Tannarxdan past narx bo'lsa sotishni umuman bloklaymiz (backend ham rad etadi).
+    if (hasBelowCost) {
+      return toast.error('Tannarxdan past narxli mahsulot bor — narxni tuzating.');
+    }
+
     const nameParts = fullName.trim().split(/\s+/);
     checkoutMutation.mutate({
       phone: getFullPhone(phoneDigits),
@@ -600,7 +647,13 @@ const AdminPOS = () => {
       last_name: nameParts.slice(1).join(' '),
       payment_method: paymentMethod,
       credit_days: paymentMethod === 'credit' ? creditDays : undefined,
-      items: cart.map((i) => ({ product_id: i.productId, variant_id: i.variantId, quantity: i.quantity })),
+      // Har bir mahsulotning KELISHUV (sotiladigan) narxi backend'ga yuboriladi.
+      items: cart.map((i) => ({
+        product_id: i.productId,
+        variant_id: i.variantId,
+        quantity: i.quantity,
+        price: i.soldPrice,
+      })),
     });
   };
 
@@ -786,46 +839,171 @@ const AdminPOS = () => {
                 </div>
               ) : (
                 <div className="flex flex-col gap-2">
-                  {cart.map((item) => (
-                    <div key={item.cartId} className="flex items-center gap-2 rounded-lg border border-outline-variant p-2.5">
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-semibold text-on-surface line-clamp-1">{item.name}</p>
-                        {(item.color || item.size || item.model) && (
-                          <p className="text-xs text-on-surface-variant">
-                            {[item.color, item.size, item.model].filter(Boolean).join(' · ')}
-                          </p>
+                  {cart.map((item) => {
+                    const itemBelowCost = item.soldPrice < item.costPrice;
+                    const itemEdited = item.soldPrice !== item.price;
+                    const itemDiscount = Math.max(0, (item.price - item.soldPrice)) * item.quantity;
+                    const itemDiscPct = item.price > 0
+                      ? Math.max(0, ((item.price - item.soldPrice) / item.price) * 100)
+                      : 0;
+                    return (
+                    <div
+                      key={item.cartId}
+                      className={`rounded-lg border p-2.5 ${itemBelowCost ? 'border-error bg-error-container/20' : 'border-outline-variant'}`}
+                    >
+                      <div className="flex items-start gap-2">
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-semibold text-on-surface line-clamp-1">{item.name}</p>
+                          {(item.color || item.size || item.model) && (
+                            <p className="text-xs text-on-surface-variant">
+                              {[item.color, item.size, item.model].filter(Boolean).join(' · ')}
+                            </p>
+                          )}
+                        </div>
+                        <div className="flex items-center rounded-lg bg-surface-container overflow-hidden border border-outline-variant shrink-0">
+                          <button onClick={() => updateQty(item.cartId, -1)} className="w-7 h-7 flex items-center justify-center hover:bg-outline-variant text-on-surface font-bold">−</button>
+                          <span className="w-8 text-center text-sm font-bold text-on-surface">{item.quantity}</span>
+                          <button onClick={() => updateQty(item.cartId, 1)} className="w-7 h-7 flex items-center justify-center hover:bg-outline-variant text-on-surface font-bold">+</button>
+                        </div>
+                        <button onClick={() => removeFromCart(item.cartId)} className="text-error hover:opacity-70 p-1 shrink-0">
+                          <span className="material-symbols-outlined text-[18px]">delete</span>
+                        </button>
+                      </div>
+
+                      {/* Kelishuv narxi (1 dona uchun) — tahrirlanadigan */}
+                      <div className="mt-2 flex items-center gap-2">
+                        <label className="text-[11px] text-on-surface-variant shrink-0">Narx (1 dona):</label>
+                        <div className={`flex items-center rounded-md border bg-surface overflow-hidden flex-1 ${itemBelowCost ? 'border-error' : 'border-outline-variant focus-within:border-primary'}`}>
+                          <input
+                            type="number"
+                            inputMode="numeric"
+                            min={0}
+                            value={item.soldPrice}
+                            onChange={(e) => setItemSoldPrice(item.cartId, Number(e.target.value))}
+                            className="w-full bg-transparent outline-none px-2 py-1 text-sm font-bold text-on-surface text-right"
+                          />
+                          <span className="pr-2 text-[11px] text-on-surface-variant shrink-0">so'm</span>
+                        </div>
+                        {itemEdited && (
+                          <button
+                            type="button"
+                            onClick={() => resetItemSoldPrice(item.cartId)}
+                            title="Asl narxga qaytarish"
+                            className="text-on-surface-variant hover:text-primary p-1 shrink-0"
+                          >
+                            <span className="material-symbols-outlined text-[16px]">restart_alt</span>
+                          </button>
                         )}
-                        <p className="text-xs font-bold text-primary mt-0.5">
-                          {fmt(item.price * item.quantity)} so'm
+                      </div>
+
+                      {/* Pastki qator: chegirma + qator jami / tannarx ogohlantirish */}
+                      <div className="mt-1.5 flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-1.5 min-w-0">
+                          {itemEdited && (
+                            <span className="text-[11px] text-on-surface-variant line-through truncate">
+                              {fmt(item.price * item.quantity)}
+                            </span>
+                          )}
+                          {itemDiscount > 0 && (
+                            <span className="text-[10px] font-bold text-green-700 bg-green-100 dark:bg-green-900/40 dark:text-green-300 px-1.5 py-0.5 rounded">
+                              −{fmt(itemDiscount)} ({itemDiscPct.toFixed(0)}%)
+                            </span>
+                          )}
+                        </div>
+                        <span className={`text-sm font-bold shrink-0 ${itemBelowCost ? 'text-error' : 'text-primary'}`}>
+                          {fmt(item.soldPrice * item.quantity)} so'm
+                        </span>
+                      </div>
+                      {itemBelowCost && (
+                        <p className="mt-1 text-[11px] font-semibold text-error flex items-center gap-1">
+                          <span className="material-symbols-outlined text-[14px]">warning</span>
+                          Tannarxdan past! (tannarx: {fmt(item.costPrice)} so'm)
                         </p>
-                      </div>
-                      <div className="flex items-center rounded-lg bg-surface-container overflow-hidden border border-outline-variant">
-                        <button onClick={() => updateQty(item.cartId, -1)} className="w-7 h-7 flex items-center justify-center hover:bg-outline-variant text-on-surface font-bold">−</button>
-                        <span className="w-8 text-center text-sm font-bold text-on-surface">{item.quantity}</span>
-                        <button onClick={() => updateQty(item.cartId, 1)} className="w-7 h-7 flex items-center justify-center hover:bg-outline-variant text-on-surface font-bold">+</button>
-                      </div>
-                      <button onClick={() => removeFromCart(item.cartId)} className="text-error hover:opacity-70 p-1">
-                        <span className="material-symbols-outlined text-[18px]">delete</span>
-                      </button>
+                      )}
                     </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </div>
 
-            <div className="mt-3 border-t border-outline-variant pt-3 space-y-1.5">
+            <div className="mt-3 border-t border-outline-variant pt-3 space-y-2">
+              {/* Jami'dan qaytarib berish — umumiy chegirmani taqsimlash */}
+              {cart.length > 0 && (
+                <div className="flex items-center gap-2">
+                  <div className="flex items-center rounded-lg border border-outline-variant bg-surface overflow-hidden flex-1 focus-within:border-primary">
+                    <span className="pl-2 text-[11px] text-on-surface-variant shrink-0">Jamidan chegirma:</span>
+                    <input
+                      type="number"
+                      inputMode="numeric"
+                      min={0}
+                      placeholder="0"
+                      value={orderDiscountInput}
+                      onChange={(e) => setOrderDiscountInput(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') { applyOrderDiscount(Number(orderDiscountInput)); }
+                      }}
+                      className="w-full bg-transparent outline-none px-2 py-2 text-sm font-bold text-right"
+                    />
+                    <span className="pr-2 text-[11px] text-on-surface-variant shrink-0">so'm</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => applyOrderDiscount(Number(orderDiscountInput))}
+                    className="shrink-0 rounded-lg bg-primary/10 text-primary px-3 py-2 text-xs font-bold hover:bg-primary/20"
+                  >
+                    Taqsimlash
+                  </button>
+                  {totalDiscount > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => { resetAllPrices(); setOrderDiscountInput(''); }}
+                      title="Barcha narxlarni tiklash"
+                      className="shrink-0 text-on-surface-variant hover:text-error p-1"
+                    >
+                      <span className="material-symbols-outlined text-[18px]">restart_alt</span>
+                    </button>
+                  )}
+                </div>
+              )}
+
+              {totalDiscount > 0 && (
+                <>
+                  <div className="flex justify-between text-sm text-on-surface-variant">
+                    <span>Mahsulotlar jami:</span>
+                    <span className="line-through">{fmt(normalSubtotal)} so'm</span>
+                  </div>
+                  <div className="flex justify-between text-sm font-semibold text-green-700 dark:text-green-400">
+                    <span>Chegirma ({discountPct.toFixed(1)}%):</span>
+                    <span>− {fmt(totalDiscount)} so'm</span>
+                  </div>
+                </>
+              )}
               <div className="flex justify-between text-sm text-on-surface-variant">
                 <span>Foyda:</span>
-                <span className="font-semibold text-green-600">{fmt(totalProfit)} so'm</span>
+                <span className={`font-semibold ${totalProfit < 0 ? 'text-error' : 'text-green-600'}`}>
+                  {fmt(totalProfit)} so'm
+                </span>
               </div>
               <div className="flex justify-between text-lg font-bold text-on-surface">
                 <span>Jami:</span>
                 <span className="text-primary">{fmt(totalAmount)} so'm</span>
               </div>
+
+              {hasBelowCost && (
+                <div className="flex items-start gap-2 rounded-lg bg-error-container/30 border border-error/40 px-3 py-2 text-error text-xs font-semibold">
+                  <span className="material-symbols-outlined text-[16px] shrink-0">error</span>
+                  <span>
+                    {belowCostCount} ta mahsulot tannarxdan past narxda — narxni tuzating,
+                    aks holda sotib bo'lmaydi.
+                  </span>
+                </div>
+              )}
+
               <button
-                disabled={cart.length === 0}
+                disabled={cart.length === 0 || hasBelowCost}
                 onClick={() => setCheckoutModalOpen(true)}
-                className="mt-2 w-full rounded-xl bg-primary py-3 font-bold text-on-primary hover:opacity-90 disabled:opacity-40 flex items-center justify-center gap-2"
+                className="mt-1 w-full rounded-xl bg-primary py-3 font-bold text-on-primary hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2"
               >
                 <span className="material-symbols-outlined text-[20px]">point_of_sale</span>
                 Sotishni Yakunlash
@@ -1015,15 +1193,33 @@ const AdminPOS = () => {
               {/* Order summary */}
               <div className="rounded-xl border border-outline-variant bg-surface-container p-3 space-y-1">
                 <p className="text-xs font-semibold text-on-surface-variant mb-2">Buyurtma xulosasi</p>
-                {cart.map((item) => (
-                  <div key={item.cartId} className="flex justify-between text-sm">
-                    <span className="text-on-surface truncate flex-1 mr-2">
-                      {item.name}{item.color ? ` (${item.color})` : ''} × {item.quantity}
-                    </span>
-                    <span className="text-on-surface-variant shrink-0">{fmt(item.price * item.quantity)}</span>
+                {cart.map((item) => {
+                  const edited = item.soldPrice !== item.price;
+                  return (
+                    <div key={item.cartId} className="flex justify-between text-sm">
+                      <span className="text-on-surface truncate flex-1 mr-2">
+                        {item.name}{item.color ? ` (${item.color})` : ''} × {item.quantity}
+                      </span>
+                      <span className="shrink-0 text-right">
+                        {edited && (
+                          <span className="text-on-surface-variant line-through text-xs mr-1.5">
+                            {fmt(item.price * item.quantity)}
+                          </span>
+                        )}
+                        <span className={edited ? 'text-green-700 dark:text-green-400 font-semibold' : 'text-on-surface-variant'}>
+                          {fmt(item.soldPrice * item.quantity)}
+                        </span>
+                      </span>
+                    </div>
+                  );
+                })}
+                {totalDiscount > 0 && (
+                  <div className="border-t border-outline-variant pt-1.5 mt-1.5 flex justify-between text-sm font-semibold text-green-700 dark:text-green-400">
+                    <span>Chegirma ({discountPct.toFixed(1)}%):</span>
+                    <span>− {fmt(totalDiscount)} so'm</span>
                   </div>
-                ))}
-                <div className="border-t border-outline-variant pt-1.5 mt-1.5 flex justify-between font-bold text-on-surface">
+                )}
+                <div className={`flex justify-between font-bold text-on-surface ${totalDiscount > 0 ? '' : 'border-t border-outline-variant pt-1.5 mt-1.5'}`}>
                   <span>Jami:</span>
                   <span className="text-primary">{fmt(totalAmount)} so'm</span>
                 </div>
@@ -1041,7 +1237,7 @@ const AdminPOS = () => {
               <button
                 type="button"
                 onClick={handleCheckout}
-                disabled={checkoutMutation.isPending || !isPhoneComplete(phoneDigits)}
+                disabled={checkoutMutation.isPending || !isPhoneComplete(phoneDigits) || hasBelowCost}
                 className="flex-1 rounded-xl bg-primary py-3 font-bold text-on-primary hover:opacity-90 disabled:opacity-40 flex items-center justify-center gap-2"
               >
                 {checkoutMutation.isPending ? (
@@ -1065,7 +1261,7 @@ const AdminPOS = () => {
                 ? order.items
                 : lastOrderDetails.cart.map((item: any) => ({
                     quantity: item.quantity,
-                    price_snapshot: item.price,
+                    price_snapshot: item.soldPrice ?? item.price,
                     product_details: { name: item.name },
                     variant_details: { color: item.color || null, quality: item.quality || null, model: item.model || null, size: item.size || null },
                   }));

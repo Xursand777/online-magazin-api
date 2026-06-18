@@ -1122,6 +1122,7 @@ class AdminPOSOrderView(views.APIView):
                 )
 
         # --- Mahsulotlarni parse qilish ---
+        from decimal import Decimal, InvalidOperation
         items = []
         for item_data in items_data:
             try:
@@ -1134,10 +1135,28 @@ class AdminPOSOrderView(views.APIView):
                     variant = ProductVariant.objects.get(id=item_data['variant_id'], product=product)
                 except ProductVariant.DoesNotExist:
                     return Response({"error": "Variant topilmadi."}, status=status.HTTP_400_BAD_REQUEST)
+
+            # ── POS kelishuv narxi (ixtiyoriy) ───────────────────────────────
+            # Sotuvchi har bir mahsulotning narxini qo'lda kiritishi mumkin
+            # (chegirma / qaytarib berish). Bo'sh / yo'q bo'lsa — tizim narxi.
+            # Tannarxdan past / manfiy tekshiruvlar `create_order_with_items`
+            # ichida bajariladi (yagona avtoritar manba).
+            raw_price = item_data.get('price', None)
+            price_val = None
+            if raw_price is not None and raw_price != '':
+                try:
+                    price_val = Decimal(str(raw_price))
+                except (InvalidOperation, TypeError, ValueError):
+                    return Response(
+                        {"error": f"\"{product.name}\" uchun narx noto'g'ri kiritildi."},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+
             items.append({
                 'product': product,
                 'variant': variant,
                 'quantity': max(1, int(item_data.get('quantity', 1))),
+                'price': price_val,
             })
 
         # --- Qabul qiluvchi nomi ---
@@ -1156,6 +1175,7 @@ class AdminPOSOrderView(views.APIView):
             items=items,
             credit_days=credit_days,
             skip_credit_check=True,  # POS admin o'zi nazorat qiladi
+            allow_price_override=True,  # POS'da kelishuv narxi (chegirma) mumkin
         )
 
         # --- Statusni RECEIVED ga to'g'ridan-to'g'ri o'tkazish (do'konda xaridorga topshirildi) ---
@@ -1170,13 +1190,44 @@ class AdminPOSOrderView(views.APIView):
             payment_obj.status = Payment.STATUS_PAID
             payment_obj.save(update_fields=['status', 'updated_at'])
 
+        # ── KUCHLI LOG: POS savdo + kelishuv narxi (chegirma) tarixi ─────────
+        # Har bir mahsulotning sotilgan narxi `price_snapshot`'da doimiy
+        # saqlanadi (eng ishonchli log). Bu yerda OrderHistory note'ga
+        # inson o'qiy oladigan qisqa xulosa yoziladi — admin "Buyurtma tarixi"
+        # bo'limida kim, qancha chegirma berganini ko'radi. AuditMiddleware
+        # esa to'liq so'rov tanasini (har bir narx) avtomat yozib oladi.
+        discount_amount = order.discount_price or Decimal('0.00')
+        note = "POS orqali do'konda sotildi."
+        if discount_amount > 0:
+            note += f" Kelishuv chegirmasi: {discount_amount:.0f} so'm."
+
         _create_history(
             order,
             to_status=Order.STATUS_RECEIVED,
             from_status=prev_status,
             actor_type=OrderHistory.ACTOR_ADMIN,
             actor=request.user,
-            note="POS orqali do'konda sotildi.",
+            note=note,
+        )
+
+        import logging
+        logging.getLogger('orders.pos').info(
+            "POS savdo #%s | xodim=%s | mijoz=%s | to'lov=%s | jami=%s | chegirma=%s | mahsulotlar=%s",
+            order.id,
+            getattr(request.user, 'phone', None),
+            phone,
+            payment_method,
+            order.total_price,
+            discount_amount,
+            [
+                {
+                    'product_id': oi.product_id,
+                    'variant_id': oi.variant_id,
+                    'qty': oi.quantity,
+                    'sold_unit': str(oi.price_snapshot),
+                }
+                for oi in order.items.all()
+            ],
         )
 
         order.refresh_from_db()

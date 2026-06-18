@@ -560,60 +560,232 @@ class _CartItemRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final bloc = context.read<AdminPosBloc>();
+    final below = item.belowCost;
+    final edited = item.soldPrice != item.price;
+    final discPct =
+        item.price > 0 ? ((item.price - item.soldPrice) / item.price) * 100 : 0.0;
     return Container(
       margin: const EdgeInsets.only(bottom: 10),
       padding: const EdgeInsets.all(10),
       decoration: BoxDecoration(
-        color: theme.colorScheme.surfaceContainerLowest,
+        color: below
+            ? const Color(0xFFDC2626).withValues(alpha: 0.06)
+            : theme.colorScheme.surfaceContainerLowest,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: theme.colorScheme.outlineVariant),
+        border: Border.all(
+            color: below
+                ? const Color(0xFFDC2626)
+                : theme.colorScheme.outlineVariant),
       ),
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(item.name,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: theme.textTheme.bodyMedium
-                        ?.copyWith(fontWeight: FontWeight.w700)),
-                if (item.variantText.isNotEmpty)
-                  Text(item.variantText,
-                      style: theme.textTheme.labelSmall?.copyWith(
-                        color: theme.colorScheme.onSurfaceVariant,
+          Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(item.name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.bodyMedium
+                            ?.copyWith(fontWeight: FontWeight.w700)),
+                    if (item.variantText.isNotEmpty)
+                      Text(item.variantText,
+                          style: theme.textTheme.labelSmall?.copyWith(
+                            color: theme.colorScheme.onSurfaceVariant,
+                          )),
+                  ],
+                ),
+              ),
+              // qty stepper
+              _QtyButton(
+                icon: Icons.remove,
+                onTap: () => item.quantity > 1
+                    ? bloc.add(PosUpdateQty(item.cartId, -1))
+                    : bloc.add(PosRemoveFromCart(item.cartId)),
+              ),
+              SizedBox(
+                width: 32,
+                child: Text('${item.quantity}',
+                    textAlign: TextAlign.center,
+                    style: theme.textTheme.titleMedium
+                        ?.copyWith(fontWeight: FontWeight.w800)),
+              ),
+              _QtyButton(
+                icon: Icons.add,
+                onTap: () => bloc.add(PosUpdateQty(item.cartId, 1)),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          // ── Kelishuv narxi (1 dona) — bosib tahrirlash ──────────────────
+          Row(
+            children: [
+              Expanded(
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(8),
+                  onTap: () => _editPrice(context, bloc),
+                  child: Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(
+                          color: below
+                              ? const Color(0xFFDC2626)
+                              : theme.colorScheme.outlineVariant),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(Icons.edit_rounded,
+                            size: 15,
+                            color: theme.colorScheme.onSurfaceVariant),
+                        const SizedBox(width: 6),
+                        Text('1 dona:',
+                            style: theme.textTheme.labelSmall?.copyWith(
+                                color: theme.colorScheme.onSurfaceVariant)),
+                        const SizedBox(width: 6),
+                        Expanded(
+                          child: Text(
+                            "${formatSom(item.soldPrice)} so'm",
+                            style: theme.textTheme.bodyMedium?.copyWith(
+                              fontWeight: FontWeight.w800,
+                              color: below
+                                  ? const Color(0xFFDC2626)
+                                  : theme.colorScheme.onSurface,
+                            ),
+                          ),
+                        ),
+                        if (edited)
+                          GestureDetector(
+                            onTap: () => bloc
+                                .add(PosSetItemPrice(item.cartId, item.price)),
+                            child: Icon(Icons.restart_alt_rounded,
+                                size: 17,
+                                color: theme.colorScheme.onSurfaceVariant),
+                          ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  if (edited)
+                    Text(formatSom(item.normalLineTotal),
+                        style: theme.textTheme.labelSmall?.copyWith(
+                          color: theme.colorScheme.onSurfaceVariant,
+                          decoration: TextDecoration.lineThrough,
+                        )),
+                  Text("${formatSom(item.lineTotal)} so'm",
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        fontWeight: FontWeight.w900,
+                        color: below
+                            ? const Color(0xFFDC2626)
+                            : const Color(0xFF0A7C55),
                       )),
-                const SizedBox(height: 2),
-                Text("${formatSom(item.price)} so'm",
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: const Color(0xFF0A7C55),
-                      fontWeight: FontWeight.w700,
-                    )),
-              ],
+                ],
+              ),
+            ],
+          ),
+          if (item.lineDiscount > 0)
+            Padding(
+              padding: const EdgeInsets.only(top: 6),
+              child: Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF0A7C55).withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: Text(
+                  "Chegirma: −${formatSom(item.lineDiscount)} so'm (${discPct.toStringAsFixed(0)}%)",
+                  style: theme.textTheme.labelSmall?.copyWith(
+                    color: const Color(0xFF0A7C55),
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
             ),
-          ),
-          // qty stepper
-          _QtyButton(
-            icon: Icons.remove,
-            onTap: () => item.quantity > 1
-                ? bloc.add(PosUpdateQty(item.cartId, -1))
-                : bloc.add(PosRemoveFromCart(item.cartId)),
-          ),
-          SizedBox(
-            width: 32,
-            child: Text('${item.quantity}',
-                textAlign: TextAlign.center,
-                style: theme.textTheme.titleMedium
-                    ?.copyWith(fontWeight: FontWeight.w800)),
-          ),
-          _QtyButton(
-            icon: Icons.add,
-            onTap: () => bloc.add(PosUpdateQty(item.cartId, 1)),
-          ),
+          if (below)
+            Padding(
+              padding: const EdgeInsets.only(top: 6),
+              child: Row(
+                children: [
+                  const Icon(Icons.warning_amber_rounded,
+                      size: 15, color: Color(0xFFDC2626)),
+                  const SizedBox(width: 4),
+                  Expanded(
+                    child: Text(
+                      "Tannarxdan past! (tannarx: ${formatSom(item.costPrice)} so'm)",
+                      style: theme.textTheme.labelSmall?.copyWith(
+                        color: const Color(0xFFDC2626),
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
         ],
       ),
     );
+  }
+
+  Future<void> _editPrice(BuildContext context, AdminPosBloc bloc) async {
+    final controller =
+        TextEditingController(text: item.soldPrice.round().toString());
+    final result = await showDialog<double>(
+      context: context,
+      builder: (ctx) {
+        return AlertDialog(
+          title: Text(item.name, maxLines: 2, overflow: TextOverflow.ellipsis),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                "Ko'rsatilgan narx: ${formatSom(item.price)} so'm\nTannarx: ${formatSom(item.costPrice)} so'm",
+                style: Theme.of(ctx).textTheme.bodySmall?.copyWith(
+                    color: Theme.of(ctx).colorScheme.onSurfaceVariant),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: controller,
+                autofocus: true,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(
+                  labelText: "Sotiladigan narx (1 dona)",
+                  suffixText: "so'm",
+                  border: OutlineInputBorder(),
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Bekor'),
+            ),
+            FilledButton(
+              onPressed: () {
+                final v = double.tryParse(
+                    controller.text.replaceAll(RegExp(r'[^0-9.]'), ''));
+                Navigator.pop(ctx, v);
+              },
+              child: const Text('Saqlash'),
+            ),
+          ],
+        );
+      },
+    );
+    if (result != null) {
+      bloc.add(PosSetItemPrice(item.cartId, result));
+    }
   }
 }
 
@@ -639,13 +811,30 @@ class _QtyButton extends StatelessWidget {
   }
 }
 
-class _CartFooter extends StatelessWidget {
+class _CartFooter extends StatefulWidget {
   const _CartFooter({required this.state});
   final AdminPosState state;
 
   @override
+  State<_CartFooter> createState() => _CartFooterState();
+}
+
+class _CartFooterState extends State<_CartFooter> {
+  final _discountCtrl = TextEditingController();
+
+  @override
+  void dispose() {
+    _discountCtrl.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final state = widget.state;
+    final bloc = context.read<AdminPosBloc>();
+    final hasDiscount = state.totalDiscount > 0;
+    final below = state.hasBelowCost;
     return Container(
       padding: EdgeInsets.fromLTRB(
           16, 12, 16, MediaQuery.of(context).padding.bottom + 12),
@@ -660,7 +849,77 @@ class _CartFooter extends StatelessWidget {
         ],
       ),
       child: Column(
+        mainAxisSize: MainAxisSize.min,
         children: [
+          // ── Jamidan chegirma — proporsional taqsimlash ──────────────────
+          Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: _discountCtrl,
+                  keyboardType: TextInputType.number,
+                  decoration: InputDecoration(
+                    isDense: true,
+                    labelText: 'Jamidan chegirma',
+                    suffixText: "so'm",
+                    contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 12, vertical: 10),
+                    border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(10)),
+                  ),
+                  onSubmitted: (v) => bloc.add(PosApplyOrderDiscount(
+                      double.tryParse(v.replaceAll(RegExp(r'[^0-9.]'), '')) ??
+                          0)),
+                ),
+              ),
+              const SizedBox(width: 8),
+              FilledButton(
+                onPressed: () => bloc.add(PosApplyOrderDiscount(
+                    double.tryParse(_discountCtrl.text
+                            .replaceAll(RegExp(r'[^0-9.]'), '')) ??
+                        0)),
+                style: FilledButton.styleFrom(
+                  backgroundColor:
+                      const Color(0xFF0A7C55).withValues(alpha: 0.14),
+                  foregroundColor: const Color(0xFF0A7C55),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+                ),
+                child: const Text('Taqsimlash',
+                    style: TextStyle(fontWeight: FontWeight.w800)),
+              ),
+              if (hasDiscount)
+                IconButton(
+                  tooltip: 'Narxlarni tiklash',
+                  onPressed: () {
+                    _discountCtrl.clear();
+                    bloc.add(const PosResetPrices());
+                  },
+                  icon: const Icon(Icons.restart_alt_rounded),
+                ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          if (hasDiscount) ...[
+            _FooterRow(
+              label: 'Mahsulotlar jami',
+              value: "${formatSom(state.normalSubtotal)} so'm",
+              strikethrough: true,
+            ),
+            _FooterRow(
+              label: 'Chegirma (${state.discountPct.toStringAsFixed(1)}%)',
+              value: "− ${formatSom(state.totalDiscount)} so'm",
+              color: const Color(0xFF0A7C55),
+            ),
+          ],
+          _FooterRow(
+            label: 'Foyda',
+            value: "${formatSom(state.totalProfit)} so'm",
+            color: state.totalProfit < 0
+                ? const Color(0xFFDC2626)
+                : const Color(0xFF0A7C55),
+          ),
+          const SizedBox(height: 4),
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
@@ -672,23 +931,51 @@ class _CartFooter extends StatelessWidget {
                   )),
             ],
           ),
+          if (below)
+            Container(
+              margin: const EdgeInsets.only(top: 10),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              decoration: BoxDecoration(
+                color: const Color(0xFFDC2626).withValues(alpha: 0.08),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(
+                    color: const Color(0xFFDC2626).withValues(alpha: 0.4)),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.error_outline_rounded,
+                      size: 18, color: Color(0xFFDC2626)),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      "${state.belowCostCount} ta mahsulot tannarxdan past — narxni tuzating, aks holda sotib bo'lmaydi.",
+                      style: theme.textTheme.labelMedium?.copyWith(
+                        color: const Color(0xFFDC2626),
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
           const SizedBox(height: 10),
           SizedBox(
             width: double.infinity,
             height: 52,
             child: ElevatedButton.icon(
-              onPressed: () {
-                final bloc = context.read<AdminPosBloc>();
-                showModalBottomSheet(
-                  context: context,
-                  isScrollControlled: true,
-                  backgroundColor: Colors.transparent,
-                  builder: (_) => BlocProvider.value(
-                    value: bloc,
-                    child: _CheckoutSheet(total: state.totalAmount),
-                  ),
-                );
-              },
+              onPressed: below
+                  ? null
+                  : () {
+                      showModalBottomSheet(
+                        context: context,
+                        isScrollControlled: true,
+                        backgroundColor: Colors.transparent,
+                        builder: (_) => BlocProvider.value(
+                          value: bloc,
+                          child: _CheckoutSheet(total: state.totalAmount),
+                        ),
+                      );
+                    },
               icon: const Icon(Icons.point_of_sale_rounded, color: Colors.white),
               label: const Text('Sotuvga o\'tish',
                   style: TextStyle(
@@ -697,12 +984,52 @@ class _CartFooter extends StatelessWidget {
                   )),
               style: ElevatedButton.styleFrom(
                 backgroundColor: const Color(0xFF0A7C55),
+                disabledBackgroundColor:
+                    theme.colorScheme.onSurface.withValues(alpha: 0.12),
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(14),
                 ),
               ),
             ),
           ),
+        ],
+      ),
+    );
+  }
+}
+
+class _FooterRow extends StatelessWidget {
+  const _FooterRow({
+    required this.label,
+    required this.value,
+    this.color,
+    this.strikethrough = false,
+  });
+  final String label;
+  final String value;
+  final Color? color;
+  final bool strikethrough;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 2),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(label,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: color ?? theme.colorScheme.onSurfaceVariant,
+                fontWeight: FontWeight.w600,
+              )),
+          Text(value,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: color ?? theme.colorScheme.onSurfaceVariant,
+                fontWeight: FontWeight.w700,
+                decoration:
+                    strikethrough ? TextDecoration.lineThrough : null,
+              )),
         ],
       ),
     );

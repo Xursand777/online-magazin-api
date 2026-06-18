@@ -48,6 +48,28 @@ class PosUpdateQty extends AdminPosEvent {
   List<Object?> get props => [cartId, delta];
 }
 
+/// Bitta mahsulotning kelishuv (sotiladigan) narxini o'rnatish.
+class PosSetItemPrice extends AdminPosEvent {
+  final String cartId;
+  final double soldPrice;
+  const PosSetItemPrice(this.cartId, this.soldPrice);
+  @override
+  List<Object?> get props => [cartId, soldPrice];
+}
+
+/// "Jamidan chegirma" — umumiy summani har bir mahsulotga proporsional taqsimlaydi.
+class PosApplyOrderDiscount extends AdminPosEvent {
+  final double amount;
+  const PosApplyOrderDiscount(this.amount);
+  @override
+  List<Object?> get props => [amount];
+}
+
+/// Barcha narxlarni asl (ko'rsatilgan) narxga qaytarish.
+class PosResetPrices extends AdminPosEvent {
+  const PosResetPrices();
+}
+
 class PosClearCart extends AdminPosEvent {
   const PosClearCart();
 }
@@ -107,9 +129,20 @@ class AdminPosState extends Equatable {
 
   double get totalAmount =>
       cart.fold(0, (sum, i) => sum + i.lineTotal);
+  double get normalSubtotal =>
+      cart.fold(0, (sum, i) => sum + i.normalLineTotal);
+  double get totalDiscount {
+    final d = normalSubtotal - totalAmount;
+    return d > 0 ? d : 0;
+  }
+  double get discountPct =>
+      normalSubtotal > 0 ? (totalDiscount / normalSubtotal) * 100 : 0;
   double get totalProfit =>
       cart.fold(0, (sum, i) => sum + i.lineProfit);
   int get cartCount => cart.length;
+  // Tannarxdan past narxli mahsulot bormi — bo'lsa sotuv bloklanadi.
+  bool get hasBelowCost => cart.any((i) => i.belowCost);
+  int get belowCostCount => cart.where((i) => i.belowCost).length;
 
   List<PosCartItem> get filteredUnits {
     // API orqali filtrlangan bo'lsa ham, ba'zi xususiyatlar uchun (masalan color/size) 
@@ -189,6 +222,9 @@ class AdminPosBloc extends Bloc<AdminPosEvent, AdminPosState> {
     on<PosAddToCart>(_onAdd);
     on<PosRemoveFromCart>(_onRemove);
     on<PosUpdateQty>(_onUpdateQty);
+    on<PosSetItemPrice>(_onSetItemPrice);
+    on<PosApplyOrderDiscount>(_onApplyOrderDiscount);
+    on<PosResetPrices>(_onResetPrices);
     on<PosClearCart>(_onClear);
     on<PosClearMessages>(_onClearMessages);
     on<PosCheckout>(_onCheckout);
@@ -296,6 +332,41 @@ class AdminPosBloc extends Bloc<AdminPosEvent, AdminPosState> {
     emit(state.copyWith(cart: updated, warning: warning));
   }
 
+  void _onSetItemPrice(PosSetItemPrice event, Emitter<AdminPosState> emit) {
+    final v = event.soldPrice < 0 ? 0.0 : event.soldPrice.roundToDouble();
+    emit(state.copyWith(
+      cart: state.cart
+          .map((i) => i.cartId == event.cartId ? i.copyWith(soldPrice: v) : i)
+          .toList(),
+      warning: null,
+    ));
+  }
+
+  /// Umumiy chegirmani har bir mahsulotning KO'RSATILGAN narx ulushiga
+  /// proporsional taqsimlaydi (butun so'mga yaxlitlanadi). Backend yakuniy
+  /// jami'ni shu narxlardan qayta hisoblaydi (yagona avtoritar manba).
+  void _onApplyOrderDiscount(
+      PosApplyOrderDiscount event, Emitter<AdminPosState> emit) {
+    final amt = event.amount < 0 ? 0.0 : event.amount.roundToDouble();
+    final base = state.cart.fold<double>(0, (s, i) => s + i.normalLineTotal);
+    if (base <= 0) return;
+    final factor = (base - amt) / base;
+    final f = factor < 0 ? 0.0 : factor;
+    emit(state.copyWith(
+      cart: state.cart
+          .map((i) => i.copyWith(soldPrice: (i.price * f).roundToDouble()))
+          .toList(),
+      warning: null,
+    ));
+  }
+
+  void _onResetPrices(PosResetPrices event, Emitter<AdminPosState> emit) {
+    emit(state.copyWith(
+      cart: state.cart.map((i) => i.copyWith(soldPrice: i.price)).toList(),
+      warning: null,
+    ));
+  }
+
   void _onClear(PosClearCart event, Emitter<AdminPosState> emit) {
     emit(state.copyWith(cart: const [], warning: null));
   }
@@ -307,6 +378,11 @@ class AdminPosBloc extends Bloc<AdminPosEvent, AdminPosState> {
   Future<void> _onCheckout(PosCheckout event, Emitter<AdminPosState> emit) async {
     if (state.cart.isEmpty) {
       emit(state.copyWith(error: "Savat bo'sh!"));
+      return;
+    }
+    if (state.hasBelowCost) {
+      emit(state.copyWith(
+          error: "Tannarxdan past narxli mahsulot bor — narxni tuzating."));
       return;
     }
     emit(state.copyWith(isCheckingOut: true, error: null));
