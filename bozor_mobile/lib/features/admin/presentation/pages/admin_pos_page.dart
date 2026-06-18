@@ -758,7 +758,14 @@ class _CartItemRow extends StatelessWidget {
                 controller: controller,
                 autofocus: true,
                 keyboardType: TextInputType.number,
+                textInputAction: TextInputAction.done,
                 inputFormatters: [ThousandsInputFormatter()],
+                // Klaviaturadagi "Done" bosilsa — darrov saqlab, tahrirdan chiqadi.
+                onSubmitted: (_) {
+                  final v = double.tryParse(
+                      controller.text.replaceAll(RegExp(r'[^0-9.]'), ''));
+                  Navigator.pop(ctx, v ?? item.price);
+                },
                 decoration: const InputDecoration(
                   labelText: "Sotiladigan narx (1 dona)",
                   suffixText: "so'm",
@@ -776,7 +783,8 @@ class _CartItemRow extends StatelessWidget {
               onPressed: () {
                 final v = double.tryParse(
                     controller.text.replaceAll(RegExp(r'[^0-9.]'), ''));
-                Navigator.pop(ctx, v);
+                // Bo'sh qoldirilsa — qulaylik uchun ko'rsatilgan narxga qaytadi.
+                Navigator.pop(ctx, v ?? item.price);
               },
               child: const Text('Saqlash'),
             ),
@@ -859,6 +867,7 @@ class _CartFooterState extends State<_CartFooter> {
                 child: TextField(
                   controller: _discountCtrl,
                   keyboardType: TextInputType.number,
+                  textInputAction: TextInputAction.done,
                   inputFormatters: [ThousandsInputFormatter()],
                   decoration: InputDecoration(
                     isDense: true,

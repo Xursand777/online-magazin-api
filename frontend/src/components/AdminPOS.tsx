@@ -887,6 +887,8 @@ const AdminPOS = () => {
                             value={groupDigits(item.soldPrice)}
                             onChange={(e) => setItemSoldPrice(item.cartId, Number(onlyDigits(e.target.value)))}
                             onFocus={(e) => e.target.select()}
+                            onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
+                            onBlur={() => { if (item.soldPrice <= 0) resetItemSoldPrice(item.cartId); }}
                             className="w-full bg-transparent outline-none px-2 py-1 text-sm font-bold text-on-surface text-right"
                           />
                           <span className="pr-2 text-[11px] text-on-surface-variant shrink-0">so'm</span>
@@ -947,7 +949,7 @@ const AdminPOS = () => {
                       value={groupDigits(orderDiscountInput)}
                       onChange={(e) => setOrderDiscountInput(onlyDigits(e.target.value))}
                       onKeyDown={(e) => {
-                        if (e.key === 'Enter') { applyOrderDiscount(Number(orderDiscountInput)); }
+                        if (e.key === 'Enter') { applyOrderDiscount(Number(orderDiscountInput)); (e.target as HTMLInputElement).blur(); }
                       }}
                       className="w-full bg-transparent outline-none px-2 py-2 text-sm font-bold text-right"
                     />
