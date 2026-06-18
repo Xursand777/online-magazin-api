@@ -83,26 +83,31 @@ import AdminPOS from '../components/AdminPOS';
 
 type AdminTab = 'dashboard' | 'products' | 'banners' | 'categories' | 'orders' | 'users' | 'feedback' | 'reports' | 'stock' | 'pos' | 'kassa' | 'nasiya' | 'sozlamalar' | 'compatibility' | 'staff' | 'masters' | 'audit';
 
-// Har bir tab qaysi rollar uchun ko'rinadi
+// Har bir tab qaysi rollar uchun ko'rinadi.
+// ⭐ ADMIN roli FAQAT quyidagi 7 tabni ko'radi (qolganlari super-admin uchun):
+//    Mahsulotlar, Kategoriyalar, Buyurtmalar, Kassa, Hisobotlar, Bannerlar, Moslik.
+// SuperAdmin (is_superuser=True) — BARCHA tablar (canSeeTab birinchi qatorda true).
 const TAB_ROLES: Partial<Record<AdminTab, StaffRole[]>> = {
-  // isSuperUser (is_superuser=True) har qanday tabni ko'ra oladi
-  dashboard:     ['admin'],
-  pos:           ['admin', 'seller'],
-  orders:        ['admin', 'seller', 'courier'],
-  users:         ['admin'],
-  feedback:      ['admin'],
-  products:      ['admin'],
-  categories:    ['admin'],
-  banners:       ['admin'],
-  compatibility: ['admin'],
-  kassa:         ['admin'],          // faqat Admin + SuperAdmin
-  nasiya:        ['admin'],
-  reports:       ['admin'],
-  stock:         ['admin', 'seller'],  // Sotuvchi ombor ko'ra oladi
-  sozlamalar:    ['admin'],
-  staff:         [],                 // faqat isSuperUser (is_superuser=True)
-  masters:       [],                 // faqat isSuperUser (is_superuser=True)
-  audit:         [],                 // faqat isSuperUser (is_superuser=True)
+  // ── ADMIN ko'radigan 7 tab ──
+  products:      ['admin'],            // Mahsulotlar
+  categories:    ['admin'],            // Kategoriyalar
+  orders:        ['admin', 'seller', 'courier'],  // Buyurtmalar (sotuvchi/kuryer ham)
+  kassa:         ['admin'],            // Kassa
+  reports:       ['admin'],            // Hisobotlar
+  banners:       ['admin'],            // Bannerlar
+  compatibility: ['admin'],            // Moslik
+  // ── ADMIN ko'rMAYDIGAN (faqat super-admin, [] = super-only) ──
+  dashboard:     [],                   // Dashboard — faqat super
+  users:         [],                   // Foydalanuvchilar — faqat super
+  feedback:      [],                   // Fikrlar — faqat super
+  nasiya:        [],                   // Nasiya — faqat super
+  sozlamalar:    [],                   // Sozlamalar — faqat super
+  staff:         [],                   // Xodimlar — faqat super
+  masters:       [],                   // Ustalar — faqat super
+  audit:         [],                   // Audit log — faqat super
+  // ── Sotuvchi tablari (admin bularni ko'rMAYDI) ──
+  pos:           ['seller'],           // POS — sotuvchi (admin yo'q)
+  stock:         ['seller'],           // Ombor — sotuvchi (admin yo'q)
 };
 
 function canSeeTab(tab: AdminTab, role?: StaffRole | null, isSuperAdmin?: boolean): boolean {

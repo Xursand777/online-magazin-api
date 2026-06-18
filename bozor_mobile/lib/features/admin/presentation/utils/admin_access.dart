@@ -13,40 +13,50 @@ class AdminAccess {
 
   /// Route → ruxsat etilgan xodim rollari.
   /// Saytdagi TAB_ROLES bilan bir xil: bo'sh ro'yxat = faqat super-admin.
+  // ⭐ ADMIN roli FAQAT quyidagi tablarni ko'radi (mobilda Moslik tab yo'q):
+  //    Mahsulotlar, Kategoriyalar, Buyurtmalar, Kassa, Hisobotlar, Bannerlar.
+  // SuperAdmin — BARCHA tablar (canSee birinchi qatorda true).
+  // Bo'sh ro'yxat [] = FAQAT super-admin.
   static const Map<String, List<String>> _routeRoles = {
-    '/admin':            ['admin'],                       // dashboard
-    '/admin/reports':    ['admin'],                       // reports
-    '/admin/pos':        ['admin', 'seller'],             // pos
-    '/admin/orders':     ['admin', 'seller', 'courier'],  // orders
-    '/admin/nasiya':     ['admin'],                       // nasiya
-    '/admin/kassa':      ['admin'],                       // kassa
-    '/admin/stock':      ['admin', 'seller'],             // stock
-    '/admin/products':   ['admin'],                       // products
-    '/admin/categories': ['admin'],                       // categories
-    '/admin/banners':    ['admin'],                       // banners
-    '/admin/users':      ['admin'],                       // users
-    '/admin/staff':      <String>[],                      // faqat super
-    '/admin/masters':    <String>[],                      // faqat super
-    '/admin/settings':   ['admin'],                       // sozlamalar
+    // ── ADMIN ko'radigan tablar ──
+    '/admin/products':   ['admin'],                       // Mahsulotlar
+    '/admin/categories': ['admin'],                       // Kategoriyalar
+    '/admin/orders':     ['admin', 'seller', 'courier'],  // Buyurtmalar
+    '/admin/kassa':      ['admin'],                       // Kassa
+    '/admin/reports':    ['admin'],                       // Hisobotlar
+    '/admin/banners':    ['admin'],                       // Bannerlar
+    // ── ADMIN ko'rMAYDIGAN (faqat super-admin) ──
+    '/admin':            <String>[],                      // Dashboard — faqat super
+    '/admin/nasiya':     <String>[],                      // Nasiya — faqat super
+    '/admin/users':      <String>[],                      // Foydalanuvchilar — faqat super
+    '/admin/staff':      <String>[],                      // Xodimlar — faqat super
+    '/admin/masters':    <String>[],                      // Ustalar — faqat super
+    '/admin/settings':   <String>[],                      // Sozlamalar — faqat super
+    // ── Sotuvchi tablari (admin ko'rMAYDI) ──
+    '/admin/pos':        ['seller'],                      // POS — sotuvchi
+    '/admin/stock':      ['seller'],                      // Ombor — sotuvchi
   };
 
   /// Birinchi mos keladigan tabni tanlash uchun tartib (saytdagi _ALL_TABS tartibi).
   /// seller → pos, courier → orders, admin/super → dashboard.
+  // Landing tartibi saytdagi _ALL_TABS bilan moslashtirilgan:
+  //   super → /admin (dashboard), admin → /admin/orders, sotuvchi → /admin/pos,
+  //   kuryer → /admin/orders.
   static const List<String> _order = [
-    '/admin',
-    '/admin/reports',
-    '/admin/pos',
-    '/admin/orders',
-    '/admin/nasiya',
-    '/admin/kassa',
-    '/admin/stock',
+    '/admin',            // dashboard (super)
+    '/admin/pos',        // seller
+    '/admin/orders',     // admin/seller/courier
+    '/admin/users',
     '/admin/products',
     '/admin/categories',
     '/admin/banners',
-    '/admin/users',
+    '/admin/kassa',
+    '/admin/nasiya',
+    '/admin/reports',
+    '/admin/stock',
+    '/admin/settings',
     '/admin/staff',
     '/admin/masters',
-    '/admin/settings',
   ];
 
   /// Berilgan route'ni shu role/super ko'ra oladimi?
