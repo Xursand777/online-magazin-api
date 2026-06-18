@@ -25,6 +25,9 @@ inflection==0.5.1
 jsonschema-specifications==2025.9.1
 jsonschema==4.25.1
 pillow==11.3.0
+# iPhone HEIC rasmlarini o'qish uchun (rasm WebP optimizatsiyasi — image_optimize.py).
+# Pillow JPG/PNG/WebP/AVIF'ni o'zi o'qiydi; HEIC uchun shu plagin. Import guarded.
+pillow-heif==0.21.0
 psycopg2-binary==2.9.12
 dj-database-url==2.1.0
 celery==5.4.0

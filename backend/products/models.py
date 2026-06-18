@@ -4,6 +4,8 @@ from django.core.exceptions import ValidationError
 from django.utils.text import slugify
 from decimal import Decimal
 
+from .image_optimize import apply_webp
+
 class GlobalSetting(models.Model):
     """
     Tizim bo'yicha sozlamalar jadvali (kalit → qiymat).
@@ -467,6 +469,8 @@ class Category(models.Model):
             self.name_ru = _translate_text(self.name, 'ru')
         if self.name and not self.name_en:
             self.name_en = _translate_text(self.name, 'en')
+        # Yangi yuklangan rasmni WebP'ga optimizatsiya qilamiz (sayt + mobil).
+        apply_webp(self.image, max_dimension=800)
         super().save(*args, **kwargs)
 
     class Meta:
@@ -602,6 +606,10 @@ class ProductImage(models.Model):
     class Meta:
         ordering = ['order']
 
+    def save(self, *args, **kwargs):
+        apply_webp(self.image, max_dimension=1600)
+        super().save(*args, **kwargs)
+
     def __str__(self):
         return f"{self.product.name} Image"
 
@@ -641,6 +649,7 @@ class ProductVariant(models.Model):
             self.price = (self.price_usd * rate).quantize(Decimal('1'))
             if self.discount_price_usd:
                 self.discount_price = (self.discount_price_usd * rate).quantize(Decimal('1'))
+        apply_webp(self.image, max_dimension=1600)
         super().save(*args, **kwargs)
 
     def __str__(self):
@@ -662,6 +671,10 @@ class ProductVariantImage(models.Model):
 
     class Meta:
         ordering = ['order', 'id']
+
+    def save(self, *args, **kwargs):
+        apply_webp(self.image, max_dimension=1600)
+        super().save(*args, **kwargs)
 
     def __str__(self):
         return f"Image for {self.variant}"
@@ -820,6 +833,12 @@ class HomeBanner(models.Model):
             raise ValidationError({
                 'end_date': "Tugash sanasi boshlanish sanasidan keyin bo'lishi kerak."
             })
+
+    def save(self, *args, **kwargs):
+        # Banner rasmlari keng (full-width) → 1920px gacha, WebP.
+        apply_webp(self.product_image, max_dimension=1920)
+        apply_webp(self.background_image, max_dimension=1920)
+        super().save(*args, **kwargs)
 
     def __str__(self):
         return self.title
