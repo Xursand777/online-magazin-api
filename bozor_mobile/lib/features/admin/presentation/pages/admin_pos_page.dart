@@ -738,7 +738,7 @@ class _CartItemRow extends StatelessWidget {
 
   Future<void> _editPrice(BuildContext context, AdminPosBloc bloc) async {
     final controller =
-        TextEditingController(text: item.soldPrice.round().toString());
+        TextEditingController(text: formatSom(item.soldPrice.round()));
     final result = await showDialog<double>(
       context: context,
       builder: (ctx) {
@@ -758,6 +758,7 @@ class _CartItemRow extends StatelessWidget {
                 controller: controller,
                 autofocus: true,
                 keyboardType: TextInputType.number,
+                inputFormatters: [ThousandsInputFormatter()],
                 decoration: const InputDecoration(
                   labelText: "Sotiladigan narx (1 dona)",
                   suffixText: "so'm",
@@ -858,6 +859,7 @@ class _CartFooterState extends State<_CartFooter> {
                 child: TextField(
                   controller: _discountCtrl,
                   keyboardType: TextInputType.number,
+                  inputFormatters: [ThousandsInputFormatter()],
                   decoration: InputDecoration(
                     isDense: true,
                     labelText: 'Jamidan chegirma',
@@ -1525,6 +1527,22 @@ class _ErrorView extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+/// Input maydonida raqamni real vaqtda "1 000 000" ko'rinishida guruhlaydi.
+/// `formatSom` bilan bir xil bo'shliqli format — chalkashlikni oldini oladi.
+class ThousandsInputFormatter extends TextInputFormatter {
+  @override
+  TextEditingValue formatEditUpdate(
+      TextEditingValue oldValue, TextEditingValue newValue) {
+    final digits = newValue.text.replaceAll(RegExp(r'[^0-9]'), '');
+    if (digits.isEmpty) return const TextEditingValue(text: '');
+    final formatted = formatSom(int.parse(digits));
+    return TextEditingValue(
+      text: formatted,
+      selection: TextSelection.collapsed(offset: formatted.length),
     );
   }
 }

@@ -62,6 +62,13 @@ interface HistoryOrder {
 
 const fmt = (v: number | string) => Number(v).toLocaleString('ru-RU');
 
+// Raqamni input maydoni uchun "1 000 000" ko'rinishida guruhlaydi (oddiy bo'shliq).
+const groupDigits = (raw: string | number): string => {
+  const d = String(raw).replace(/\D/g, '').replace(/^0+(?=\d)/, '');
+  return d.replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
+};
+const onlyDigits = (raw: string): string => raw.replace(/\D/g, '');
+
 /** Uzbekistan phone: +998 XX XXXXXXX */
 const formatUzPhone = (raw: string): string => {
   const digits = raw.replace(/\D/g, '').slice(0, 9);
@@ -875,11 +882,11 @@ const AdminPOS = () => {
                         <label className="text-[11px] text-on-surface-variant shrink-0">Narx (1 dona):</label>
                         <div className={`flex items-center rounded-md border bg-surface overflow-hidden flex-1 ${itemBelowCost ? 'border-error' : 'border-outline-variant focus-within:border-primary'}`}>
                           <input
-                            type="number"
+                            type="text"
                             inputMode="numeric"
-                            min={0}
-                            value={item.soldPrice}
-                            onChange={(e) => setItemSoldPrice(item.cartId, Number(e.target.value))}
+                            value={groupDigits(item.soldPrice)}
+                            onChange={(e) => setItemSoldPrice(item.cartId, Number(onlyDigits(e.target.value)))}
+                            onFocus={(e) => e.target.select()}
                             className="w-full bg-transparent outline-none px-2 py-1 text-sm font-bold text-on-surface text-right"
                           />
                           <span className="pr-2 text-[11px] text-on-surface-variant shrink-0">so'm</span>
@@ -934,12 +941,11 @@ const AdminPOS = () => {
                   <div className="flex items-center rounded-lg border border-outline-variant bg-surface overflow-hidden flex-1 focus-within:border-primary">
                     <span className="pl-2 text-[11px] text-on-surface-variant shrink-0">Jamidan chegirma:</span>
                     <input
-                      type="number"
+                      type="text"
                       inputMode="numeric"
-                      min={0}
                       placeholder="0"
-                      value={orderDiscountInput}
-                      onChange={(e) => setOrderDiscountInput(e.target.value)}
+                      value={groupDigits(orderDiscountInput)}
+                      onChange={(e) => setOrderDiscountInput(onlyDigits(e.target.value))}
                       onKeyDown={(e) => {
                         if (e.key === 'Enter') { applyOrderDiscount(Number(orderDiscountInput)); }
                       }}
