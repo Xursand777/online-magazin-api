@@ -245,6 +245,12 @@ elif CDN_PROVIDER == 'r2':
     AWS_DEFAULT_ACL          = None          # R2 ACL'ni qo'llamaydi (S3'dan farqi)
     AWS_QUERYSTRING_AUTH     = False         # URL'lar ochiq (imzosiz)
     AWS_S3_FILE_OVERWRITE    = False         # Fayl ustiga yozmaslik
+    # Cache-Control — fayl nomlari noyob (tasodifiy suffiks), shuning uchun
+    # "immutable" + 1 yil kesh. Brauzer va Cloudflare CDN rasmni qayta yuklamaydi
+    # → juda tez, server yuki yo'q (qotish muammosi yo'qoladi).
+    AWS_S3_OBJECT_PARAMETERS = {
+        'CacheControl': 'public, max-age=31536000, immutable',
+    }
     # Public URL: custom domen bo'lsa undan, aks holda R2 endpoint'dan
     if _r2_domain:
         AWS_S3_CUSTOM_DOMAIN = _r2_domain
