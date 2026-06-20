@@ -9,6 +9,9 @@
 // ─────────────────────────────────────────────────────────────────────────────
 import type { ReactNode } from 'react';
 
+// null/undefined ni filterlaydigan type-guard (Array.filter(_notNull) uchun).
+export const _notNull = <T,>(x: T | null | undefined): x is T => x != null;
+
 // ─── Tiplar (ma'lumot modeli) ────────────────────────────────────────────────
 
 export interface AdminCategory {
@@ -543,3 +546,150 @@ export const StatusBadge = ({
     {active ? activeLabel : inactiveLabel}
   </span>
 );
+
+// Buyurtma holati ranglari — DashboardTab va OrdersTab ikkalasi ham ishlatadi.
+export const ORDER_STATUS_COLORS: Record<string, string> = {
+  AWAITING_PAYMENT:   'bg-orange-100 text-orange-700',
+  PENDING:            'bg-amber-100 text-amber-700',
+  CONFIRMED:          'bg-blue-100 text-blue-700',
+  PACKING:            'bg-purple-100 text-purple-700',
+  SHIPPING:           'bg-indigo-100 text-indigo-700',
+  DELIVERED:          'bg-teal-100 text-teal-700',
+  RECEIVED:           'bg-emerald-100 text-emerald-700',
+  CANCELLED_BY_USER:  'bg-red-100 text-red-600',
+  CANCELLED_BY_ADMIN: 'bg-red-200 text-red-700',
+  SYSTEM_AUTO_CANCEL: 'bg-gray-100 text-gray-600',
+};
+
+// Nasiyani yopishni tasdiqlash dialogi — OrdersTab va NasiyaTab ishlatadi.
+interface CreditPayConfirmDialogProps {
+  order: AdminOrder | null;
+  isPending: boolean;
+  onConfirm: () => void;
+  onCancel: () => void;
+}
+
+export const CreditPayConfirmDialog = ({ order, isPending, onConfirm, onCancel }: CreditPayConfirmDialogProps) => {
+  if (!order) return null;
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const dueDate = order.credit_due_date ? new Date(order.credit_due_date) : null;
+  const isOverdue = dueDate ? dueDate < today : false;
+  const daysOverdue = dueDate
+    ? Math.floor((today.getTime() - dueDate.getTime()) / (1000 * 60 * 60 * 24))
+    : 0;
+
+  return (
+    <div className='fixed inset-0 z-[9999] flex items-center justify-center p-4'>
+      {/* Backdrop */}
+      <div
+        className='absolute inset-0 bg-black/60 backdrop-blur-sm'
+        onClick={!isPending ? onCancel : undefined}
+      />
+
+      {/* Dialog card */}
+      <div className='relative w-full max-w-md overflow-hidden rounded-2xl bg-surface shadow-2xl border border-outline-variant animate-in fade-in zoom-in-95 duration-200'>
+
+        {/* Header stripe */}
+        <div className={`px-6 pt-6 pb-4 ${isOverdue ? 'bg-red-50 dark:bg-red-950/20' : 'bg-green-50 dark:bg-green-950/20'}`}>
+          <div className='flex items-start gap-4'>
+            <div className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-full ${isOverdue ? 'bg-red-100 dark:bg-red-900/40' : 'bg-green-100 dark:bg-green-900/40'}`}>
+              <span className={`material-symbols-outlined text-[26px] ${isOverdue ? 'text-red-600' : 'text-green-600'}`}>
+                {isOverdue ? 'warning' : 'payments'}
+              </span>
+            </div>
+            <div>
+              <h3 className='text-base font-bold text-on-surface'>
+                Muddatli to'lovni tasdiqlash
+              </h3>
+              <p className='mt-0.5 text-sm text-on-surface-variant'>
+                Buyurtma <span className='font-semibold text-on-surface'>#{order.id}</span>
+              </p>
+            </div>
+          </div>
+
+          {/* Overdue warning banner */}
+          {isOverdue && (
+            <div className='mt-4 flex items-start gap-2 rounded-lg border border-red-300 bg-red-100 dark:bg-red-950/40 p-3'>
+              <span className='material-symbols-outlined shrink-0 text-[16px] text-red-600 mt-0.5'>error</span>
+              <p className='text-sm font-medium text-red-700 dark:text-red-400'>
+                To'lov muddati <strong>{daysOverdue} kun</strong> oldin o'tib ketgan!
+                Mijozning muddatli to'lov hisobiga ta'sir qilishi mumkin.
+              </p>
+            </div>
+          )}
+        </div>
+
+        {/* Details */}
+        <div className='px-6 py-4 space-y-3'>
+          <div className='rounded-xl border border-outline-variant bg-surface-container divide-y divide-outline-variant/50'>
+            {[
+              { label: 'Mijoz', value: order.receiver_name },
+              { label: 'Telefon', value: order.receiver_phone },
+              {
+                label: 'To\'lov summasi',
+                value: (
+                  <span className='font-bold text-primary text-base'>
+                    {formatMoney(order.total_price)} so'm
+                  </span>
+                ),
+              },
+              {
+                label: 'Muddat',
+                value: order.credit_days ? `${order.credit_days} kun` : '—',
+              },
+              {
+                label: 'To\'lov sanasi',
+                value: (
+                  <span className={isOverdue ? 'font-semibold text-red-600' : 'font-medium text-on-surface'}>
+                    {order.credit_due_date ?? '—'}
+                  </span>
+                ),
+              },
+            ].map(({ label, value }) => (
+              <div key={label} className='flex items-center justify-between px-4 py-2.5 text-sm'>
+                <span className='text-on-surface-variant'>{label}</span>
+                <span className='text-on-surface'>{value}</span>
+              </div>
+            ))}
+          </div>
+
+          <p className='text-xs text-on-surface-variant text-center'>
+            Bu amal qaytarib bo'lmaydi. To'lov muvaffaqiyatli qabul qilinganiga ishonch hosil qiling.
+          </p>
+        </div>
+
+        {/* Actions */}
+        <div className='flex gap-3 px-6 pb-6'>
+          <button
+            type='button'
+            onClick={onCancel}
+            disabled={isPending}
+            className='flex-1 rounded-xl border border-outline-variant bg-surface px-4 py-3 text-sm font-semibold text-on-surface transition-colors hover:bg-surface-container disabled:opacity-50'
+          >
+            Bekor qilish
+          </button>
+          <button
+            type='button'
+            onClick={onConfirm}
+            disabled={isPending}
+            className='flex flex-1 items-center justify-center gap-2 rounded-xl bg-green-600 px-4 py-3 text-sm font-semibold text-white transition-colors hover:bg-green-700 disabled:opacity-60'
+          >
+            {isPending ? (
+              <>
+                <span className='material-symbols-outlined animate-spin text-[16px]'>progress_activity</span>
+                Qayd etilmoqda...
+              </>
+            ) : (
+              <>
+                <span className='material-symbols-outlined text-[16px]'>check_circle</span>
+                To'lovni tasdiqlash
+              </>
+            )}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
