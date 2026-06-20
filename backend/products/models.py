@@ -465,13 +465,16 @@ class Category(models.Model):
     def save(self, *args, **kwargs):
         if not self.slug:
             self.slug = slugify(self.name)
-        if self.name and not self.name_ru:
-            self.name_ru = _translate_text(self.name, 'ru')
-        if self.name and not self.name_en:
-            self.name_en = _translate_text(self.name, 'en')
+        # #N2 FIX: tarjima sinxron emas — commit'dan keyin fon thread'da
+        # (Product.save bilan bir xil mantiq). Batafsil: products/tasks.py.
+        needs_translation = bool(self.name and (not self.name_ru or not self.name_en))
         # Yangi yuklangan rasmni WebP'ga optimizatsiya qilamiz (sayt + mobil).
         apply_webp(self.image, max_dimension=800)
         super().save(*args, **kwargs)
+
+        if needs_translation and self.pk:
+            from .tasks import schedule_category_translation
+            schedule_category_translation(self.pk)
 
     class Meta:
         verbose_name_plural = 'Categories'
@@ -541,16 +544,22 @@ class Product(models.Model):
             if self.discount_price_usd:
                 self.discount_price = (self.discount_price_usd * rate).quantize(Decimal('1'))
 
-        if self.name and not self.name_ru:
-            self.name_ru = _translate_text(self.name, 'ru')
-        if self.name and not self.name_en:
-            self.name_en = _translate_text(self.name, 'en')
-        if self.description and not self.description_ru:
-            self.description_ru = _translate_text(self.description, 'ru')
-        if self.description and not self.description_en:
-            self.description_en = _translate_text(self.description, 'en')
+        # ── #N2 FIX: tarjima ENDI SINXRON EMAS ───────────────────────────────
+        # Avval bu yerda 4 ta Google Translate HTTP chaqirilardi — admin formani
+        # bloklardi (Google sekin/ishlamasa muzlardi). Endi: bo'sh tarjima
+        # maydonlari aniqlanadi, commit'dan keyin FON thread'da to'ldiriladi
+        # (so'rov darrov qaytadi). Tarjima bo'sh bo'lsa serializer o'zbekchaga
+        # fallback qiladi — sayt buzilmaydi. Batafsil: products/tasks.py.
+        needs_translation = bool(
+            (self.name and (not self.name_ru or not self.name_en))
+            or (self.description and (not self.description_ru or not self.description_en))
+        )
 
         super().save(*args, **kwargs)
+
+        if needs_translation and self.pk:
+            from .tasks import schedule_product_translation
+            schedule_product_translation(self.pk)
 
     def __str__(self):
         return self.name

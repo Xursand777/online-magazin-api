@@ -691,6 +691,29 @@ const mapProductVariants = (product?: AdminProduct): VariantFormState[] => {
   }));
 };
 
+// Klonlash: variantlarni YANGI (id'siz) qilib ko'chiradi — orqaga bog'lanmaydi
+// (backend yangi variant yaratadi). Rasm va SKU/barcode tashlanadi (takror
+// bo'lmasin — admin keyin qayta beradi).
+const mapVariantsAsNew = (product?: AdminProduct): VariantFormState[] =>
+  mapProductVariants(product).map((v) => ({
+    ...v,
+    client_id: makeVariantClientId(),
+    id: undefined,
+    image_url: null,
+    existingImages: [],
+    deleteImageIds: [],
+    sku: '',
+    barcode: '',
+  }));
+
+// Editor variantlari: tahrirlashda mavjud (id bilan), yaratishda — agar manba
+// mahsulot berilgan bo'lsa KLON (id'siz), aks holda bo'sh.
+const mapVariantsForEditor = (
+  product: AdminProduct | undefined,
+  mode: 'create' | 'edit',
+): VariantFormState[] =>
+  mode === 'edit' ? mapProductVariants(product) : product ? mapVariantsAsNew(product) : [];
+
 const generateVariantSku = (productName: string, variant: VariantFormState) => {
   const prefix = (productName || 'PRD')
     .split(' ')
@@ -1880,6 +1903,13 @@ const ProductsTab = ({
                     <span className='material-symbols-outlined text-[20px]'>edit</span>
                   </button>
                   <button
+                    onClick={() => setEditorState({ mode: 'create', product })}
+                    className='rounded-lg p-2 text-on-surface-variant hover:bg-surface-container'
+                    title='Nusxa olish (klonlash)'
+                  >
+                    <span className='material-symbols-outlined text-[20px]'>content_copy</span>
+                  </button>
+                  <button
                     onClick={() => onDelete(product.id)}
                     className='rounded-lg p-2 text-error hover:bg-error-container/20'
                     title="O'chirish"
@@ -1985,6 +2015,13 @@ const ProductsTab = ({
                           title='Tahrirlash'
                         >
                           <span className='material-symbols-outlined text-[20px]'>edit</span>
+                        </button>
+                        <button
+                          onClick={() => setEditorState({ mode: 'create', product })}
+                          className='rounded-lg p-2 text-on-surface-variant hover:bg-surface-container'
+                          title='Nusxa olish (klonlash)'
+                        >
+                          <span className='material-symbols-outlined text-[20px]'>content_copy</span>
                         </button>
                         <button
                           onClick={() => onDelete(product.id)}
@@ -6502,8 +6539,11 @@ const ProductEditor = ({
   onClose: () => void;
 }) => {
   const qc = useQueryClient();
+  // Klonlash: "create" mode'da manba mahsulot berilsa — uning ma'lumotlaridan
+  // YANGI mahsulot to'ldiriladi (id'siz). Oddiy "create"da product berilmaydi.
+  const isClone = mode === 'create' && !!product;
   const [form, setForm] = useState<ProductFormState>(() => mapProductToForm(product));
-  const [variants, setVariants] = useState<VariantFormState[]>(() => mapProductVariants(product));
+  const [variants, setVariants] = useState<VariantFormState[]>(() => mapVariantsForEditor(product, mode));
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [variantImageFiles, setVariantImageFiles] = useState<Record<string, File | null>>({});
   const [variantImagePreviews, setVariantImagePreviews] = useState<Record<string, string>>({});
@@ -6558,7 +6598,7 @@ const ProductEditor = ({
     Object.values(variantImagePreviews).forEach((url) => URL.revokeObjectURL(url));
     Object.values(variantGalleryPreviews).forEach((urls) => urls.forEach((u) => URL.revokeObjectURL(u)));
     setForm(mapProductToForm(product));
-    setVariants(mapProductVariants(product));
+    setVariants(mapVariantsForEditor(product, mode));
     setImageFile(null);
     setVariantImageFiles({});
     setVariantImagePreviews({});
@@ -6614,6 +6654,23 @@ const ProductEditor = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [variants, hasVariants]);
 
+  // "Saqlab, yana qo'shish" — submitda true bo'lsa, saqlangach forma yopilmasdan
+  // tozalanadi (ketma-ket ko'p mahsulot kiritishni tezlashtiradi).
+  const saveAndNewRef = useRef(false);
+  const resetEditorForm = () => {
+    Object.values(variantImagePreviews).forEach((url) => URL.revokeObjectURL(url));
+    Object.values(variantGalleryPreviews).forEach((urls) => urls.forEach((u) => URL.revokeObjectURL(u)));
+    setForm(emptyProductForm());
+    setVariants([]);
+    setImageFile(null);
+    setVariantImageFiles({});
+    setVariantImagePreviews({});
+    setVariantGalleryFiles({});
+    setVariantGalleryPreviews({});
+    setRemoveImage(false);
+    setFormError('');
+  };
+
   const saveMutation = useMutation({
     mutationFn: (payload: FormData) =>
       mode === 'edit' && product
@@ -6626,9 +6683,20 @@ const ProductEditor = ({
         qc.invalidateQueries({ queryKey: ['product'] }),
         qc.invalidateQueries({ queryKey: ['mainPage'] }),
       ]);
+      // "Saqlab, yana qo'shish" — forma tozalanadi, ochiq qoladi (faqat yaratish).
+      if (saveAndNewRef.current && mode !== 'edit') {
+        saveAndNewRef.current = false;
+        resetEditorForm();
+        toast.success("Saqlandi! Endi yangi mahsulot kiriting.");
+        rootRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        return;
+      }
       onClose();
     },
-    onError: (error) => setFormError(extractErrorMessage(error)),
+    onError: (error) => {
+      saveAndNewRef.current = false;
+      setFormError(extractErrorMessage(error));
+    },
   });
 
   const handleVariantChange = (index: number, field: keyof VariantFormState, value: string) =>
@@ -6895,10 +6963,12 @@ const ProductEditor = ({
       <div className='mb-6 flex flex-col gap-2 border-b border-outline-variant pb-4 md:flex-row md:items-center md:justify-between'>
         <div>
           <h3 className='font-h3 text-h3 text-on-surface'>
-            {mode === 'edit' ? 'Mahsulotni tahrirlash' : 'Yangi mahsulot'}
+            {mode === 'edit' ? 'Mahsulotni tahrirlash' : isClone ? 'Mahsulotdan nusxa' : 'Yangi mahsulot'}
           </h3>
           <p className='mt-1 text-body-sm text-on-surface-variant'>
-            Narx, tavsif, rasm va variantlar bir joydan boshqariladi.
+            {isClone
+              ? "Manba mahsulot ma'lumotlari to'ldirildi — rasm va SKU'ni qayta bering, so'ng saqlang."
+              : 'Narx, tavsif, rasm va variantlar bir joydan boshqariladi.'}
           </p>
         </div>
         {mode === 'edit' && product && (
@@ -7298,7 +7368,7 @@ const ProductEditor = ({
               ? "O'zgartirishlar saqlansa frontenddagi ko\'rinish ham yangilanadi."
               : "Yangi mahsulot saqlangach darhol katalogda ishlatish mumkin bo'ladi."}
           </div>
-          <div className='flex gap-3'>
+          <div className='flex flex-wrap gap-3'>
             <button
               type='button'
               onClick={onClose}
@@ -7306,9 +7376,21 @@ const ProductEditor = ({
             >
               Bekor
             </button>
+            {mode !== 'edit' && (
+              <button
+                type='submit'
+                disabled={saveMutation.isPending}
+                onClick={() => { saveAndNewRef.current = true; }}
+                className='flex items-center gap-2 rounded-lg border border-primary/50 bg-primary/10 px-4 py-2 font-label-md text-primary hover:bg-primary/20 disabled:opacity-60'
+              >
+                <span className='material-symbols-outlined text-[16px]'>library_add</span>
+                Saqlab, yana qo'shish
+              </button>
+            )}
             <button
               type='submit'
               disabled={saveMutation.isPending}
+              onClick={() => { saveAndNewRef.current = false; }}
               className='flex items-center gap-2 rounded-lg bg-primary px-6 py-2 font-label-md text-on-primary hover:opacity-90 disabled:opacity-60'
             >
               {saveMutation.isPending && (

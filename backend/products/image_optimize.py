@@ -78,7 +78,11 @@ def optimize_to_webp(django_file, *, max_dimension=DEFAULT_MAX_DIMENSION,
             img.thumbnail((max_dimension, max_dimension), Image.LANCZOS)
 
         buf = io.BytesIO()
-        img.save(buf, format='WEBP', quality=quality, method=6)
+        # method: WebP kodlash "kuchi" (0..6). 6 — eng sekin (eng kichik hajm),
+        # 4 — ~2 barobar tez kodlash, hajm atigi ~3-5% katta, vizual sifat AYNAN
+        # bir xil (quality=82). #N2: sinxron save() yo'lini sezilarli tezlashtiradi
+        # (rasm storage round-trip'siz xotirada optimallashda qoladi — xavfsiz).
+        img.save(buf, format='WEBP', quality=quality, method=4)
         buf.seek(0)
         return ContentFile(buf.read())
     except Exception:
