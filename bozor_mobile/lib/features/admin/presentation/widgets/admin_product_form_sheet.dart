@@ -230,6 +230,14 @@ class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
       }
     }
 
+    // #N8: narx/chegirma/tannarx o'zgarsa — "tannarxdan past" ogohlantirishi
+    // va Saqlash tugmasi holatini jonli yangilab turamiz (ikkala rejimda ham).
+    for (final c in [_price, _discountPrice, _costPrice]) {
+      c.addListener(() {
+        if (mounted) setState(() {});
+      });
+    }
+
     // #N6: yangi qo'shishda — asosiy maydonlar o'zgarsa qoralamani saqlaymiz
     // (debounce) va saqlanmagan qoralamani tekshiramiz.
     if (_isCreate) {
@@ -489,8 +497,63 @@ class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
     _scheduleSaveDraft();
   }
 
-  void _submit() {
+  // #N8: tannarxdan past sotuv (POS/web bilan bir xil qoida) — samarali sotuv
+  // narxi (chegirma>0 ? chegirma : narx) tannarxdan past bo'lsa true. Tannarx
+  // 0/bo'sh bo'lsa pol yo'q. Mobil variantда alohida tannarx yo'q — variant
+  // narxi MAHSULOT tannarxiga qarshi tekshiriladi.
+  bool _hasBelowCost() {
+    final cost = double.tryParse(_stripNum(_costPrice.text)) ?? 0;
+    if (cost <= 0) return false;
+    final disc = double.tryParse(_stripNum(_discountPrice.text)) ?? 0;
+    final price = double.tryParse(_stripNum(_price.text)) ?? 0;
+    final sell = disc > 0 ? disc : price;
+    if (sell > 0 && sell < cost) return true;
+    for (final v in _variants) {
+      final vp = double.tryParse(_stripNum(v.priceCtrl.text)) ?? 0;
+      if (vp > 0 && vp < cost) return true;
+    }
+    return false;
+  }
+
+  // #N4: formani tozalab, yangi mahsulot kiritishga tayyorlaymiz.
+  void _resetForm() {
+    setState(() {
+      _name.clear();
+      _description.clear();
+      _price.clear();
+      _priceUsd.clear();
+      _discountPrice.clear();
+      _discountPriceUsd.clear();
+      _costPrice.clear();
+      _costPriceUsd.clear();
+      _stock.clear();
+      _selectedCategoryId = null;
+      _isActive = true;
+      _isNew = true;
+      _isPopular = false;
+      _pickedImage = null;
+      for (final v in _variants) {
+        v.disposeControllers();
+      }
+      _variants = [];
+      _isLoading = false;
+      _submitted = false;
+      _pendingDraft = null;
+    });
+  }
+
+  void _submit({bool addAnother = false}) {
     if (!_formKey.currentState!.validate()) return;
+    // #N8: tannarxdan past sotuvni bloklaymiz (tugma ham disabled — bu himoya).
+    if (_hasBelowCost()) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Sotuv narxi tannarxdan past — narxni tuzating.'),
+          backgroundColor: Color(0xFFDC2626),
+        ),
+      );
+      return;
+    }
     setState(() => _isLoading = true);
 
     // Saqlashdan oldin barcha narxlarni toza songa keltiramiz (probel/vergul
@@ -569,6 +632,17 @@ class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
       _draftTimer?.cancel();
       _clearDraft();
       bloc.add(CreateAdminProduct(formData));
+      if (addAnother) {
+        // #N4: yopmaymiz — formani tozalab, navbatdagi mahsulotga tayyorlaymiz.
+        _resetForm();
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text("Saqlandi! Endi yangi mahsulot kiriting."),
+            duration: Duration(seconds: 2),
+          ),
+        );
+        return;
+      }
     } else {
       bloc.add(UpdateAdminProduct(widget.product!.id, formData));
     }
@@ -872,34 +946,100 @@ class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
                   16,
                   MediaQuery.of(context).padding.bottom + 8,
                 ),
-                child: SizedBox(
-                  width: double.infinity,
-                  height: 52,
-                  child: ElevatedButton(
-                    onPressed: _isLoading ? null : _submit,
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF0A7C55),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(14),
-                      ),
-                    ),
-                    child: _isLoading
-                        ? const SizedBox(
-                            width: 24,
-                            height: 24,
-                            child: CircularProgressIndicator(
-                              color: Colors.white,
-                              strokeWidth: 2,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    // #N8: tannarxdan past sotuv ogohlantirishi (Saqlash bloklangan)
+                    if (_hasBelowCost())
+                      Container(
+                        margin: const EdgeInsets.only(bottom: 8),
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFDC2626).withValues(alpha: 0.08),
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(
+                            color: const Color(0xFFDC2626).withValues(alpha: 0.40),
+                          ),
+                        ),
+                        child: Row(
+                          children: [
+                            const Icon(Icons.error_outline_rounded,
+                                size: 18, color: Color(0xFFDC2626)),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                "Sotuv narxi tannarxdan past — narxni tuzating, aks holda saqlab bo'lmaydi.",
+                                style: theme.textTheme.bodySmall?.copyWith(
+                                  color: const Color(0xFFDC2626),
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
                             ),
-                          )
-                        : Text(
-                            isEdit ? 'Saqlash' : "Qo'shish",
-                            style: theme.textTheme.labelLarge?.copyWith(
-                              color: Colors.white,
-                              fontWeight: FontWeight.w700,
+                          ],
+                        ),
+                      ),
+                    SizedBox(
+                      width: double.infinity,
+                      height: 52,
+                      child: Row(
+                        children: [
+                          // #N4: faqat yangi qo'shishda — "Saqlab, yana"
+                          if (!isEdit) ...[
+                            Expanded(
+                              child: OutlinedButton(
+                                onPressed: (_isLoading || _hasBelowCost())
+                                    ? null
+                                    : () => _submit(addAnother: true),
+                                style: OutlinedButton.styleFrom(
+                                  foregroundColor: const Color(0xFF0A7C55),
+                                  side: const BorderSide(color: Color(0xFF0A7C55)),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(14),
+                                  ),
+                                ),
+                                child: const Text(
+                                  'Saqlab, yana',
+                                  style: TextStyle(fontWeight: FontWeight.w700),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                          ],
+                          Expanded(
+                            child: ElevatedButton(
+                              onPressed: (_isLoading || _hasBelowCost())
+                                  ? null
+                                  : () => _submit(),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: const Color(0xFF0A7C55),
+                                disabledBackgroundColor:
+                                    theme.colorScheme.onSurface.withValues(alpha: 0.12),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(14),
+                                ),
+                              ),
+                              child: _isLoading
+                                  ? const SizedBox(
+                                      width: 24,
+                                      height: 24,
+                                      child: CircularProgressIndicator(
+                                        color: Colors.white,
+                                        strokeWidth: 2,
+                                      ),
+                                    )
+                                  : Text(
+                                      isEdit ? 'Saqlash' : "Qo'shish",
+                                      style: theme.textTheme.labelLarge?.copyWith(
+                                        color: Colors.white,
+                                        fontWeight: FontWeight.w700,
+                                      ),
+                                    ),
                             ),
                           ),
-                  ),
+                        ],
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ],
