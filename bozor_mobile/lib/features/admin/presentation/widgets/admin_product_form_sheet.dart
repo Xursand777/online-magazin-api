@@ -427,6 +427,11 @@ class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
     final picker = ImagePicker();
     final picked = await picker.pickImage(
       source: ImageSource.gallery,
+      // #N10: backend WebP target'i (1600px) bilan bir xil — telefonning
+      // 3000-4000px surati shu yerda 1600px ga kichraytiriladi → yuklash
+      // 5-10x tez, sifatda yo'qotish yo'q (backend baribir 1600 ga keltiradi).
+      maxWidth: 1600,
+      maxHeight: 1600,
       imageQuality: 85,
     );
     if (picked != null) setState(() => _pickedImage = File(picked.path));
@@ -436,6 +441,11 @@ class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
     final picker = ImagePicker();
     final picked = await picker.pickImage(
       source: ImageSource.gallery,
+      // #N10: backend WebP target'i (1600px) bilan bir xil — telefonning
+      // 3000-4000px surati shu yerda 1600px ga kichraytiriladi → yuklash
+      // 5-10x tez, sifatda yo'qotish yo'q (backend baribir 1600 ga keltiradi).
+      maxWidth: 1600,
+      maxHeight: 1600,
       imageQuality: 85,
     );
     if (picked != null) {

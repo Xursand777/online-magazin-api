@@ -315,7 +315,14 @@ class _CategoryFormSheetState extends State<_CategoryFormSheet> {
 
   Future<void> _pickImage() async {
     final picker = ImagePicker();
-    final pickedFile = await picker.pickImage(source: ImageSource.gallery, imageQuality: 80);
+    // #N10: backend kategoriya WebP target'i (800px) bilan bir xil — kichik
+    // thumbnail uchun yuklash juda tez, ortiqcha piksel yuborilmaydi.
+    final pickedFile = await picker.pickImage(
+      source: ImageSource.gallery,
+      maxWidth: 800,
+      maxHeight: 800,
+      imageQuality: 80,
+    );
     if (pickedFile != null) {
       setState(() {
         _imageFile = File(pickedFile.path);

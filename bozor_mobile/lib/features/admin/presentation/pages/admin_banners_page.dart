@@ -558,6 +558,10 @@ class _BannerFormSheetState extends State<_BannerFormSheet> {
     final picker = ImagePicker();
     final picked = await picker.pickImage(
       source: ImageSource.gallery,
+      // #N10: backend banner WebP target'i (1920px) bilan bir xil — yuklashni
+      // sezilarli tezlashtiradi, sifatda yo'qotish yo'q.
+      maxWidth: 1920,
+      maxHeight: 1920,
       imageQuality: 85,
     );
     if (picked != null) setState(() => _pickedImage = File(picked.path));
@@ -567,6 +571,10 @@ class _BannerFormSheetState extends State<_BannerFormSheet> {
     final picker = ImagePicker();
     final picked = await picker.pickImage(
       source: ImageSource.gallery,
+      // #N10: backend banner WebP target'i (1920px) bilan bir xil — yuklashni
+      // sezilarli tezlashtiradi, sifatda yo'qotish yo'q.
+      maxWidth: 1920,
+      maxHeight: 1920,
       imageQuality: 85,
     );
     if (picked != null) setState(() => _pickedBackgroundImage = File(picked.path));
