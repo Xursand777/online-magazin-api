@@ -77,6 +77,7 @@ class ApiConstants {
 
   // ─── Admin: Katalog ─────────────────────────────────────────────────────────
   static const String adminProducts = '/api/admin/products/';
+  static const String adminBulkImport = '/api/admin/bulk-import/'; // #N3 CSV/Excel
   static const String adminCategories = '/api/admin/categories/';
   static const String adminBanners = '/api/admin/banners/';
   static const String adminStockReport = '/api/admin/stock-report/';

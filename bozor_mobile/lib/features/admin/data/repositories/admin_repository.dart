@@ -25,6 +25,41 @@ class OrdersPollResult {
   });
 }
 
+/// #N3 — CSV/Excel bulk import natijasi (backend AdminBulkImportView javobi).
+class BulkImportResultData {
+  final int createdCount;
+  final int skippedCount;
+  final int errorCount;
+  final List<({int row, String message})> errors;
+  final List<String> warnings;
+
+  const BulkImportResultData({
+    required this.createdCount,
+    required this.skippedCount,
+    required this.errorCount,
+    required this.errors,
+    required this.warnings,
+  });
+
+  factory BulkImportResultData.fromJson(Map<String, dynamic> j) {
+    return BulkImportResultData(
+      createdCount: (j['created_count'] as num?)?.toInt() ?? 0,
+      skippedCount: (j['skipped_count'] as num?)?.toInt() ?? 0,
+      errorCount: (j['error_count'] as num?)?.toInt() ?? 0,
+      errors: ((j['errors'] as List?) ?? [])
+          .map((e) {
+            final m = e as Map<String, dynamic>;
+            return (
+              row: (m['row'] as num?)?.toInt() ?? 0,
+              message: (m['error'] as String?) ?? '',
+            );
+          })
+          .toList(),
+      warnings: ((j['warnings'] as List?) ?? []).map((e) => e.toString()).toList(),
+    );
+  }
+}
+
 class AdminRepository {
   final ApiClient apiClient;
 
@@ -89,6 +124,46 @@ class AdminRepository {
 
   Future<void> deleteProduct(int id) async {
     await apiClient.dio.delete('${ApiConstants.adminProducts}$id/');
+  }
+
+  /// #N3 — CSV/Excel orqali ommaviy mahsulot import.
+  /// Backend created_count==0 bo'lsa 400 qaytaradi (lekin tanasida natija bor) —
+  /// shu sababli 400 ham qabul qilinadi va natija sifatida o'qiladi.
+  Future<BulkImportResultData> bulkImportProducts({
+    required String filePath,
+    required String fileName,
+    required bool translate,
+    int? defaultCategoryId,
+  }) async {
+    final isCsv = fileName.toLowerCase().endsWith('.csv');
+    final formData = FormData.fromMap({
+      'file': await MultipartFile.fromFile(filePath, filename: fileName),
+      'format': isCsv ? 'csv' : 'excel',
+      'translate': translate ? 'true' : 'false',
+      if (defaultCategoryId != null)
+        'default_category_id': defaultCategoryId.toString(),
+    });
+    final response = await apiClient.dio.post(
+      ApiConstants.adminBulkImport,
+      data: formData,
+      options: Options(
+        contentType: 'multipart/form-data',
+        // Katta importlar uzoq davom etishi mumkin — generous timeoutlar.
+        sendTimeout: const Duration(minutes: 5),
+        receiveTimeout: const Duration(minutes: 5),
+        // created_count==0 -> 400; tanasidagi natijani o'qish uchun ruxsat.
+        validateStatus: (s) => s != null && (s < 300 || s == 400),
+      ),
+    );
+    final data = response.data;
+    if (data is Map<String, dynamic> && data.containsKey('created_count')) {
+      return BulkImportResultData.fromJson(data);
+    }
+    // Kutilmagan javob (masalan {"error": "..."}): xato sifatida ko'taramiz.
+    final msg = (data is Map && data['error'] != null)
+        ? data['error'].toString()
+        : 'Import bajarilmadi.';
+    throw Exception(msg);
   }
 
   // ─── Categories ──────────────────────────────────────────────────────────────

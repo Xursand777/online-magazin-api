@@ -3,13 +3,11 @@ import 'dart:async';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:intl/intl.dart';
 import 'package:cached_network_image/cached_network_image.dart';
-import 'package:dio/dio.dart';
-import 'package:image_picker/image_picker.dart';
-import 'dart:io';
 import '../bloc/admin_bloc.dart';
 import '../../data/models/admin_product_model.dart';
 import '../widgets/admin_drawer.dart';
 import '../widgets/admin_product_form_sheet.dart';
+import '../widgets/admin_bulk_import_sheet.dart';
 class AdminProductsPage extends StatefulWidget {
   const AdminProductsPage({super.key});
   @override
@@ -108,6 +106,14 @@ class _AdminProductsPageState extends State<AdminProductsPage> {
           fontWeight: FontWeight.w800,
         ),
       ),
+      actions: [
+        // #N3: Excel/CSV ommaviy import
+        IconButton(
+          tooltip: 'Excel / CSV import',
+          icon: const Icon(Icons.upload_file_rounded),
+          onPressed: () => _showBulkImport(context),
+        ),
+      ],
       bottom: PreferredSize(
         preferredSize: const Size.fromHeight(60),
         child: Padding(
@@ -170,6 +176,19 @@ class _AdminProductsPageState extends State<AdminProductsPage> {
       builder: (_) => BlocProvider.value(
         value: context.read<AdminBloc>(),
         child: AdminProductFormSheet(product: product),
+      ),
+    );
+  }
+
+  // #N3: Excel/CSV ommaviy import varag'ini ochadi.
+  void _showBulkImport(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => BlocProvider.value(
+        value: context.read<AdminBloc>(),
+        child: const AdminBulkImportSheet(),
       ),
     );
   }

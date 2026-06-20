@@ -54,6 +54,7 @@ dependencies:
   json_annotation: ^4.9.0
   intl: ^0.20.2
   image_picker: ^1.1.2
+  file_picker: ^8.1.6          # #N3: CSV/Excel bulk mahsulot import (fayl tanlash)
   # Sentry — production xato kuzatish (free 5,000 event/oy)
   sentry_flutter: ^8.10.1
   package_info_plus: ^8.0.0  # Sentry release identifier uchun
