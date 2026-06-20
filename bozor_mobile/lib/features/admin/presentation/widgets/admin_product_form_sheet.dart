@@ -1,7 +1,9 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:cached_network_image/cached_network_image.dart';
@@ -171,6 +173,16 @@ class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
 
   List<_VariantData> _variants = [];
 
+  // ── #N6: Qoralama (draft) avtosave ──────────────────────────────────────────
+  // Bottom-sheet'ni pastga surib yopish oson — kiritilgan ma'lumot yo'qolmasligi
+  // uchun forma avtomat saqlanadi (FAQAT yangi qo'shishda, tahrirда emas).
+  // Surib yopilganda darhol saqlanadi (PopScope), yozish asnosida debounce bilan.
+  static const String _draftKey = 'admin_product_draft';
+  bool get _isCreate => widget.product == null;
+  Map<String, dynamic>? _pendingDraft; // ochilganda topilgan saqlanmagan qoralama
+  Timer? _draftTimer;
+  bool _submitted = false; // "Qo'shish" bosilgan — pop'da qoralama qayta yozilmasin
+
   @override
   void initState() {
     super.initState();
@@ -217,10 +229,23 @@ class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
         }).toList();
       }
     }
+
+    // #N6: yangi qo'shishda — asosiy maydonlar o'zgarsa qoralamani saqlaymiz
+    // (debounce) va saqlanmagan qoralamani tekshiramiz.
+    if (_isCreate) {
+      for (final c in [
+        _name, _description, _price, _priceUsd, _discountPrice,
+        _discountPriceUsd, _costPrice, _costPriceUsd, _stock,
+      ]) {
+        c.addListener(_scheduleSaveDraft);
+      }
+      _loadDraft();
+    }
   }
 
   @override
   void dispose() {
+    _draftTimer?.cancel();
     _name.dispose();
     _description.dispose();
     _price.dispose();
@@ -245,6 +270,132 @@ class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
     } catch (_) {
       // kurs yuklanmadi — avtomatik to'ldirish o'chiq qoladi
     }
+  }
+
+  // ── #N6: Qoralama (draft) — saqlash / yuklash / tiklash ────────────────────
+  void _scheduleSaveDraft() {
+    if (!_isCreate) return;
+    _draftTimer?.cancel();
+    _draftTimer = Timer(const Duration(milliseconds: 600), _saveDraftNow);
+  }
+
+  Map<String, dynamic> _buildDraftMap() => {
+        'name': _name.text,
+        'description': _description.text,
+        'price': _price.text,
+        'price_usd': _priceUsd.text,
+        'discount_price': _discountPrice.text,
+        'discount_price_usd': _discountPriceUsd.text,
+        'cost_price': _costPrice.text,
+        'cost_price_usd': _costPriceUsd.text,
+        'stock': _stock.text,
+        'category': _selectedCategoryId,
+        'is_active': _isActive,
+        'is_new': _isNew,
+        'is_popular': _isPopular,
+        'image_path': _pickedImage?.path,
+        'variants': _variants
+            .map((v) => {
+                  'group_id': v.groupId,
+                  'color': v.color,
+                  'color_hex': v.colorHex,
+                  'quality': v.quality,
+                  'model': v.model,
+                  'size': v.size,
+                  'barcode': v.barcode,
+                  'sku': v.sku,
+                  'price': v.priceCtrl.text,
+                  'price_usd': v.priceUsdCtrl.text,
+                  'stock': v.stock,
+                  'image_path': v.imageFile?.path,
+                })
+            .toList(),
+      };
+
+  Future<void> _saveDraftNow() async {
+    if (!_isCreate || _submitted) return;
+    // Bo'sh formani saqlamaymiz (nom ham, variant ham yo'q bo'lsa).
+    if (_name.text.trim().isEmpty && _variants.isEmpty) return;
+    // MUHIM: controllerlarni `await`'dan OLDIN sinxron o'qiymiz — varaq
+    // yopilib dispose bo'lsa ham (PopScope), disposed controllerni o'qimaymiz.
+    final encoded = jsonEncode(_buildDraftMap());
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_draftKey, encoded);
+    } catch (_) {/* storage xatosi — jim o'tamiz */}
+  }
+
+  Future<void> _clearDraft() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove(_draftKey);
+    } catch (_) {/* noop */}
+  }
+
+  Future<void> _loadDraft() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString(_draftKey);
+      if (raw == null) return;
+      final map = jsonDecode(raw) as Map<String, dynamic>;
+      final hasContent = (map['name'] as String?)?.trim().isNotEmpty == true ||
+          (map['variants'] as List?)?.isNotEmpty == true;
+      if (hasContent && mounted) setState(() => _pendingDraft = map);
+    } catch (_) {
+      await _clearDraft(); // buzuq qoralama
+    }
+  }
+
+  void _restoreDraft() {
+    final d = _pendingDraft;
+    if (d == null) return;
+    String s(dynamic v) => (v as String?) ?? '';
+    setState(() {
+      _name.text = s(d['name']);
+      _description.text = s(d['description']);
+      _price.text = s(d['price']);
+      _priceUsd.text = s(d['price_usd']);
+      _discountPrice.text = s(d['discount_price']);
+      _discountPriceUsd.text = s(d['discount_price_usd']);
+      _costPrice.text = s(d['cost_price']);
+      _costPriceUsd.text = s(d['cost_price_usd']);
+      _stock.text = s(d['stock']);
+      _selectedCategoryId = d['category'] as int?;
+      _isActive = d['is_active'] as bool? ?? true;
+      _isNew = d['is_new'] as bool? ?? true;
+      _isPopular = d['is_popular'] as bool? ?? false;
+      final ip = d['image_path'] as String?;
+      _pickedImage = (ip != null && File(ip).existsSync()) ? File(ip) : null;
+      // Variantlarni qayta quramiz (eski controllerlarni tozalab).
+      for (final v in _variants) {
+        v.disposeControllers();
+      }
+      _variants = ((d['variants'] as List?) ?? []).map((e) {
+        final m = e as Map<String, dynamic>;
+        final vd = _VariantData(
+          groupId: m['group_id'] as String?,
+          color: m['color'] as String?,
+          colorHex: m['color_hex'] as String?,
+          quality: m['quality'] as String?,
+          model: m['model'] as String?,
+          size: m['size'] as String?,
+          barcode: m['barcode'] as String?,
+          sku: m['sku'] as String?,
+          price: m['price'] as String?,
+          priceUsd: m['price_usd'] as String?,
+          stock: m['stock'] as String?,
+        );
+        final vip = m['image_path'] as String?;
+        if (vip != null && File(vip).existsSync()) vd.imageFile = File(vip);
+        return vd;
+      }).toList();
+      _pendingDraft = null;
+    });
+  }
+
+  void _discardDraft() {
+    _clearDraft();
+    setState(() => _pendingDraft = null);
   }
 
   /// UZS yozildi → USD ni to'ldiradi. (Web: numericValue / usdRate, 2 xona;
@@ -304,6 +455,7 @@ class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
         stock: '0',
       ));
     });
+    _scheduleSaveDraft();
   }
 
   void _addSubVariant(String groupId) {
@@ -316,6 +468,7 @@ class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
         stock: '0',
       ));
     });
+    _scheduleSaveDraft();
   }
 
   void _removeVariant(_VariantData variant) {
@@ -323,6 +476,7 @@ class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
       variant.disposeControllers();
       _variants.remove(variant);
     });
+    _scheduleSaveDraft();
   }
 
   void _submit() {
@@ -400,6 +554,10 @@ class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
 
     final bloc = context.read<AdminBloc>();
     if (widget.product == null) {
+      // #N6: ataylab saqlandi — qoralamani tozalaymiz, pop'da qayta yozilmasin.
+      _submitted = true;
+      _draftTimer?.cancel();
+      _clearDraft();
       bloc.add(CreateAdminProduct(formData));
     } else {
       bloc.add(UpdateAdminProduct(widget.product!.id, formData));
@@ -413,7 +571,13 @@ class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
     final state = context.watch<AdminBloc>().state;
     final isEdit = widget.product != null;
 
-    return DraggableScrollableSheet(
+    // #N6: varaq surib yopilganda (yoki orqaga) — qoralamani darhol saqlaymiz.
+    return PopScope(
+      canPop: true,
+      onPopInvokedWithResult: (didPop, result) {
+        if (_isCreate && !_submitted) _saveDraftNow();
+      },
+      child: DraggableScrollableSheet(
       initialChildSize: 0.94,
       maxChildSize: 0.97,
       minChildSize: 0.5,
@@ -468,6 +632,8 @@ class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
                       MediaQuery.of(context).viewInsets.bottom + 100,
                     ),
                     children: [
+                      // #N6: saqlanmagan qoralama topildi — tiklash/o'chirish
+                      if (_pendingDraft != null) _buildDraftBanner(context),
                       _buildSectionTitle(context, "Asosiy ma'lumotlar"),
                       // Image picker
                       GestureDetector(
@@ -730,6 +896,49 @@ class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
           ),
         );
       },
+      ),
+    );
+  }
+
+  // #N6: saqlanmagan qoralama banneri
+  Widget _buildDraftBanner(BuildContext context) {
+    final theme = Theme.of(context);
+    final name = (_pendingDraft?['name'] as String?)?.trim() ?? '';
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.fromLTRB(12, 8, 4, 8),
+      decoration: BoxDecoration(
+        color: const Color(0xFF0A7C55).withValues(alpha: 0.06),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFF0A7C55).withValues(alpha: 0.40)),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.history_rounded, color: Color(0xFF0A7C55), size: 20),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              name.isNotEmpty
+                  ? 'Saqlanmagan qoralama: "$name". Tiklaysizmi?'
+                  : 'Saqlanmagan qoralama topildi. Tiklaysizmi?',
+              style: theme.textTheme.bodySmall?.copyWith(fontWeight: FontWeight.w600),
+            ),
+          ),
+          TextButton(
+            onPressed: _restoreDraft,
+            child: const Text(
+              'Tiklash',
+              style: TextStyle(color: Color(0xFF0A7C55), fontWeight: FontWeight.w800),
+            ),
+          ),
+          IconButton(
+            onPressed: _discardDraft,
+            icon: const Icon(Icons.close, size: 18),
+            tooltip: "O'chirish",
+            visualDensity: VisualDensity.compact,
+          ),
+        ],
+      ),
     );
   }
 
