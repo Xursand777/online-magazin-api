@@ -28,6 +28,20 @@ interface ProductDraft {
   savedAt: number;
 }
 
+// ── #N8: Tannarxdan past sotuv validatsiyasi (POS bilan bir xil qoida) ────────
+// Samarali sotuv narxi = chegirma narxi (>0 bo'lsa) yoki oddiy narx. Agar u
+// tannarxdan (kirim) PAST bo'lsa — zararga sotuv. Tannarx 0/bo'sh bo'lsa pol
+// yo'q (tekshirilmaydi). Narxlar formatli ("15 000 000") bo'lgani uchun
+// stripNumberFormatting bilan tozalanadi.
+const sellBelowCost = (priceStr: string, discountStr: string, costStr: string): boolean => {
+  const cost = Number(stripNumberFormatting(costStr || '0'));
+  if (!(cost > 0)) return false;
+  const price = Number(stripNumberFormatting(priceStr || '0'));
+  const disc = Number(stripNumberFormatting(discountStr || '0'));
+  const sell = disc > 0 ? disc : price;
+  return sell > 0 && sell < cost;
+};
+
 export const ProductEditor = ({
   mode,
   product,
@@ -200,6 +214,18 @@ export const ProductEditor = ({
   }, [product, mode]);
 
   const hasVariants = variants.length > 0;
+
+  // ── #N8: tannarxdan past sotuv tekshiruvi ─────────────────────────────────
+  // Variantli holatda HAR variant alohida, variatsiz holatda mahsulot narxi
+  // tannarxiga qarshi tekshiriladi. Biror joyda zararga sotuv bo'lsa — Saqlash
+  // bloklanadi (POS bilan bir xil qoida).
+  const belowCostVariants = useMemo(
+    () => variants.filter((v) => sellBelowCost(v.price, v.discount_price, v.cost_price)),
+    [variants],
+  );
+  const productBelowCost =
+    !hasVariants && sellBelowCost(form.price, form.discount_price, form.cost_price);
+  const hasBelowCost = productBelowCost || belowCostVariants.length > 0;
 
   useEffect(() => {
     if (!hasVariants) return;
@@ -465,6 +491,12 @@ export const ProductEditor = ({
   const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setFormError('');
+    // #N8: tannarxdan past sotuvni bloklaymiz (tugmalar ham disabled, bu — himoya)
+    if (hasBelowCost) {
+      saveAndNewRef.current = false;
+      setFormError('Sotuv narxi tannarxdan past — narxni tuzating (zararga sotuv).');
+      return;
+    }
     const payload = new FormData();
     payload.append('name', form.name.trim());
     payload.append('description', form.description.trim());
@@ -690,6 +722,7 @@ export const ProductEditor = ({
                 </p>
               </div>
             ) : (
+              <>
               <div className='grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6'>
                 <div>
                   <label className='mb-1 flex items-center gap-1 text-label-md font-label-md text-on-surface-variant'>
@@ -772,6 +805,13 @@ export const ProductEditor = ({
                   />
                 </div>
               </div>
+              {productBelowCost && (
+                <p className='mt-2 flex items-center gap-1 text-xs font-semibold text-error'>
+                  <span className='material-symbols-outlined text-[15px]'>warning</span>
+                  Sotuv narxi tannarxdan (kirim) past — zararga sotuv. Narxni tuzating.
+                </p>
+              )}
+              </>
             )}
           </div>
 
@@ -973,6 +1013,18 @@ export const ProductEditor = ({
           )}
         </div>
 
+        {/* #N8: tannarxdan past sotuv — umumiy ogohlantirish (Saqlash bloklangan) */}
+        {hasBelowCost && (
+          <div className='flex items-start gap-2 rounded-lg border border-error/40 bg-error-container/30 p-3 text-body-sm font-semibold text-error'>
+            <span className='material-symbols-outlined text-[18px]'>error</span>
+            <span>
+              {belowCostVariants.length > 0
+                ? `${belowCostVariants.length} ta variant tannarxdan past narxda — `
+                : 'Sotuv narxi tannarxdan past — '}
+              narxni tuzating, aks holda saqlab bo'lmaydi (zararga sotuv).
+            </span>
+          </div>
+        )}
         <div className='flex flex-col gap-3 border-t border-outline-variant pt-4 sm:flex-row sm:items-center sm:justify-between'>
           <div className='text-body-sm text-on-surface-variant'>
             {mode === 'edit'
@@ -990,9 +1042,9 @@ export const ProductEditor = ({
             {mode !== 'edit' && (
               <button
                 type='submit'
-                disabled={saveMutation.isPending}
+                disabled={saveMutation.isPending || hasBelowCost}
                 onClick={() => { saveAndNewRef.current = true; }}
-                className='flex items-center gap-2 rounded-lg border border-primary/50 bg-primary/10 px-4 py-2 font-label-md text-primary hover:bg-primary/20 disabled:opacity-60'
+                className='flex items-center gap-2 rounded-lg border border-primary/50 bg-primary/10 px-4 py-2 font-label-md text-primary hover:bg-primary/20 disabled:cursor-not-allowed disabled:opacity-50'
               >
                 <span className='material-symbols-outlined text-[16px]'>library_add</span>
                 Saqlab, yana qo'shish
@@ -1000,9 +1052,9 @@ export const ProductEditor = ({
             )}
             <button
               type='submit'
-              disabled={saveMutation.isPending}
+              disabled={saveMutation.isPending || hasBelowCost}
               onClick={() => { saveAndNewRef.current = false; }}
-              className='flex items-center gap-2 rounded-lg bg-primary px-6 py-2 font-label-md text-on-primary hover:opacity-90 disabled:opacity-60'
+              className='flex items-center gap-2 rounded-lg bg-primary px-6 py-2 font-label-md text-on-primary hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50'
             >
               {saveMutation.isPending && (
                 <span className='material-symbols-outlined animate-spin text-[16px]'>
@@ -1280,8 +1332,14 @@ const ColorGroupVariantEditor = ({
                     <tbody className='divide-y divide-outline-variant'>
                       {group.map((variant) => {
                         const idx = variants.indexOf(variant);
+                        // #N8: bu variant tannarxdan past sotilyaptimi
+                        const below = sellBelowCost(variant.price, variant.discount_price, variant.cost_price);
                         return (
-                          <tr key={variant.client_id} className='hover:bg-surface-container/30'>
+                          <tr
+                            key={variant.client_id}
+                            className={below ? 'bg-error-container/25' : 'hover:bg-surface-container/30'}
+                            title={below ? 'Sotuv narxi tannarxdan past!' : undefined}
+                          >
                             <td className='p-2'>
                               <input
                                 value={variant.quality}
