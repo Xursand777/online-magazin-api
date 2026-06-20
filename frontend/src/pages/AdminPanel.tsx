@@ -80,6 +80,7 @@ import { loadShopInfo, useShopInfo, updateShopInfoCache } from '../utils/shopInf
 import { adminPollOrders, fetchAllReportOrders } from '../api/endpoints';
 import ThemeToggle from '../components/ThemeToggle';
 import AdminPOS from '../components/AdminPOS';
+import AdminProductImport from '../components/AdminProductImport';
 
 type AdminTab = 'dashboard' | 'products' | 'banners' | 'categories' | 'orders' | 'users' | 'feedback' | 'reports' | 'stock' | 'pos' | 'kassa' | 'nasiya' | 'sozlamalar' | 'compatibility' | 'staff' | 'masters' | 'audit';
 
@@ -1709,6 +1710,8 @@ const ProductsTab = ({
   onDelete: (id: number) => void;
 }) => {
   const [editorState, setEditorState] = useState<ProductEditorState | null>(null);
+  const [importOpen, setImportOpen] = useState(false);
+  const qcProducts = useQueryClient();
   return (
     <div className='space-y-6'>
       <div className='flex flex-col gap-4 md:flex-row md:items-end md:justify-between'>
@@ -1718,13 +1721,32 @@ const ProductsTab = ({
             Tovar ma'lumotlari, rasm va variantlarni shu yerdan to'liq boshqaring.
           </p>
         </div>
-        <button
-          onClick={() => setEditorState({ mode: 'create' })}
-          className='flex items-center gap-2 rounded-lg bg-primary px-4 py-2 font-label-md text-on-primary hover:opacity-90'
-        >
-          <span className='material-symbols-outlined text-[18px]'>add</span>Mahsulot qo'shish
-        </button>
+        <div className='flex flex-wrap items-center gap-2'>
+          <button
+            onClick={() => setImportOpen(true)}
+            className='flex items-center gap-2 rounded-lg border border-primary/40 bg-primary/10 px-4 py-2 font-label-md text-primary hover:bg-primary/20'
+          >
+            <span className='material-symbols-outlined text-[18px]'>upload_file</span>Excel / CSV import
+          </button>
+          <button
+            onClick={() => setEditorState({ mode: 'create' })}
+            className='flex items-center gap-2 rounded-lg bg-primary px-4 py-2 font-label-md text-on-primary hover:opacity-90'
+          >
+            <span className='material-symbols-outlined text-[18px]'>add</span>Mahsulot qo'shish
+          </button>
+        </div>
       </div>
+      {importOpen && (
+        <AdminProductImport
+          categories={categories}
+          onClose={() => setImportOpen(false)}
+          onImported={() => {
+            qcProducts.invalidateQueries({ queryKey: ['admin-products'] });
+            qcProducts.invalidateQueries({ queryKey: ['products'] });
+            qcProducts.invalidateQueries({ queryKey: ['mainPage'] });
+          }}
+        />
+      )}
       {editorState && (
         <ProductEditor
           categories={categories}

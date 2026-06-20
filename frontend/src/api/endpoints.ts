@@ -138,6 +138,13 @@ export const adminCreateProduct = (data: FormData) =>
 export const adminUpdateProduct = (id: number, data: FormData) =>
   apiClient.patch(`/admin/products/${id}/`, data, { headers: { 'Content-Type': 'multipart/form-data' } });
 export const adminDeleteProduct = (id: number) => apiClient.delete(`/admin/products/${id}/`);
+// Ommaviy import (CSV/Excel → 10 000+ mahsulot). Katta fayllar uchun timeout
+// o'chirilgan (default cheksiz). Backend: POST /api/admin/bulk-import/.
+export const adminBulkImportProducts = (data: FormData) =>
+  apiClient.post('/admin/bulk-import/', data, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+    timeout: 0,
+  });
 export const adminGetBanners = () => apiClient.get('/admin/banners/');
 export const adminCreateBanner = (data: FormData) =>
   apiClient.post('/admin/banners/', data, { headers: { 'Content-Type': 'multipart/form-data' } });
