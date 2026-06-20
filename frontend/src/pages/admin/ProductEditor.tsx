@@ -5,7 +5,7 @@
 //  #N3: AdminPanel.tsx monolitidan AYNAN ko'chirildi — mantiq O'ZGARMAGAN.
 //  Tashqi bog'liqliklar: shared (tip/yordamchi), API endpoint'lar, toast, hooks.
 // ─────────────────────────────────────────────────────────────────────────────
-import { useState, useEffect, useMemo, useRef, type FormEvent } from 'react';
+import { useState, useEffect, useMemo, useRef, type FormEvent, type KeyboardEvent } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { adminCreateProduct, adminUpdateProduct, adminGetExchangeRate } from '../../api/endpoints';
 import { toast } from '../../utils/toast';
@@ -15,6 +15,18 @@ import {
   mapProductToForm, mapVariantsForEditor, stripNumberFormatting,
 } from './shared';
 import type { AdminProduct, AdminCategory, ProductFormState, VariantFormState } from './shared';
+
+// ── #N6: Qoralama (draft) avtosave ───────────────────────────────────────────
+// Yangi mahsulot kiritayotganda forma localStorage'ga avtomat saqlanadi. Admin
+// tasodifan tab'ni yopsa / sahifani yangilasa, matn/narx/variantlar yo'qolmaydi.
+// FAQAT toza "create"da (tahrirlash yoki klonlashda emas). Rasm fayllari
+// serializatsiya qilinmaydi — qoralama tiklanganda admin rasmlarni qayta tanlaydi.
+const DRAFT_KEY = 'admin:product-draft';
+interface ProductDraft {
+  form: ProductFormState;
+  variants: VariantFormState[];
+  savedAt: number;
+}
 
 export const ProductEditor = ({
   mode,
@@ -41,6 +53,83 @@ export const ProductEditor = ({
   const [removeImage, setRemoveImage] = useState(false);
   const [formError, setFormError] = useState('');
   const [showBulkGenerator, setShowBulkGenerator] = useState(false);
+
+  // ── #N6: Qoralama avtosave + tiklash ──────────────────────────────────────
+  // Toza "create" (tahrir/klon emas) — faqat shu holatda qoralama saqlanadi.
+  const isPureCreate = mode === 'create' && !product;
+  // Ochilganda topilgan saqlanmagan qoralama (foydalanuvchi Tiklash/O'chirish
+  // tugmasini bosguncha kutib turadi). null bo'lsa banner ko'rsatilmaydi.
+  const [pendingDraft, setPendingDraft] = useState<ProductDraft | null>(null);
+
+  // Ochilishda — mavjud qoralamani tekshiramiz (avtomat QO'LLAMAYMIZ, banner
+  // orqali admin o'zi qaror qiladi — kutilmagan ma'lumot almashinuvi bo'lmaydi).
+  useEffect(() => {
+    if (!isPureCreate) return;
+    try {
+      const raw = localStorage.getItem(DRAFT_KEY);
+      if (!raw) return;
+      const draft = JSON.parse(raw) as ProductDraft;
+      const hasContent = draft.form?.name?.trim() || (draft.variants?.length ?? 0) > 0;
+      if (hasContent) setPendingDraft(draft);
+    } catch {
+      localStorage.removeItem(DRAFT_KEY);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Avtosave — debounce (700ms). Qoralama banner ochiq turganda (pendingDraft)
+  // YOZMAYMIZ — eski qoralamani admin qarorigacha saqlaymiz.
+  useEffect(() => {
+    if (!isPureCreate || pendingDraft) return;
+    const hasContent = form.name.trim() || variants.length > 0;
+    if (!hasContent) return;
+    const t = window.setTimeout(() => {
+      try {
+        localStorage.setItem(
+          DRAFT_KEY,
+          JSON.stringify({ form, variants, savedAt: Date.now() } as ProductDraft),
+        );
+      } catch { /* kvota to'lgan bo'lsa jim o'tamiz */ }
+    }, 700);
+    return () => window.clearTimeout(t);
+  }, [form, variants, isPureCreate, pendingDraft]);
+
+  const clearDraft = () => {
+    try { localStorage.removeItem(DRAFT_KEY); } catch { /* noop */ }
+  };
+  const restoreDraft = () => {
+    if (!pendingDraft) return;
+    setForm(pendingDraft.form);
+    setVariants(pendingDraft.variants);
+    setPendingDraft(null);
+  };
+  const discardDraft = () => {
+    clearDraft();
+    setPendingDraft(null);
+  };
+
+  // ── #N6: Enter → keyingi maydon (tasodifiy erta submit'ni ham oldini oladi)
+  // Matn/raqam input'ida Enter bosilsa, forma yuborilmaydi — fokus keyingi
+  // maydonga o'tadi. Saqlash faqat tugma bilan. Textarea (ko'p qatorli) va
+  // tugmalar tegmaydi. Variant qatorlari ham shu rootRef ichida — birga ishlaydi.
+  const handleFormKeyDown = (e: KeyboardEvent<HTMLFormElement>) => {
+    if (e.key !== 'Enter' || e.shiftKey) return;
+    const el = e.target as HTMLElement;
+    if (el.tagName === 'TEXTAREA' || el.tagName !== 'INPUT') return;
+    const type = (el as HTMLInputElement).type;
+    if (['submit', 'button', 'file', 'checkbox', 'radio', 'color', 'range'].includes(type)) return;
+    e.preventDefault();
+    const focusables = Array.from(
+      rootRef.current?.querySelectorAll<HTMLElement>(
+        'input:not([type=hidden]), select, textarea',
+      ) ?? [],
+    ).filter(
+      (n) => !(n as HTMLInputElement).disabled && n.tabIndex !== -1 && n.offsetParent !== null,
+    );
+    const idx = focusables.indexOf(el);
+    const next = focusables[idx + 1];
+    if (next) next.focus();
+  };
 
   const { data: rateData } = useQuery({
     queryKey: ['admin-exchange-rate'],
@@ -172,6 +261,8 @@ export const ProductEditor = ({
         qc.invalidateQueries({ queryKey: ['product'] }),
         qc.invalidateQueries({ queryKey: ['mainPage'] }),
       ]);
+      // Saqlangan ma'lumot endi qoralama bo'lib qolmasligi kerak.
+      clearDraft();
       // "Saqlab, yana qo'shish" — forma tozalanadi, ochiq qoladi (faqat yaratish).
       if (saveAndNewRef.current && mode !== 'edit') {
         saveAndNewRef.current = false;
@@ -466,13 +557,44 @@ export const ProductEditor = ({
           </div>
         )}
       </div>
+      {/* #N6: Saqlanmagan qoralama topildi — tiklash/o'chirish banneri */}
+      {pendingDraft && (
+        <div className='mb-4 flex flex-col gap-3 rounded-lg border border-primary/40 bg-primary/5 p-3 sm:flex-row sm:items-center sm:justify-between'>
+          <div className='flex items-start gap-2 text-body-sm text-on-surface'>
+            <span className='material-symbols-outlined text-[18px] text-primary'>history</span>
+            <span>
+              Saqlanmagan qoralama topildi
+              {pendingDraft.form?.name ? (
+                <b> — “{pendingDraft.form.name}”</b>
+              ) : null}.
+              Tiklaysizmi? <span className='text-on-surface-variant'>(rasmlar saqlanmaydi)</span>
+            </span>
+          </div>
+          <div className='flex shrink-0 gap-2'>
+            <button
+              type='button'
+              onClick={restoreDraft}
+              className='flex items-center gap-1 rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-on-primary hover:opacity-90'
+            >
+              <span className='material-symbols-outlined text-[15px]'>restore</span>Tiklash
+            </button>
+            <button
+              type='button'
+              onClick={discardDraft}
+              className='rounded-lg border border-outline-variant px-3 py-1.5 text-xs font-semibold text-on-surface-variant hover:bg-surface-container'
+            >
+              O'chirish
+            </button>
+          </div>
+        </div>
+      )}
       {formError && (
         <div className='mb-4 flex gap-2 rounded-lg bg-error-container p-3 text-body-sm text-on-error-container'>
           <span className='material-symbols-outlined text-[16px]'>error</span>
           {formError}
         </div>
       )}
-      <form onSubmit={handleSubmit} className='space-y-6'>
+      <form onSubmit={handleSubmit} onKeyDown={handleFormKeyDown} className='space-y-6'>
         <div className='grid grid-cols-1 gap-4 xl:grid-cols-12'>
           <div className='xl:col-span-8'>
             <label className='mb-1 block text-label-md font-label-md text-on-surface-variant'>
