@@ -32,8 +32,9 @@ String _stripNum(String value) =>
 /// Butun UZS qiymatni "15 000 000" ko'rinishida probel bilan ajratadi.
 /// (Web: formatPriceInput — minglik ajratuvchi.)
 String _formatUzsDigits(String raw) {
-  final digits =
-      _stripNum(raw).split('.').first.replaceAll(RegExp(r'[^0-9]'), '');
+  final digits = _stripNum(
+    raw,
+  ).split('.').first.replaceAll(RegExp(r'[^0-9]'), '');
   if (digits.isEmpty) return '';
   final trimmed = digits.replaceFirst(RegExp(r'^0+(?=\d)'), '');
   final buf = StringBuffer();
@@ -49,7 +50,9 @@ String _formatUzsDigits(String raw) {
 class _ThousandsFormatter extends TextInputFormatter {
   @override
   TextEditingValue formatEditUpdate(
-      TextEditingValue oldValue, TextEditingValue newValue) {
+    TextEditingValue oldValue,
+    TextEditingValue newValue,
+  ) {
     final formatted = _formatUzsDigits(newValue.text);
     return TextEditingValue(
       text: formatted,
@@ -88,7 +91,13 @@ const List<Map<String, String>> COLOR_PRESETS = [
   {'name': 'Oq kulrang', 'hex': '#e2e8f0'},
 ];
 
-const List<String> QUALITY_PRESETS = ['Original', 'Premium', 'OEM', 'Copy A', 'Copy B'];
+const List<String> QUALITY_PRESETS = [
+  'Original',
+  'Premium',
+  'OEM',
+  'Copy A',
+  'Copy B',
+];
 
 class AdminProductFormSheet extends StatefulWidget {
   const AdminProductFormSheet({super.key, this.product, this.clone = false});
@@ -161,7 +170,9 @@ class _VariantData {
     // toza qiymatni saqlaymiz.
     priceCtrl = TextEditingController(text: _formatUzsDigits(price ?? ''));
     priceUsdCtrl = TextEditingController(text: priceUsd ?? '');
-    discountCtrl = TextEditingController(text: _formatUzsDigits(discountPrice ?? ''));
+    discountCtrl = TextEditingController(
+      text: _formatUzsDigits(discountPrice ?? ''),
+    );
     discountUsdCtrl = TextEditingController(text: discountPriceUsd ?? '');
     costCtrl = TextEditingController(text: _formatUzsDigits(costPrice ?? ''));
     costUsdCtrl = TextEditingController(text: costPriceUsd ?? '');
@@ -184,7 +195,16 @@ class _VariantData {
 }
 
 class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
-  final _formKey = GlobalKey<FormState>();
+  // #8: Ko'p bosqichli (stepper) forma. Har bosqich ALOHIDA Form (alohida
+  // validatsiya) — "Keyingi" bosilganda faqat shu bosqich tekshiriladi, yakuniy
+  // saqlashda esa barcha bosqichlar tekshiriladi. IndexedStack barcha
+  // bosqichlarni "tirik" saqlaydi (controller/holat yo'qolmaydi).
+  static const List<String> _stepLabels = ['Asosiy', 'Narx', 'Variantlar'];
+  final List<GlobalKey<FormState>> _stepKeys = List.generate(
+    3,
+    (_) => GlobalKey<FormState>(),
+  );
+  int _step = 0;
   final _name = TextEditingController();
   final _description = TextEditingController();
   final _price = TextEditingController();
@@ -219,9 +239,11 @@ class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
   bool get _isEdit => widget.product != null && !widget.clone;
   bool get _isCreate => !_isEdit;
   bool get _isPureCreate => widget.product == null && !widget.clone;
-  Map<String, dynamic>? _pendingDraft; // ochilganda topilgan saqlanmagan qoralama
+  Map<String, dynamic>?
+  _pendingDraft; // ochilganda topilgan saqlanmagan qoralama
   Timer? _draftTimer;
-  bool _submitted = false; // "Qo'shish" bosilgan — pop'da qoralama qayta yozilmasin
+  bool _submitted =
+      false; // "Qo'shish" bosilgan — pop'da qoralama qayta yozilmasin
 
   @override
   void initState() {
@@ -250,7 +272,9 @@ class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
       // Populate variants
       if (p.variants.isNotEmpty) {
         _variants = p.variants.map((v) {
-          final gid = v.color?.isNotEmpty == true ? v.color!.toLowerCase() : 'g_${v.id ?? DateTime.now().microsecondsSinceEpoch}';
+          final gid = v.color?.isNotEmpty == true
+              ? v.color!.toLowerCase()
+              : 'g_${v.id ?? DateTime.now().microsecondsSinceEpoch}';
           return _VariantData(
             groupId: gid,
             // Klonда: id/sku/barcode/rasm tashlanadi (yangi variant yaratiladi).
@@ -270,8 +294,9 @@ class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
             costPrice: v.costPrice?.toStringAsFixed(0),
             costPriceUsd: v.costPriceUsd?.toStringAsFixed(2),
             stock: v.stock.toString(),
-            existingImageUrl:
-                widget.clone ? null : (v.images.isNotEmpty ? v.images.first.url : null),
+            existingImageUrl: widget.clone
+                ? null
+                : (v.images.isNotEmpty ? v.images.first.url : null),
           );
         }).toList();
       }
@@ -289,8 +314,15 @@ class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
     // (debounce) va saqlanmagan qoralamani tekshiramiz. Klonда draft YO'Q.
     if (_isPureCreate) {
       for (final c in [
-        _name, _description, _price, _priceUsd, _discountPrice,
-        _discountPriceUsd, _costPrice, _costPriceUsd, _stock,
+        _name,
+        _description,
+        _price,
+        _priceUsd,
+        _discountPrice,
+        _discountPriceUsd,
+        _costPrice,
+        _costPriceUsd,
+        _stock,
       ]) {
         c.addListener(_scheduleSaveDraft);
       }
@@ -335,41 +367,43 @@ class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
   }
 
   Map<String, dynamic> _buildDraftMap() => {
-        'name': _name.text,
-        'description': _description.text,
-        'price': _price.text,
-        'price_usd': _priceUsd.text,
-        'discount_price': _discountPrice.text,
-        'discount_price_usd': _discountPriceUsd.text,
-        'cost_price': _costPrice.text,
-        'cost_price_usd': _costPriceUsd.text,
-        'stock': _stock.text,
-        'category': _selectedCategoryId,
-        'is_active': _isActive,
-        'is_new': _isNew,
-        'is_popular': _isPopular,
-        'image_path': _pickedImage?.path,
-        'variants': _variants
-            .map((v) => {
-                  'group_id': v.groupId,
-                  'color': v.color,
-                  'color_hex': v.colorHex,
-                  'quality': v.quality,
-                  'model': v.model,
-                  'size': v.size,
-                  'barcode': v.barcode,
-                  'sku': v.sku,
-                  'price': v.priceCtrl.text,
-                  'price_usd': v.priceUsdCtrl.text,
-                  'discount': v.discountCtrl.text,
-                  'discount_usd': v.discountUsdCtrl.text,
-                  'cost': v.costCtrl.text,
-                  'cost_usd': v.costUsdCtrl.text,
-                  'stock': v.stock,
-                  'image_path': v.imageFile?.path,
-                })
-            .toList(),
-      };
+    'name': _name.text,
+    'description': _description.text,
+    'price': _price.text,
+    'price_usd': _priceUsd.text,
+    'discount_price': _discountPrice.text,
+    'discount_price_usd': _discountPriceUsd.text,
+    'cost_price': _costPrice.text,
+    'cost_price_usd': _costPriceUsd.text,
+    'stock': _stock.text,
+    'category': _selectedCategoryId,
+    'is_active': _isActive,
+    'is_new': _isNew,
+    'is_popular': _isPopular,
+    'image_path': _pickedImage?.path,
+    'variants': _variants
+        .map(
+          (v) => {
+            'group_id': v.groupId,
+            'color': v.color,
+            'color_hex': v.colorHex,
+            'quality': v.quality,
+            'model': v.model,
+            'size': v.size,
+            'barcode': v.barcode,
+            'sku': v.sku,
+            'price': v.priceCtrl.text,
+            'price_usd': v.priceUsdCtrl.text,
+            'discount': v.discountCtrl.text,
+            'discount_usd': v.discountUsdCtrl.text,
+            'cost': v.costCtrl.text,
+            'cost_usd': v.costUsdCtrl.text,
+            'stock': v.stock,
+            'image_path': v.imageFile?.path,
+          },
+        )
+        .toList(),
+  };
 
   Future<void> _saveDraftNow() async {
     if (!_isPureCreate || _submitted) return;
@@ -381,14 +415,18 @@ class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString(_draftKey, encoded);
-    } catch (_) {/* storage xatosi — jim o'tamiz */}
+    } catch (_) {
+      /* storage xatosi — jim o'tamiz */
+    }
   }
 
   Future<void> _clearDraft() async {
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.remove(_draftKey);
-    } catch (_) {/* noop */}
+    } catch (_) {
+      /* noop */
+    }
   }
 
   Future<void> _loadDraft() async {
@@ -397,7 +435,8 @@ class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
       final raw = prefs.getString(_draftKey);
       if (raw == null) return;
       final map = jsonDecode(raw) as Map<String, dynamic>;
-      final hasContent = (map['name'] as String?)?.trim().isNotEmpty == true ||
+      final hasContent =
+          (map['name'] as String?)?.trim().isNotEmpty == true ||
           (map['variants'] as List?)?.isNotEmpty == true;
       if (hasContent && mounted) setState(() => _pendingDraft = map);
     } catch (_) {
@@ -521,32 +560,39 @@ class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
 
   void _addVariantGroup() {
     setState(() {
-      _variants.add(_VariantData(
-        groupId: 'g_${DateTime.now().microsecondsSinceEpoch}',
-        color: '',
-        colorHex: '',
-        stock: '0',
-      ));
+      _variants.add(
+        _VariantData(
+          groupId: 'g_${DateTime.now().microsecondsSinceEpoch}',
+          color: '',
+          colorHex: '',
+          stock: '0',
+        ),
+      );
     });
     _scheduleSaveDraft();
   }
 
   void _addSubVariant(String groupId) {
     setState(() {
-      final base = _variants.firstWhere((v) => v.groupId == groupId, orElse: () => _VariantData());
+      final base = _variants.firstWhere(
+        (v) => v.groupId == groupId,
+        orElse: () => _VariantData(),
+      );
       // Web kabi — yangi sifat/hajm bazaviy rang narx/tannarxini meros oladi.
-      _variants.add(_VariantData(
-        groupId: groupId,
-        color: base.color,
-        colorHex: base.colorHex,
-        price: base.price,
-        priceUsd: base.priceUsd,
-        discountPrice: base.discountPrice,
-        discountPriceUsd: base.discountPriceUsd,
-        costPrice: base.costPrice,
-        costPriceUsd: base.costPriceUsd,
-        stock: '0',
-      ));
+      _variants.add(
+        _VariantData(
+          groupId: groupId,
+          color: base.color,
+          colorHex: base.colorHex,
+          price: base.price,
+          priceUsd: base.priceUsd,
+          discountPrice: base.discountPrice,
+          discountPriceUsd: base.discountPriceUsd,
+          costPrice: base.costPrice,
+          costPriceUsd: base.costPriceUsd,
+          stock: '0',
+        ),
+      );
     });
     _scheduleSaveDraft();
   }
@@ -571,21 +617,41 @@ class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
         .where((w) => w.isNotEmpty)
         .map((w) => w[0])
         .join();
-    final prefixClean = initials.toUpperCase().replaceAll(RegExp(r'[^A-Z0-9]'), '');
-    final prefix = prefixClean.substring(0, prefixClean.length < 4 ? prefixClean.length : 4);
+    final prefixClean = initials.toUpperCase().replaceAll(
+      RegExp(r'[^A-Z0-9]'),
+      '',
+    );
+    final prefix = prefixClean.substring(
+      0,
+      prefixClean.length < 4 ? prefixClean.length : 4,
+    );
 
     final quality = alnum(v.quality, 3);
     final model = alnum(v.model, 3);
     final size = alnum(v.size, 4);
-    final colorClean = (v.color ?? '').toUpperCase().replaceAll(RegExp(r'[AEIOUY\s]'), '');
-    final color = colorClean.substring(0, colorClean.length < 3 ? colorClean.length : 3);
+    final colorClean = (v.color ?? '').toUpperCase().replaceAll(
+      RegExp(r'[AEIOUY\s]'),
+      '',
+    );
+    final color = colorClean.substring(
+      0,
+      colorClean.length < 3 ? colorClean.length : 3,
+    );
 
     const chars = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ';
-    final rnd = List.generate(4, (_) => chars[Random().nextInt(chars.length)]).join();
+    final rnd = List.generate(
+      4,
+      (_) => chars[Random().nextInt(chars.length)],
+    ).join();
 
-    return [prefix, quality, model, size, color, rnd]
-        .where((s) => s.isNotEmpty)
-        .join('-');
+    return [
+      prefix,
+      quality,
+      model,
+      size,
+      color,
+      rnd,
+    ].where((s) => s.isNotEmpty).join('-');
   }
 
   void _regenerateSku(_VariantData v) {
@@ -617,7 +683,9 @@ class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
     final sizesCtrl = TextEditingController();
     final priceCtrl = TextEditingController(text: _price.text);
     final costCtrl = TextEditingController(text: _costPrice.text);
-    final stockCtrl = TextEditingController(text: _stock.text.isEmpty ? '0' : _stock.text);
+    final stockCtrl = TextEditingController(
+      text: _stock.text.isEmpty ? '0' : _stock.text,
+    );
 
     List<String> split(String s) =>
         s.split(',').map((e) => e.trim()).where((e) => e.isNotEmpty).toList();
@@ -633,12 +701,17 @@ class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
             final quals = split(qualitiesCtrl.text);
             final models = split(modelsCtrl.text);
             final sizes = split(sizesCtrl.text);
-            final count = (colors.isEmpty ? 1 : colors.length) *
+            final count =
+                (colors.isEmpty ? 1 : colors.length) *
                 (quals.isEmpty ? 1 : quals.length) *
                 (models.isEmpty ? 1 : models.length) *
                 (sizes.isEmpty ? 1 : sizes.length);
-            Widget field(String label, TextEditingController c, String hint,
-                {TextInputType? kb}) {
+            Widget field(
+              String label,
+              TextEditingController c,
+              String hint, {
+              TextInputType? kb,
+            }) {
               return Padding(
                 padding: const EdgeInsets.only(bottom: 10),
                 child: TextField(
@@ -657,7 +730,9 @@ class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
 
             return Padding(
               padding: EdgeInsets.only(
-                left: 16, right: 16, top: 16,
+                left: 16,
+                right: 16,
+                top: 16,
                 bottom: MediaQuery.of(ctx).viewInsets.bottom + 16,
               ),
               child: SingleChildScrollView(
@@ -669,32 +744,67 @@ class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
                       children: [
                         const Icon(Icons.auto_fix_high, color: _genGreen),
                         const SizedBox(width: 8),
-                        Text('Tez variant generator',
-                            style: Theme.of(ctx).textTheme.titleMedium?.copyWith(
-                                fontWeight: FontWeight.w800)),
+                        Text(
+                          'Tez variant generator',
+                          style: Theme.of(ctx).textTheme.titleMedium?.copyWith(
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
                         const Spacer(),
                         Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 4,
+                          ),
                           decoration: BoxDecoration(
                             color: _genGreen.withValues(alpha: 0.12),
                             borderRadius: BorderRadius.circular(20),
                           ),
-                          child: Text('$count ta',
-                              style: const TextStyle(
-                                  color: _genGreen, fontWeight: FontWeight.w800)),
+                          child: Text(
+                            '$count ta',
+                            style: const TextStyle(
+                              color: _genGreen,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
                         ),
                       ],
                     ),
                     const SizedBox(height: 12),
-                    field('Ranglar (vergul bilan)', colorsCtrl, "Qora, Oq, Ko'k"),
-                    field('Sifatlar (vergul bilan)', qualitiesCtrl, 'Original, OEM'),
+                    field(
+                      'Ranglar (vergul bilan)',
+                      colorsCtrl,
+                      "Qora, Oq, Ko'k",
+                    ),
+                    field(
+                      'Sifatlar (vergul bilan)',
+                      qualitiesCtrl,
+                      'Original, OEM',
+                    ),
                     field('Modellar (vergul bilan)', modelsCtrl, 'Pro, Ultra'),
-                    field("O'lchamlar (vergul bilan)", sizesCtrl, '128GB, 256GB'),
-                    field('Asosiy narx (so\'m)', priceCtrl, '15 000 000',
-                        kb: TextInputType.number),
-                    field('Asosiy tannarx (so\'m)', costCtrl, '10 000 000',
-                        kb: TextInputType.number),
-                    field('Ombor soni', stockCtrl, '10', kb: TextInputType.number),
+                    field(
+                      "O'lchamlar (vergul bilan)",
+                      sizesCtrl,
+                      '128GB, 256GB',
+                    ),
+                    field(
+                      'Asosiy narx (so\'m)',
+                      priceCtrl,
+                      '15 000 000',
+                      kb: TextInputType.number,
+                    ),
+                    field(
+                      'Asosiy tannarx (so\'m)',
+                      costCtrl,
+                      '10 000 000',
+                      kb: TextInputType.number,
+                    ),
+                    field(
+                      'Ombor soni',
+                      stockCtrl,
+                      '10',
+                      kb: TextInputType.number,
+                    ),
                     const SizedBox(height: 4),
                     SizedBox(
                       width: double.infinity,
@@ -720,16 +830,18 @@ class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
                                   for (final q in qList) {
                                     for (final m in mList) {
                                       for (final sz in sList) {
-                                        out.add(_VariantData(
-                                          groupId: gid,
-                                          color: c,
-                                          quality: q,
-                                          model: m,
-                                          size: sz,
-                                          price: price,
-                                          costPrice: cost,
-                                          stock: stock,
-                                        ));
+                                        out.add(
+                                          _VariantData(
+                                            groupId: gid,
+                                            color: c,
+                                            quality: q,
+                                            model: m,
+                                            size: sz,
+                                            price: price,
+                                            costPrice: cost,
+                                            stock: stock,
+                                          ),
+                                        );
                                       }
                                     }
                                   }
@@ -739,12 +851,20 @@ class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
                         style: ElevatedButton.styleFrom(
                           backgroundColor: _genGreen,
                           shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(12)),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
                         ),
-                        icon: const Icon(Icons.auto_fix_high, color: Colors.white),
-                        label: Text('$count ta variant yaratish',
-                            style: const TextStyle(
-                                color: Colors.white, fontWeight: FontWeight.w700)),
+                        icon: const Icon(
+                          Icons.auto_fix_high,
+                          color: Colors.white,
+                        ),
+                        label: Text(
+                          '$count ta variant yaratish',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
                       ),
                     ),
                   ],
@@ -821,11 +941,47 @@ class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
       _isLoading = false;
       _submitted = false;
       _pendingDraft = null;
+      _step = 0; // #8: yangi mahsulot uchun birinchi bosqichdan boshlaymiz
     });
   }
 
+  // ── #8: bosqich navigatsiyasi ────────────────────────────────────────────
+  bool _validateStep(int i) => _stepKeys[i].currentState?.validate() ?? true;
+
+  /// Bosqichga o'tadi. Oldinga o'tishda oraliq bosqichlar validatsiya qilinadi;
+  /// birinchi xato bosqichda to'xtaydi. Orqaga erkin o'tiladi.
+  void _goToStep(int target) {
+    if (target == _step) return;
+    if (target > _step) {
+      for (int i = _step; i < target; i++) {
+        if (!_validateStep(i)) {
+          FocusScope.of(context).unfocus();
+          setState(() => _step = i);
+          return;
+        }
+      }
+    }
+    FocusScope.of(context).unfocus();
+    setState(() => _step = target);
+  }
+
+  void _nextStep() => _goToStep(_step + 1);
+
+  void _prevStep() {
+    FocusScope.of(context).unfocus();
+    setState(() => _step = (_step - 1).clamp(0, _stepKeys.length - 1));
+  }
+
   void _submit({bool addAnother = false}) {
-    if (!_formKey.currentState!.validate()) return;
+    // #8: barcha bosqichlarni tekshiramiz; xato bo'lsa o'sha bosqichga sakraymiz.
+    for (int i = 0; i < _stepKeys.length; i++) {
+      final ok = _stepKeys[i].currentState?.validate() ?? true;
+      if (!ok) {
+        FocusScope.of(context).unfocus();
+        setState(() => _step = i);
+        return;
+      }
+    }
     // #N8: tannarxdan past sotuvni bloklaymiz (tugma ham disabled — bu himoya).
     if (_hasBelowCost()) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -852,11 +1008,16 @@ class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
     if (_selectedCategoryId != null) {
       fields['category'] = _selectedCategoryId.toString();
     }
-    if (_priceUsd.text.trim().isNotEmpty) fields['price_usd'] = _stripNum(_priceUsd.text);
-    if (_discountPrice.text.trim().isNotEmpty) fields['discount_price'] = _stripNum(_discountPrice.text);
-    if (_discountPriceUsd.text.trim().isNotEmpty) fields['discount_price_usd'] = _stripNum(_discountPriceUsd.text);
-    if (_costPrice.text.trim().isNotEmpty) fields['cost_price'] = _stripNum(_costPrice.text);
-    if (_costPriceUsd.text.trim().isNotEmpty) fields['cost_price_usd'] = _stripNum(_costPriceUsd.text);
+    if (_priceUsd.text.trim().isNotEmpty)
+      fields['price_usd'] = _stripNum(_priceUsd.text);
+    if (_discountPrice.text.trim().isNotEmpty)
+      fields['discount_price'] = _stripNum(_discountPrice.text);
+    if (_discountPriceUsd.text.trim().isNotEmpty)
+      fields['discount_price_usd'] = _stripNum(_discountPriceUsd.text);
+    if (_costPrice.text.trim().isNotEmpty)
+      fields['cost_price'] = _stripNum(_costPrice.text);
+    if (_costPriceUsd.text.trim().isNotEmpty)
+      fields['cost_price_usd'] = _stripNum(_costPriceUsd.text);
 
     final formParts = fields.entries
         .map((e) => MapEntry(e.key, e.value.toString()))
@@ -867,7 +1028,10 @@ class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
       formData.files.add(
         MapEntry(
           'image',
-          MultipartFile.fromFileSync(_pickedImage!.path, filename: 'product.jpg'),
+          MultipartFile.fromFileSync(
+            _pickedImage!.path,
+            filename: 'product.jpg',
+          ),
         ),
       );
     }
@@ -890,12 +1054,14 @@ class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
         if (v.sku?.isNotEmpty == true) vMap['sku'] = v.sku;
         if (v.price?.isNotEmpty == true) vMap['price'] = v.price;
         if (v.priceUsd?.isNotEmpty == true) vMap['price_usd'] = v.priceUsd;
-        if (v.discountPrice?.isNotEmpty == true) vMap['discount_price'] = v.discountPrice;
+        if (v.discountPrice?.isNotEmpty == true)
+          vMap['discount_price'] = v.discountPrice;
         if (v.discountPriceUsd?.isNotEmpty == true) {
           vMap['discount_price_usd'] = v.discountPriceUsd;
         }
         if (v.costPrice?.isNotEmpty == true) vMap['cost_price'] = v.costPrice;
-        if (v.costPriceUsd?.isNotEmpty == true) vMap['cost_price_usd'] = v.costPriceUsd;
+        if (v.costPriceUsd?.isNotEmpty == true)
+          vMap['cost_price_usd'] = v.costPriceUsd;
         if (v.removeImage) vMap['remove_image'] = true;
 
         variantsJson.add(vMap);
@@ -905,7 +1071,10 @@ class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
           formData.files.add(
             MapEntry(
               'variant_image_$i',
-              MultipartFile.fromFileSync(v.imageFile!.path, filename: 'variant_$i.jpg'),
+              MultipartFile.fromFileSync(
+                v.imageFile!.path,
+                filename: 'variant_$i.jpg',
+              ),
             ),
           );
         }
@@ -949,425 +1118,624 @@ class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
       onPopInvokedWithResult: (didPop, result) {
         if (_isPureCreate && !_submitted) _saveDraftNow();
       },
-      child: DraggableScrollableSheet(
-      initialChildSize: 0.94,
-      maxChildSize: 0.97,
-      minChildSize: 0.5,
-      builder: (_, controller) {
-        return Container(
-          decoration: BoxDecoration(
-            color: theme.colorScheme.surface,
-            borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+      child: Scaffold(
+        backgroundColor: theme.colorScheme.surface,
+        resizeToAvoidBottomInset: true,
+        appBar: AppBar(
+          backgroundColor: const Color(0xFF063F2B),
+          foregroundColor: Colors.white,
+          elevation: 0,
+          leading: IconButton(
+            icon: const Icon(Icons.close),
+            tooltip: 'Yopish',
+            onPressed: () => Navigator.pop(context),
           ),
-          child: Column(
-            children: [
-              const SizedBox(height: 8),
-              Container(
-                width: 40,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: Colors.grey[300],
-                  borderRadius: BorderRadius.circular(2),
-                ),
-              ),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(20, 12, 20, 4),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        isEdit
-                            ? 'Mahsulotni tahrirlash'
-                            : widget.clone
-                                ? 'Mahsulotdan nusxa'
-                                : "Yangi mahsulot qo'shish",
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: theme.textTheme.titleLarge?.copyWith(
-                          fontWeight: FontWeight.w800,
-                        ),
-                      ),
-                    ),
-                    IconButton(
-                      onPressed: () => Navigator.pop(context),
-                      icon: const Icon(Icons.close),
-                    ),
-                  ],
-                ),
-              ),
-              const Divider(height: 1),
-              Expanded(
-                child: Form(
-                  key: _formKey,
-                  child: ListView(
-                    controller: controller,
-                    padding: EdgeInsets.fromLTRB(
-                      16,
-                      16,
-                      16,
-                      MediaQuery.of(context).viewInsets.bottom + 100,
-                    ),
-                    children: [
-                      // #N6: saqlanmagan qoralama topildi — tiklash/o'chirish
-                      if (_pendingDraft != null) _buildDraftBanner(context),
-                      _buildSectionTitle(context, "Asosiy ma'lumotlar"),
-                      // Image picker
-                      GestureDetector(
-                        onTap: _pickImage,
-                        child: Container(
-                          height: 140,
-                          decoration: BoxDecoration(
-                            color: theme.colorScheme.surfaceContainer,
-                            borderRadius: BorderRadius.circular(14),
-                            border: Border.all(
-                              color: _pickedImage != null
-                                  ? const Color(0xFF0A7C55)
-                                  : theme.colorScheme.outlineVariant,
-                              width: 1.5,
-                            ),
-                          ),
-                          child: _pickedImage != null
-                              ? ClipRRect(
-                                  borderRadius: BorderRadius.circular(13),
-                                  child: Image.file(
-                                    _pickedImage!,
-                                    fit: BoxFit.cover,
-                                    width: double.infinity,
-                                  ),
-                                )
-                              : (_isEdit && widget.product?.mainImage != null
+          title: Text(
+            isEdit
+                ? 'Mahsulotni tahrirlash'
+                : widget.clone
+                ? 'Mahsulotdan nusxa'
+                : "Yangi mahsulot qo'shish",
+            style: theme.textTheme.titleLarge?.copyWith(
+              color: Colors.white,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+        ),
+        body: Column(
+          children: [
+            _buildStepHeader(context),
+            const Divider(height: 1),
+            Expanded(
+              child: IndexedStack(
+                index: _step,
+                sizing: StackFit.expand,
+                children: [
+                  // ─────────── Bosqich 1: Asosiy ma'lumotlar ───────────
+                  ExcludeFocus(
+                    excluding: _step != 0,
+                    child: Form(
+                      key: _stepKeys[0],
+                      child: ListView(
+                        padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+                        children: [
+                          // #N6: saqlanmagan qoralama topildi — tiklash/o'chirish
+                          if (_pendingDraft != null) _buildDraftBanner(context),
+                          // Image picker
+                          GestureDetector(
+                            onTap: _pickImage,
+                            child: Container(
+                              height: 140,
+                              decoration: BoxDecoration(
+                                color: theme.colorScheme.surfaceContainer,
+                                borderRadius: BorderRadius.circular(14),
+                                border: Border.all(
+                                  color: _pickedImage != null
+                                      ? const Color(0xFF0A7C55)
+                                      : theme.colorScheme.outlineVariant,
+                                  width: 1.5,
+                                ),
+                              ),
+                              child: _pickedImage != null
                                   ? ClipRRect(
                                       borderRadius: BorderRadius.circular(13),
-                                      child: CachedNetworkImage(
-                                        imageUrl: widget.product!.mainImage!,
+                                      child: Image.file(
+                                        _pickedImage!,
                                         fit: BoxFit.cover,
                                         width: double.infinity,
                                       ),
                                     )
-                                  : Column(
-                                      mainAxisAlignment: MainAxisAlignment.center,
-                                      children: [
-                                        Icon(
-                                          Icons.add_photo_alternate_outlined,
-                                          size: 36,
-                                          color: theme.colorScheme.onSurfaceVariant,
-                                        ),
-                                        const SizedBox(height: 6),
-                                        Text(
-                                          "Asosiy rasm tanlash",
-                                          style: theme.textTheme.bodySmall,
-                                        ),
-                                      ],
-                                    )),
-                        ),
-                      ),
-                      const SizedBox(height: 16),
-                      _FormField(
-                        label: "Mahsulot nomi *",
-                        controller: _name,
-                        validator: (v) => v!.isEmpty ? 'Majburiy' : null,
-                      ),
-                      const SizedBox(height: 12),
-                      _CategoryDropdown(
-                        categories: state.categories,
-                        selectedId: _selectedCategoryId,
-                        onChanged: (id) => setState(() => _selectedCategoryId = id),
-                      ),
-                      const SizedBox(height: 12),
-                      _FormField(
-                        label: "Tavsif",
-                        controller: _description,
-                        maxLines: 3,
-                      ),
-                      const SizedBox(height: 24),
-
-                      _buildSectionTitle(context, 'Narxlar va Qoldiq'),
-                      _ExchangeRateHint(usdRate: _usdRate),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: _FormField(
-                              label: "Narx (UZS) *",
-                              controller: _price,
-                              keyboardType: TextInputType.number,
-                              inputFormatters: [_ThousandsFormatter()],
-                              onChanged: (v) => _syncUsd(v, _priceUsd),
-                              validator: (v) => v!.isEmpty ? 'Majburiy' : null,
+                                  : (_isEdit &&
+                                            widget.product?.mainImage != null
+                                        ? ClipRRect(
+                                            borderRadius: BorderRadius.circular(
+                                              13,
+                                            ),
+                                            child: CachedNetworkImage(
+                                              imageUrl:
+                                                  widget.product!.mainImage!,
+                                              fit: BoxFit.cover,
+                                              width: double.infinity,
+                                            ),
+                                          )
+                                        : Column(
+                                            mainAxisAlignment:
+                                                MainAxisAlignment.center,
+                                            children: [
+                                              Icon(
+                                                Icons
+                                                    .add_photo_alternate_outlined,
+                                                size: 36,
+                                                color: theme
+                                                    .colorScheme
+                                                    .onSurfaceVariant,
+                                              ),
+                                              const SizedBox(height: 6),
+                                              Text(
+                                                "Asosiy rasm tanlash",
+                                                style:
+                                                    theme.textTheme.bodySmall,
+                                              ),
+                                            ],
+                                          )),
                             ),
                           ),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: _FormField(
-                              label: "Narx (USD)",
-                              controller: _priceUsd,
-                              keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                              inputFormatters: _usdFormatters,
-                              onChanged: (v) => _syncUzs(v, _price),
-                            ),
+                          const SizedBox(height: 16),
+                          _FormField(
+                            label: "Mahsulot nomi *",
+                            controller: _name,
+                            textInputAction: TextInputAction.next,
+                            validator: (v) => v!.isEmpty ? 'Majburiy' : null,
                           ),
-                        ],
-                      ),
-                      const SizedBox(height: 12),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: _FormField(
-                              label: "Chegirma narx (UZS)",
-                              controller: _discountPrice,
-                              keyboardType: TextInputType.number,
-                              inputFormatters: [_ThousandsFormatter()],
-                              onChanged: (v) => _syncUsd(v, _discountPriceUsd),
-                            ),
+                          const SizedBox(height: 12),
+                          _CategoryDropdown(
+                            categories: state.categories,
+                            selectedId: _selectedCategoryId,
+                            onChanged: (id) =>
+                                setState(() => _selectedCategoryId = id),
                           ),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: _FormField(
-                              label: "Chegirma narx (USD)",
-                              controller: _discountPriceUsd,
-                              keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                              inputFormatters: _usdFormatters,
-                              onChanged: (v) => _syncUzs(v, _discountPrice),
-                            ),
+                          const SizedBox(height: 12),
+                          _FormField(
+                            label: "Tavsif",
+                            controller: _description,
+                            maxLines: 3,
                           ),
-                        ],
-                      ),
-                      const SizedBox(height: 12),
-                      // ── TANNARX — kursdan MUSTAQIL ──────────────────────────
-                      // Avto-konvertatsiya ATAYIN yo'q: SuperAdmin tovarni
-                      // qancha so'mga olganini aniq kiritadi va kurs o'zgarsa
-                      // ham bu qiymat o'zgarmaydi (backend ham himoyalaydi).
-                      Row(
-                        children: [
-                          Expanded(
-                            child: _FormField(
-                              label: "Tannarx (UZS)",
-                              controller: _costPrice,
-                              keyboardType: TextInputType.number,
-                              inputFormatters: [_ThousandsFormatter()],
-                            ),
-                          ),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: _FormField(
-                              label: "Tannarx (USD)",
-                              controller: _costPriceUsd,
-                              keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                              inputFormatters: _usdFormatters,
-                            ),
-                          ),
-                        ],
-                      ),
-                      Padding(
-                        padding: const EdgeInsets.only(top: 6, bottom: 12),
-                        child: Row(
-                          children: [
-                            Icon(Icons.lock_outline_rounded,
-                                size: 13, color: Colors.grey[500]),
-                            const SizedBox(width: 5),
-                            Expanded(
-                              child: Text(
-                                "Tannarx kursga bog'liq emas — qo'lda kiritiladi",
-                                style: TextStyle(
-                                  fontSize: 11,
-                                  color: Colors.grey[500],
-                                  fontStyle: FontStyle.italic,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      _FormField(
-                        label: "Umumiy Stok miqdori *",
-                        controller: _stock,
-                        keyboardType: TextInputType.number,
-                        validator: (v) => v!.isEmpty ? 'Majburiy' : null,
-                      ),
-                      const SizedBox(height: 24),
-
-                      _buildSectionTitle(context, 'Holat va Belgilar'),
-                      _ToggleRow(
-                        label: 'Faol (Sotuvda)',
-                        value: _isActive,
-                        onChanged: (v) => setState(() => _isActive = v),
-                      ),
-                      _ToggleRow(
-                        label: 'Yangi mahsulot',
-                        value: _isNew,
-                        onChanged: (v) => setState(() => _isNew = v),
-                      ),
-                      _ToggleRow(
-                        label: 'Ommabop',
-                        value: _isPopular,
-                        onChanged: (v) => setState(() => _isPopular = v),
-                      ),
-                      const SizedBox(height: 24),
-
-                      _buildSectionTitle(context, 'Variantlar (Modifikatsiyalar)'),
-                      // Tez generator + barcha SKU generatsiya
-                      Padding(
-                        padding: const EdgeInsets.only(bottom: 8),
-                        child: Wrap(
-                          spacing: 8,
-                          runSpacing: 8,
-                          children: [
-                            OutlinedButton.icon(
-                              onPressed: _showBulkVariantGenerator,
-                              icon: const Icon(Icons.auto_fix_high, size: 16),
-                              label: const Text('Tez generator'),
-                              style: OutlinedButton.styleFrom(
-                                foregroundColor: _genGreen,
-                                side: const BorderSide(color: _genGreen),
-                                visualDensity: VisualDensity.compact,
-                              ),
-                            ),
-                            if (_variants.isNotEmpty)
-                              OutlinedButton.icon(
-                                onPressed: _generateAllSkus,
-                                icon: const Icon(Icons.auto_awesome, size: 16),
-                                label: const Text('Barcha SKU'),
-                                style: OutlinedButton.styleFrom(
-                                  visualDensity: VisualDensity.compact,
-                                ),
-                              ),
-                          ],
-                        ),
-                      ),
-                      if (_variants.isEmpty)
-                        Padding(
-                          padding: const EdgeInsets.only(bottom: 12),
-                          child: Text(
-                            "Agar mahsulotning turli xil rang yoki xotira (o'lcham) variantlari bo'lsa, ularni shu yerga qo'shing.",
-                            style: theme.textTheme.bodySmall?.copyWith(color: Colors.grey[600]),
-                          ),
-                        ),
-                      ..._buildGroupedVariants(context),
-                      const SizedBox(height: 12),
-                      SizedBox(
-                        width: double.infinity,
-                        child: OutlinedButton.icon(
-                          onPressed: _addVariantGroup,
-                          icon: const Icon(Icons.add),
-                          label: const Text("Yangi rang (guruh) qo'shish"),
-                          style: OutlinedButton.styleFrom(
-                            padding: const EdgeInsets.symmetric(vertical: 12),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 32),
-                    ],
-                  ),
-                ),
-              ),
-              Padding(
-                padding: EdgeInsets.fromLTRB(
-                  16,
-                  8,
-                  16,
-                  MediaQuery.of(context).padding.bottom + 8,
-                ),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    // #N8: tannarxdan past sotuv ogohlantirishi (Saqlash bloklangan)
-                    if (_hasBelowCost())
-                      Container(
-                        margin: const EdgeInsets.only(bottom: 8),
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFDC2626).withValues(alpha: 0.08),
-                          borderRadius: BorderRadius.circular(10),
-                          border: Border.all(
-                            color: const Color(0xFFDC2626).withValues(alpha: 0.40),
-                          ),
-                        ),
-                        child: Row(
-                          children: [
-                            const Icon(Icons.error_outline_rounded,
-                                size: 18, color: Color(0xFFDC2626)),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: Text(
-                                "Sotuv narxi tannarxdan past — narxni tuzating, aks holda saqlab bo'lmaydi.",
-                                style: theme.textTheme.bodySmall?.copyWith(
-                                  color: const Color(0xFFDC2626),
-                                  fontWeight: FontWeight.w700,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    SizedBox(
-                      width: double.infinity,
-                      height: 52,
-                      child: Row(
-                        children: [
-                          // #N4: faqat yangi qo'shishda — "Saqlab, yana"
-                          if (!isEdit) ...[
-                            Expanded(
-                              child: OutlinedButton(
-                                onPressed: (_isLoading || _hasBelowCost())
-                                    ? null
-                                    : () => _submit(addAnother: true),
-                                style: OutlinedButton.styleFrom(
-                                  foregroundColor: const Color(0xFF0A7C55),
-                                  side: const BorderSide(color: Color(0xFF0A7C55)),
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(14),
-                                  ),
-                                ),
-                                child: const Text(
-                                  'Saqlab, yana',
-                                  style: TextStyle(fontWeight: FontWeight.w700),
-                                ),
-                              ),
-                            ),
-                            const SizedBox(width: 10),
-                          ],
-                          Expanded(
-                            child: ElevatedButton(
-                              onPressed: (_isLoading || _hasBelowCost())
-                                  ? null
-                                  : () => _submit(),
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: const Color(0xFF0A7C55),
-                                disabledBackgroundColor:
-                                    theme.colorScheme.onSurface.withValues(alpha: 0.12),
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(14),
-                                ),
-                              ),
-                              child: _isLoading
-                                  ? const SizedBox(
-                                      width: 24,
-                                      height: 24,
-                                      child: CircularProgressIndicator(
-                                        color: Colors.white,
-                                        strokeWidth: 2,
-                                      ),
-                                    )
-                                  : Text(
-                                      isEdit ? 'Saqlash' : "Qo'shish",
-                                      style: theme.textTheme.labelLarge?.copyWith(
-                                        color: Colors.white,
-                                        fontWeight: FontWeight.w700,
-                                      ),
-                                    ),
-                            ),
-                          ),
+                          const SizedBox(height: 8),
                         ],
                       ),
                     ),
-                  ],
+                  ),
+                  // ─────────── Bosqich 2: Narx va Qoldiq ───────────
+                  ExcludeFocus(
+                    excluding: _step != 1,
+                    child: Form(
+                      key: _stepKeys[1],
+                      child: ListView(
+                        padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+                        children: [
+                          _ExchangeRateHint(usdRate: _usdRate),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: _FormField(
+                                  label: "Narx (UZS) *",
+                                  controller: _price,
+                                  keyboardType: TextInputType.number,
+                                  textInputAction: TextInputAction.next,
+                                  inputFormatters: [_ThousandsFormatter()],
+                                  onChanged: (v) => _syncUsd(v, _priceUsd),
+                                  validator: (v) =>
+                                      v!.isEmpty ? 'Majburiy' : null,
+                                ),
+                              ),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: _FormField(
+                                  label: "Narx (USD)",
+                                  controller: _priceUsd,
+                                  keyboardType:
+                                      const TextInputType.numberWithOptions(
+                                        decimal: true,
+                                      ),
+                                  textInputAction: TextInputAction.next,
+                                  inputFormatters: _usdFormatters,
+                                  onChanged: (v) => _syncUzs(v, _price),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 12),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: _FormField(
+                                  label: "Chegirma narx (UZS)",
+                                  controller: _discountPrice,
+                                  keyboardType: TextInputType.number,
+                                  textInputAction: TextInputAction.next,
+                                  inputFormatters: [_ThousandsFormatter()],
+                                  onChanged: (v) =>
+                                      _syncUsd(v, _discountPriceUsd),
+                                ),
+                              ),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: _FormField(
+                                  label: "Chegirma narx (USD)",
+                                  controller: _discountPriceUsd,
+                                  keyboardType:
+                                      const TextInputType.numberWithOptions(
+                                        decimal: true,
+                                      ),
+                                  textInputAction: TextInputAction.next,
+                                  inputFormatters: _usdFormatters,
+                                  onChanged: (v) => _syncUzs(v, _discountPrice),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 12),
+                          // ── TANNARX — kursdan MUSTAQIL ──────────────────────────
+                          // Avto-konvertatsiya ATAYIN yo'q: SuperAdmin tovarni
+                          // qancha so'mga olganini aniq kiritadi va kurs o'zgarsa
+                          // ham bu qiymat o'zgarmaydi (backend ham himoyalaydi).
+                          Row(
+                            children: [
+                              Expanded(
+                                child: _FormField(
+                                  label: "Tannarx (UZS)",
+                                  controller: _costPrice,
+                                  keyboardType: TextInputType.number,
+                                  textInputAction: TextInputAction.next,
+                                  inputFormatters: [_ThousandsFormatter()],
+                                ),
+                              ),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: _FormField(
+                                  label: "Tannarx (USD)",
+                                  controller: _costPriceUsd,
+                                  keyboardType:
+                                      const TextInputType.numberWithOptions(
+                                        decimal: true,
+                                      ),
+                                  textInputAction: TextInputAction.next,
+                                  inputFormatters: _usdFormatters,
+                                ),
+                              ),
+                            ],
+                          ),
+                          Padding(
+                            padding: const EdgeInsets.only(top: 6, bottom: 12),
+                            child: Row(
+                              children: [
+                                Icon(
+                                  Icons.lock_outline_rounded,
+                                  size: 13,
+                                  color: Colors.grey[500],
+                                ),
+                                const SizedBox(width: 5),
+                                Expanded(
+                                  child: Text(
+                                    "Tannarx kursga bog'liq emas — qo'lda kiritiladi",
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      color: Colors.grey[500],
+                                      fontStyle: FontStyle.italic,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          _FormField(
+                            label: "Umumiy Stok miqdori *",
+                            controller: _stock,
+                            keyboardType: TextInputType.number,
+                            textInputAction: TextInputAction.done,
+                            validator: (v) => v!.isEmpty ? 'Majburiy' : null,
+                          ),
+                          const SizedBox(height: 24),
+
+                          _buildSectionTitle(context, 'Holat va Belgilar'),
+                          _ToggleRow(
+                            label: 'Faol (Sotuvda)',
+                            value: _isActive,
+                            onChanged: (v) => setState(() => _isActive = v),
+                          ),
+                          _ToggleRow(
+                            label: 'Yangi mahsulot',
+                            value: _isNew,
+                            onChanged: (v) => setState(() => _isNew = v),
+                          ),
+                          _ToggleRow(
+                            label: 'Ommabop',
+                            value: _isPopular,
+                            onChanged: (v) => setState(() => _isPopular = v),
+                          ),
+                          const SizedBox(height: 8),
+                        ],
+                      ),
+                    ),
+                  ),
+                  // ─────────── Bosqich 3: Variantlar ───────────
+                  ExcludeFocus(
+                    excluding: _step != 2,
+                    child: Form(
+                      key: _stepKeys[2],
+                      child: ListView(
+                        padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+                        children: [
+                          _buildSectionTitle(
+                            context,
+                            'Variantlar (Modifikatsiyalar)',
+                          ),
+                          // Tez generator + barcha SKU generatsiya
+                          Padding(
+                            padding: const EdgeInsets.only(bottom: 8),
+                            child: Wrap(
+                              spacing: 8,
+                              runSpacing: 8,
+                              children: [
+                                OutlinedButton.icon(
+                                  onPressed: _showBulkVariantGenerator,
+                                  icon: const Icon(
+                                    Icons.auto_fix_high,
+                                    size: 16,
+                                  ),
+                                  label: const Text('Tez generator'),
+                                  style: OutlinedButton.styleFrom(
+                                    foregroundColor: _genGreen,
+                                    side: const BorderSide(color: _genGreen),
+                                    visualDensity: VisualDensity.compact,
+                                  ),
+                                ),
+                                if (_variants.isNotEmpty)
+                                  OutlinedButton.icon(
+                                    onPressed: _generateAllSkus,
+                                    icon: const Icon(
+                                      Icons.auto_awesome,
+                                      size: 16,
+                                    ),
+                                    label: const Text('Barcha SKU'),
+                                    style: OutlinedButton.styleFrom(
+                                      visualDensity: VisualDensity.compact,
+                                    ),
+                                  ),
+                              ],
+                            ),
+                          ),
+                          if (_variants.isEmpty)
+                            Padding(
+                              padding: const EdgeInsets.only(bottom: 12),
+                              child: Text(
+                                "Agar mahsulotning turli xil rang yoki xotira (o'lcham) variantlari bo'lsa, ularni shu yerga qo'shing.",
+                                style: theme.textTheme.bodySmall?.copyWith(
+                                  color: Colors.grey[600],
+                                ),
+                              ),
+                            ),
+                          ..._buildGroupedVariants(context),
+                          const SizedBox(height: 12),
+                          SizedBox(
+                            width: double.infinity,
+                            child: OutlinedButton.icon(
+                              onPressed: _addVariantGroup,
+                              icon: const Icon(Icons.add),
+                              label: const Text("Yangi rang (guruh) qo'shish"),
+                              style: OutlinedButton.styleFrom(
+                                padding: const EdgeInsets.symmetric(
+                                  vertical: 12,
+                                ),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 32),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            _buildBottomBar(context, isEdit),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ── #8: bosqich sarlavhasi (progress indikator) ──────────────────────────
+  Widget _buildStepHeader(BuildContext context) {
+    final theme = Theme.of(context);
+    return Container(
+      color: theme.colorScheme.surface,
+      padding: const EdgeInsets.fromLTRB(12, 12, 12, 10),
+      child: Row(
+        children: List.generate(_stepLabels.length, (i) {
+          final isActive = i == _step;
+          final isDone = i < _step;
+          final accent = const Color(0xFF0A7C55);
+          final circleColor = isActive
+              ? accent
+              : isDone
+              ? accent.withValues(alpha: 0.85)
+              : theme.colorScheme.surfaceContainerHighest;
+          final fgColor = (isActive || isDone)
+              ? Colors.white
+              : theme.colorScheme.onSurfaceVariant;
+          return Expanded(
+            child: InkWell(
+              borderRadius: BorderRadius.circular(8),
+              onTap: () => _goToStep(i),
+              child: Column(
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: i == 0
+                            ? const SizedBox()
+                            : Container(
+                                height: 2,
+                                color: i <= _step
+                                    ? accent
+                                    : theme.colorScheme.outlineVariant,
+                              ),
+                      ),
+                      AnimatedContainer(
+                        duration: const Duration(milliseconds: 200),
+                        width: 30,
+                        height: 30,
+                        decoration: BoxDecoration(
+                          color: circleColor,
+                          shape: BoxShape.circle,
+                          border: Border.all(
+                            color: isActive ? accent : Colors.transparent,
+                            width: 2,
+                          ),
+                        ),
+                        alignment: Alignment.center,
+                        child: isDone
+                            ? const Icon(
+                                Icons.check,
+                                size: 17,
+                                color: Colors.white,
+                              )
+                            : Text(
+                                '${i + 1}',
+                                style: TextStyle(
+                                  color: fgColor,
+                                  fontWeight: FontWeight.w800,
+                                  fontSize: 13,
+                                ),
+                              ),
+                      ),
+                      Expanded(
+                        child: i == _stepLabels.length - 1
+                            ? const SizedBox()
+                            : Container(
+                                height: 2,
+                                color: i < _step
+                                    ? accent
+                                    : theme.colorScheme.outlineVariant,
+                              ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    _stepLabels[i],
+                    style: theme.textTheme.labelSmall?.copyWith(
+                      color: isActive
+                          ? accent
+                          : theme.colorScheme.onSurfaceVariant,
+                      fontWeight: isActive ? FontWeight.w800 : FontWeight.w500,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        }),
+      ),
+    );
+  }
+
+  // ── #8: pastki harakat paneli (Orqaga / Keyingi / Saqlash) ───────────────
+  Widget _buildBottomBar(BuildContext context, bool isEdit) {
+    final theme = Theme.of(context);
+    final isLast = _step == _stepKeys.length - 1;
+    return Container(
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surface,
+        border: Border(
+          top: BorderSide(color: theme.colorScheme.outlineVariant),
+        ),
+      ),
+      padding: EdgeInsets.fromLTRB(
+        16,
+        8,
+        16,
+        MediaQuery.of(context).padding.bottom + 8,
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // #N8: tannarxdan past sotuv ogohlantirishi (Saqlash bloklangan).
+          // Qaysi bosqichda bo'lmasin ko'rinadi — admin doim xabardor bo'ladi.
+          if (_hasBelowCost())
+            Container(
+              margin: const EdgeInsets.only(bottom: 8),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              decoration: BoxDecoration(
+                color: const Color(0xFFDC2626).withValues(alpha: 0.08),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(
+                  color: const Color(0xFFDC2626).withValues(alpha: 0.40),
                 ),
               ),
-            ],
+              child: Row(
+                children: [
+                  const Icon(
+                    Icons.error_outline_rounded,
+                    size: 18,
+                    color: Color(0xFFDC2626),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      "Sotuv narxi tannarxdan past — narxni tuzating, aks holda saqlab bo'lmaydi.",
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: const Color(0xFFDC2626),
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          SizedBox(
+            height: 52,
+            child: Row(
+              children: [
+                if (_step > 0) ...[
+                  OutlinedButton.icon(
+                    onPressed: _isLoading ? null : _prevStep,
+                    icon: const Icon(Icons.arrow_back_rounded, size: 18),
+                    label: const Text('Orqaga'),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: theme.colorScheme.onSurfaceVariant,
+                      side: BorderSide(color: theme.colorScheme.outlineVariant),
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                ],
+                Expanded(child: _buildPrimaryButton(context, isEdit, isLast)),
+              ],
+            ),
           ),
-        );
-      },
+          // #N4: oxirgi bosqich + yangi qo'shish — "Saqlab, yana qo'shish"
+          if (isLast && !isEdit) ...[
+            const SizedBox(height: 8),
+            SizedBox(
+              width: double.infinity,
+              height: 46,
+              child: OutlinedButton.icon(
+                onPressed: (_isLoading || _hasBelowCost())
+                    ? null
+                    : () => _submit(addAnother: true),
+                icon: const Icon(Icons.add, size: 18),
+                label: const Text(
+                  'Saqlab, yana qo\'shish',
+                  style: TextStyle(fontWeight: FontWeight.w700),
+                ),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: const Color(0xFF0A7C55),
+                  side: const BorderSide(color: Color(0xFF0A7C55)),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ],
       ),
+    );
+  }
+
+  /// Asosiy tugma: oxirgi bosqichda emas → "Keyingi"; oxirgida → Qo'shish/Saqlash.
+  Widget _buildPrimaryButton(BuildContext context, bool isEdit, bool isLast) {
+    final theme = Theme.of(context);
+    if (!isLast) {
+      return ElevatedButton.icon(
+        onPressed: _nextStep,
+        style: ElevatedButton.styleFrom(
+          backgroundColor: const Color(0xFF0A7C55),
+          foregroundColor: Colors.white,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(14),
+          ),
+        ),
+        icon: const Text(
+          'Keyingi',
+          style: TextStyle(fontWeight: FontWeight.w700, fontSize: 15),
+        ),
+        label: const Icon(Icons.arrow_forward_rounded, size: 18),
+      );
+    }
+    return ElevatedButton(
+      onPressed: (_isLoading || _hasBelowCost()) ? null : () => _submit(),
+      style: ElevatedButton.styleFrom(
+        backgroundColor: const Color(0xFF0A7C55),
+        disabledBackgroundColor: theme.colorScheme.onSurface.withValues(
+          alpha: 0.12,
+        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+      ),
+      child: _isLoading
+          ? const SizedBox(
+              width: 24,
+              height: 24,
+              child: CircularProgressIndicator(
+                color: Colors.white,
+                strokeWidth: 2,
+              ),
+            )
+          : Text(
+              isEdit ? 'Saqlash' : "Qo'shish",
+              style: theme.textTheme.labelLarge?.copyWith(
+                color: Colors.white,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
     );
   }
 
@@ -1381,7 +1749,9 @@ class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
       decoration: BoxDecoration(
         color: const Color(0xFF0A7C55).withValues(alpha: 0.06),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: const Color(0xFF0A7C55).withValues(alpha: 0.40)),
+        border: Border.all(
+          color: const Color(0xFF0A7C55).withValues(alpha: 0.40),
+        ),
       ),
       child: Row(
         children: [
@@ -1392,14 +1762,19 @@ class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
               name.isNotEmpty
                   ? 'Saqlanmagan qoralama: "$name". Tiklaysizmi?'
                   : 'Saqlanmagan qoralama topildi. Tiklaysizmi?',
-              style: theme.textTheme.bodySmall?.copyWith(fontWeight: FontWeight.w600),
+              style: theme.textTheme.bodySmall?.copyWith(
+                fontWeight: FontWeight.w600,
+              ),
             ),
           ),
           TextButton(
             onPressed: _restoreDraft,
             child: const Text(
               'Tiklash',
-              style: TextStyle(color: Color(0xFF0A7C55), fontWeight: FontWeight.w800),
+              style: TextStyle(
+                color: Color(0xFF0A7C55),
+                fontWeight: FontWeight.w800,
+              ),
             ),
           ),
           IconButton(
@@ -1419,9 +1794,9 @@ class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
       child: Text(
         title,
         style: Theme.of(context).textTheme.titleMedium?.copyWith(
-              fontWeight: FontWeight.bold,
-              color: const Color(0xFF063F2B),
-            ),
+          fontWeight: FontWeight.bold,
+          color: const Color(0xFF063F2B),
+        ),
       ),
     );
   }
@@ -1434,10 +1809,16 @@ class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
       groups.putIfAbsent(key, () => []).add(v);
     }
 
-    return groups.entries.map((e) => _buildColorGroupCard(context, e.key, e.value)).toList();
+    return groups.entries
+        .map((e) => _buildColorGroupCard(context, e.key, e.value))
+        .toList();
   }
 
-  Widget _buildColorGroupCard(BuildContext context, String groupId, List<_VariantData> groupVariants) {
+  Widget _buildColorGroupCard(
+    BuildContext context,
+    String groupId,
+    List<_VariantData> groupVariants,
+  ) {
     final theme = Theme.of(context);
     final baseVariant = groupVariants.first;
 
@@ -1464,24 +1845,32 @@ class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
                       Text(
-                        baseVariant.color?.isNotEmpty == true ? "Rang: ${baseVariant.color}" : "Yangi rang",
-                        style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
+                        baseVariant.color?.isNotEmpty == true
+                            ? "Rang: ${baseVariant.color}"
+                            : "Yangi rang",
+                        style: theme.textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.bold,
+                        ),
                       ),
                       IconButton(
-                        icon: const Icon(Icons.delete_outline, color: Colors.red),
+                        icon: const Icon(
+                          Icons.delete_outline,
+                          color: Colors.red,
+                        ),
                         padding: EdgeInsets.zero,
                         constraints: const BoxConstraints(),
                         onPressed: () {
                           setState(() {
-                            for (final r in _variants
-                                .where((v) => v.groupId == groupId)
-                                .toList()) {
+                            for (final r
+                                in _variants
+                                    .where((v) => v.groupId == groupId)
+                                    .toList()) {
                               r.disposeControllers();
                             }
                             _variants.removeWhere((v) => v.groupId == groupId);
                           });
                         },
-                      )
+                      ),
                     ],
                   ),
                   const SizedBox(height: 8),
@@ -1492,13 +1881,19 @@ class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
                       itemCount: COLOR_PRESETS.length,
                       itemBuilder: (context, idx) {
                         final preset = COLOR_PRESETS[idx];
-                        final isSelected = baseVariant.colorHex?.toLowerCase() == preset['hex'];
-                        final colorVal = int.parse(preset['hex']!.replaceFirst('#', '0xFF'));
-                        
+                        final isSelected =
+                            baseVariant.colorHex?.toLowerCase() ==
+                            preset['hex'];
+                        final colorVal = int.parse(
+                          preset['hex']!.replaceFirst('#', '0xFF'),
+                        );
+
                         return GestureDetector(
                           onTap: () {
                             setState(() {
-                              for (var v in _variants.where((x) => x.groupId == groupId)) {
+                              for (var v in _variants.where(
+                                (x) => x.groupId == groupId,
+                              )) {
                                 v.color = preset['name'];
                                 v.colorHex = preset['hex'];
                               }
@@ -1511,12 +1906,30 @@ class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
                               shape: BoxShape.circle,
                               color: Color(colorVal),
                               border: Border.all(
-                                color: isSelected ? theme.colorScheme.primary : Colors.grey.shade300,
+                                color: isSelected
+                                    ? theme.colorScheme.primary
+                                    : Colors.grey.shade300,
                                 width: isSelected ? 3 : 1,
                               ),
-                              boxShadow: isSelected ? [BoxShadow(color: theme.colorScheme.primary.withOpacity(0.4), blurRadius: 4)] : null,
+                              boxShadow: isSelected
+                                  ? [
+                                      BoxShadow(
+                                        color: theme.colorScheme.primary
+                                            .withOpacity(0.4),
+                                        blurRadius: 4,
+                                      ),
+                                    ]
+                                  : null,
                             ),
-                            child: isSelected ? Icon(Icons.check, color: colorVal > 0xFFDDDDDD ? Colors.black : Colors.white, size: 20) : null,
+                            child: isSelected
+                                ? Icon(
+                                    Icons.check,
+                                    color: colorVal > 0xFFDDDDDD
+                                        ? Colors.black
+                                        : Colors.white,
+                                    size: 20,
+                                  )
+                                : null,
                           ),
                         );
                       },
@@ -1529,29 +1942,39 @@ class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
                         child: TextFormField(
                           key: ValueKey('name_${groupId}_${baseVariant.color}'),
                           initialValue: baseVariant.color,
-                          decoration: _inputDeco('Boshqa rang nomi (ixtiyoriy)'),
+                          decoration: _inputDeco(
+                            'Boshqa rang nomi (ixtiyoriy)',
+                          ),
                           onChanged: (val) {
-                            for (var v in _variants.where((x) => x.groupId == groupId)) v.color = val;
+                            for (var v in _variants.where(
+                              (x) => x.groupId == groupId,
+                            ))
+                              v.color = val;
                           },
                         ),
                       ),
                       const SizedBox(width: 8),
                       Expanded(
                         child: TextFormField(
-                          key: ValueKey('hex_${groupId}_${baseVariant.colorHex}'),
+                          key: ValueKey(
+                            'hex_${groupId}_${baseVariant.colorHex}',
+                          ),
                           initialValue: baseVariant.colorHex,
                           decoration: _inputDeco('Rang kodi (Hex)'),
                           onChanged: (val) {
-                            for (var v in _variants.where((x) => x.groupId == groupId)) v.colorHex = val;
+                            for (var v in _variants.where(
+                              (x) => x.groupId == groupId,
+                            ))
+                              v.colorHex = val;
                           },
                         ),
                       ),
                     ],
-                  )
+                  ),
                 ],
               ),
             ),
-            
+
             // Sub-variants list
             ListView.builder(
               shrinkWrap: true,
@@ -1561,7 +1984,7 @@ class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
                 return _buildSubVariantCard(context, groupVariants[idx], idx);
               },
             ),
-            
+
             // Add sub-variant button
             InkWell(
               onTap: () => _addSubVariant(groupId),
@@ -1574,16 +1997,23 @@ class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    Icon(Icons.add_circle_outline, color: theme.colorScheme.primary, size: 20),
+                    Icon(
+                      Icons.add_circle_outline,
+                      color: theme.colorScheme.primary,
+                      size: 20,
+                    ),
                     const SizedBox(width: 8),
                     Text(
                       "Ushbu rang uchun yana sifat/o'lcham qo'shish",
-                      style: TextStyle(color: theme.colorScheme.primary, fontWeight: FontWeight.bold),
+                      style: TextStyle(
+                        color: theme.colorScheme.primary,
+                        fontWeight: FontWeight.bold,
+                      ),
                     ),
                   ],
                 ),
               ),
-            )
+            ),
           ],
         ),
       ),
@@ -1603,7 +2033,14 @@ class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text("Sifat va O'lcham #${index + 1}", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.grey)),
+              Text(
+                "Sifat va O'lcham #${index + 1}",
+                style: const TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 13,
+                  color: Colors.grey,
+                ),
+              ),
               IconButton(
                 onPressed: () => _removeVariant(v),
                 icon: const Icon(Icons.close, color: Colors.grey, size: 20),
@@ -1635,14 +2072,17 @@ class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
                           child: Image.file(v.imageFile!, fit: BoxFit.cover),
                         )
                       : (v.existingImageUrl != null && !v.removeImage
-                          ? ClipRRect(
-                              borderRadius: BorderRadius.circular(7),
-                              child: CachedNetworkImage(
-                                imageUrl: v.existingImageUrl!,
-                                fit: BoxFit.cover,
-                              ),
-                            )
-                          : const Icon(Icons.add_a_photo_outlined, color: Colors.grey)),
+                            ? ClipRRect(
+                                borderRadius: BorderRadius.circular(7),
+                                child: CachedNetworkImage(
+                                  imageUrl: v.existingImageUrl!,
+                                  fit: BoxFit.cover,
+                                ),
+                              )
+                            : const Icon(
+                                Icons.add_a_photo_outlined,
+                                color: Colors.grey,
+                              )),
                 ),
               ),
               const SizedBox(width: 12),
@@ -1653,30 +2093,45 @@ class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
                       children: [
                         Expanded(
                           child: Autocomplete<String>(
-                            initialValue: TextEditingValue(text: v.quality ?? ''),
-                            optionsBuilder: (TextEditingValue textEditingValue) {
-                              if (textEditingValue.text.isEmpty) return QUALITY_PRESETS;
-                              return QUALITY_PRESETS.where((String option) {
-                                return option.toLowerCase().contains(textEditingValue.text.toLowerCase());
-                              });
-                            },
+                            initialValue: TextEditingValue(
+                              text: v.quality ?? '',
+                            ),
+                            optionsBuilder:
+                                (TextEditingValue textEditingValue) {
+                                  if (textEditingValue.text.isEmpty)
+                                    return QUALITY_PRESETS;
+                                  return QUALITY_PRESETS.where((String option) {
+                                    return option.toLowerCase().contains(
+                                      textEditingValue.text.toLowerCase(),
+                                    );
+                                  });
+                                },
                             onSelected: (String selection) {
                               setState(() => v.quality = selection);
                             },
-                            fieldViewBuilder: (context, controller, focusNode, onFieldSubmitted) {
-                              return TextFormField(
-                                controller: controller,
-                                focusNode: focusNode,
-                                decoration: _inputDeco('Sifat (Quality)'),
-                                onChanged: (val) => v.quality = val,
-                              );
-                            },
+                            fieldViewBuilder:
+                                (
+                                  context,
+                                  controller,
+                                  focusNode,
+                                  onFieldSubmitted,
+                                ) {
+                                  return TextFormField(
+                                    controller: controller,
+                                    focusNode: focusNode,
+                                    decoration: _inputDeco('Sifat (Quality)'),
+                                    onChanged: (val) => v.quality = val,
+                                  );
+                                },
                           ),
                         ),
                         const SizedBox(width: 8),
                         Expanded(
                           child: TextFormField(
                             initialValue: v.model,
+                            textInputAction: TextInputAction.next,
+                            onFieldSubmitted: (_) =>
+                                FocusScope.of(context).nextFocus(),
                             decoration: _inputDeco('Model nomi'),
                             onChanged: (val) => v.model = val,
                           ),
@@ -1689,6 +2144,9 @@ class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
                         Expanded(
                           child: TextFormField(
                             initialValue: v.size,
+                            textInputAction: TextInputAction.next,
+                            onFieldSubmitted: (_) =>
+                                FocusScope.of(context).nextFocus(),
                             decoration: _inputDeco("Xotira/O'lcham"),
                             onChanged: (val) => v.size = val,
                           ),
@@ -1698,7 +2156,9 @@ class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
                           child: TextFormField(
                             // SKU dasturiy generatsiya qilinganda maydon yangi
                             // qiymat bilan qayta quriladi (skuGen kalitда).
-                            key: ValueKey('sku-${identityHashCode(v)}-${v.skuGen}'),
+                            key: ValueKey(
+                              'sku-${identityHashCode(v)}-${v.skuGen}',
+                            ),
                             initialValue: v.sku,
                             decoration: _inputDeco('SKU (kod)'),
                             onChanged: (val) => v.sku = val,
@@ -1707,7 +2167,11 @@ class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
                         IconButton(
                           tooltip: 'SKU generatsiya',
                           visualDensity: VisualDensity.compact,
-                          icon: const Icon(Icons.auto_awesome, size: 18, color: _genGreen),
+                          icon: const Icon(
+                            Icons.auto_awesome,
+                            size: 18,
+                            color: _genGreen,
+                          ),
                           onPressed: () => _regenerateSku(v),
                         ),
                       ],
@@ -1723,6 +2187,8 @@ class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
               Expanded(
                 child: TextFormField(
                   initialValue: v.barcode,
+                  textInputAction: TextInputAction.next,
+                  onFieldSubmitted: (_) => FocusScope.of(context).nextFocus(),
                   decoration: _inputDeco('Shtrix kod'),
                   onChanged: (val) => v.barcode = val,
                 ),
@@ -1732,6 +2198,8 @@ class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
                 child: TextFormField(
                   initialValue: v.stock,
                   keyboardType: TextInputType.number,
+                  textInputAction: TextInputAction.next,
+                  onFieldSubmitted: (_) => FocusScope.of(context).nextFocus(),
                   decoration: _inputDeco('Stok *'),
                   onChanged: (val) => v.stock = val,
                 ),
@@ -1745,6 +2213,8 @@ class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
                 child: TextFormField(
                   controller: v.priceCtrl,
                   keyboardType: TextInputType.number,
+                  textInputAction: TextInputAction.next,
+                  onFieldSubmitted: (_) => FocusScope.of(context).nextFocus(),
                   inputFormatters: [_ThousandsFormatter()],
                   decoration: _inputDeco('Alohida narx (UZS)'),
                   onChanged: (val) {
@@ -1758,7 +2228,11 @@ class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
               Expanded(
                 child: TextFormField(
                   controller: v.priceUsdCtrl,
-                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                  keyboardType: const TextInputType.numberWithOptions(
+                    decimal: true,
+                  ),
+                  textInputAction: TextInputAction.next,
+                  onFieldSubmitted: (_) => FocusScope.of(context).nextFocus(),
                   inputFormatters: _usdFormatters,
                   decoration: _inputDeco('Alohida narx (USD)'),
                   onChanged: (val) {
@@ -1778,6 +2252,8 @@ class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
                 child: TextFormField(
                   controller: v.discountCtrl,
                   keyboardType: TextInputType.number,
+                  textInputAction: TextInputAction.next,
+                  onFieldSubmitted: (_) => FocusScope.of(context).nextFocus(),
                   inputFormatters: [_ThousandsFormatter()],
                   decoration: _inputDeco('Chegirma (UZS)'),
                   onChanged: (val) {
@@ -1791,7 +2267,11 @@ class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
               Expanded(
                 child: TextFormField(
                   controller: v.discountUsdCtrl,
-                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                  keyboardType: const TextInputType.numberWithOptions(
+                    decimal: true,
+                  ),
+                  textInputAction: TextInputAction.next,
+                  onFieldSubmitted: (_) => FocusScope.of(context).nextFocus(),
                   inputFormatters: _usdFormatters,
                   decoration: _inputDeco('Chegirma (USD)'),
                   onChanged: (val) {
@@ -1811,6 +2291,8 @@ class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
                 child: TextFormField(
                   controller: v.costCtrl,
                   keyboardType: TextInputType.number,
+                  textInputAction: TextInputAction.next,
+                  onFieldSubmitted: (_) => FocusScope.of(context).nextFocus(),
                   inputFormatters: [_ThousandsFormatter()],
                   decoration: _inputDeco('Tannarx (UZS)'),
                   onChanged: (val) => v.costPrice = _stripNum(val),
@@ -1820,7 +2302,10 @@ class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
               Expanded(
                 child: TextFormField(
                   controller: v.costUsdCtrl,
-                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                  keyboardType: const TextInputType.numberWithOptions(
+                    decimal: true,
+                  ),
+                  textInputAction: TextInputAction.done,
                   inputFormatters: _usdFormatters,
                   decoration: _inputDeco('Tannarx (USD)'),
                   onChanged: (val) => v.costPriceUsd = _stripNum(val),
@@ -1853,6 +2338,7 @@ class _FormField extends StatelessWidget {
     this.maxLines = 1,
     this.onChanged,
     this.inputFormatters,
+    this.textInputAction,
   });
   final String label;
   final TextEditingController controller;
@@ -1861,6 +2347,9 @@ class _FormField extends StatelessWidget {
   final int maxLines;
   final ValueChanged<String>? onChanged;
   final List<TextInputFormatter>? inputFormatters;
+  // #9: klaviatura oqimi — "Keyingi"/"Tayyor". `next` bo'lsa avtomatik keyingi
+  // maydonga fokus o'tkazamiz (qo'lda FocusNode kerak emas).
+  final TextInputAction? textInputAction;
 
   @override
   Widget build(BuildContext context) {
@@ -1882,6 +2371,10 @@ class _FormField extends StatelessWidget {
           maxLines: maxLines,
           onChanged: onChanged,
           inputFormatters: inputFormatters,
+          textInputAction: textInputAction,
+          onFieldSubmitted: textInputAction == TextInputAction.next
+              ? (_) => FocusScope.of(context).nextFocus()
+              : null,
           decoration: InputDecoration(
             filled: true,
             fillColor: theme.colorScheme.surfaceContainerLowest,
@@ -1917,7 +2410,11 @@ class _ExchangeRateHint extends StatelessWidget {
       padding: const EdgeInsets.only(bottom: 12),
       child: Row(
         children: [
-          const Icon(Icons.sync_alt_rounded, size: 15, color: Color(0xFF0A7C55)),
+          const Icon(
+            Icons.sync_alt_rounded,
+            size: 15,
+            color: Color(0xFF0A7C55),
+          ),
           const SizedBox(width: 6),
           Expanded(
             child: Text(

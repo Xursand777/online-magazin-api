@@ -8,6 +8,7 @@ import '../../data/models/admin_product_model.dart';
 import '../widgets/admin_drawer.dart';
 import '../widgets/admin_product_form_sheet.dart';
 import '../widgets/admin_bulk_import_sheet.dart';
+
 class AdminProductsPage extends StatefulWidget {
   const AdminProductsPage({super.key});
   @override
@@ -26,7 +27,8 @@ class _AdminProductsPageState extends State<AdminProductsPage> {
   }
 
   void _onScroll() {
-    if (_scrollController.position.pixels >= _scrollController.position.maxScrollExtent - 200) {
+    if (_scrollController.position.pixels >=
+        _scrollController.position.maxScrollExtent - 200) {
       context.read<AdminBloc>().add(LoadMoreAdminProducts());
     }
   }
@@ -174,15 +176,21 @@ class _AdminProductsPageState extends State<AdminProductsPage> {
     );
   }
 
-  void _showProductForm(BuildContext context, AdminProductModel? product,
-      {bool clone = false}) {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (_) => BlocProvider.value(
-        value: context.read<AdminBloc>(),
-        child: AdminProductFormSheet(product: product, clone: clone),
+  void _showProductForm(
+    BuildContext context,
+    AdminProductModel? product, {
+    bool clone = false,
+  }) {
+    // #8: forma endi to'liq ekran (Scaffold + bosqichli stepper) — surib yopish
+    // tasodifi yo'q, klaviatura oqimi qulay. go_router'ning nested navigator'i
+    // bilan to'g'ri ishlashi uchun shu (lokal) navigator'da push qilamiz.
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        fullscreenDialog: true,
+        builder: (_) => BlocProvider.value(
+          value: context.read<AdminBloc>(),
+          child: AdminProductFormSheet(product: product, clone: clone),
+        ),
       ),
     );
   }
