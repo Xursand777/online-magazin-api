@@ -8,9 +8,9 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:cached_network_image/cached_network_image.dart';
-import 'package:dio/dio.dart';
 import '../bloc/admin_bloc.dart';
 import '../../data/models/admin_product_model.dart';
+import '../../data/models/product_submission.dart';
 import '../../data/repositories/admin_repository.dart';
 import '../../../../core/di/injection_container.dart';
 
@@ -133,6 +133,11 @@ class _VariantData {
   File? imageFile;
   String? existingImageUrl;
   bool removeImage = false;
+  // #11: variant galereyasi (ko'p rasm). Swatch (`imageFile`/`existingImageUrl`)
+  // dan ALOHIDA — backendga `variant_images_{i}_{j}` bo'lib yuboriladi.
+  List<File> galleryFiles = []; // yangi tanlangan galereya rasmlari
+  List<AdminProductImageModel> existingGallery = []; // serverdagi (tahrir)
+  Set<int> deleteImageIds = {}; // o'chirilishi kerak bo'lgan galereya id'lari
   // #N(SKU): SKU dasturiy generatsiya qilinganda oshiriladi — SKU maydoni
   // (controllersiz, initialValue) yangi qiymat bilan qayta quriladi.
   int skuGen = 0;
@@ -275,7 +280,7 @@ class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
           final gid = v.color?.isNotEmpty == true
               ? v.color!.toLowerCase()
               : 'g_${v.id ?? DateTime.now().microsecondsSinceEpoch}';
-          return _VariantData(
+          final vd = _VariantData(
             groupId: gid,
             // Klonда: id/sku/barcode/rasm tashlanadi (yangi variant yaratiladi).
             id: widget.clone ? null : v.id,
@@ -294,10 +299,17 @@ class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
             costPrice: v.costPrice?.toStringAsFixed(0),
             costPriceUsd: v.costPriceUsd?.toStringAsFixed(2),
             stock: v.stock.toString(),
-            existingImageUrl: widget.clone
-                ? null
-                : (v.images.isNotEmpty ? v.images.first.url : null),
+            // Swatch = `image_url` (galereya birinchi rasmidan ALOHIDA).
+            existingImageUrl: widget.clone ? null : v.imageUrl,
           );
+          // #11: mavjud galereya rasmlari (id bor — swatch-fallback id=null
+          // bo'lgani bundan tashqari). Klonда galereya ham tashlanadi.
+          if (!widget.clone) {
+            vd.existingGallery = v.images
+                .where((img) => img.id != null)
+                .toList();
+          }
+          return vd;
         }).toList();
       }
     }
@@ -400,6 +412,8 @@ class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
             'cost_usd': v.costUsdCtrl.text,
             'stock': v.stock,
             'image_path': v.imageFile?.path,
+            // #11: galereya fayl yo'llari (qoralamada ham saqlanadi).
+            'gallery_paths': v.galleryFiles.map((f) => f.path).toList(),
           },
         )
         .toList(),
@@ -489,6 +503,12 @@ class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
         );
         final vip = m['image_path'] as String?;
         if (vip != null && File(vip).existsSync()) vd.imageFile = File(vip);
+        // #11: galereya fayllarini tiklaymiz (mavjud bo'lganlarini).
+        final gp = (m['gallery_paths'] as List?)?.cast<String>() ?? const [];
+        vd.galleryFiles = gp
+            .map((p) => File(p))
+            .where((f) => f.existsSync())
+            .toList();
         return vd;
       }).toList();
       _pendingDraft = null;
@@ -556,6 +576,36 @@ class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
         _variants[index].removeImage = false;
       });
     }
+  }
+
+  // ── #11: variant galereyasi (ko'p rasm) ──────────────────────────────────
+  Future<void> _pickVariantGallery(int index) async {
+    final picker = ImagePicker();
+    final picked = await picker.pickMultiImage(
+      // #N10: backend WebP target'i (1600px) bilan bir xil — yuklash tez.
+      maxWidth: 1600,
+      maxHeight: 1600,
+      imageQuality: 85,
+    );
+    if (picked.isNotEmpty && mounted) {
+      setState(() {
+        _variants[index].galleryFiles.addAll(picked.map((x) => File(x.path)));
+      });
+      _scheduleSaveDraft();
+    }
+  }
+
+  void _removeGalleryFile(int index, File f) {
+    setState(() => _variants[index].galleryFiles.remove(f));
+    _scheduleSaveDraft();
+  }
+
+  void _removeExistingGalleryImage(int index, AdminProductImageModel img) {
+    setState(() {
+      final v = _variants[index];
+      if (img.id != null) v.deleteImageIds.add(img.id!);
+      v.existingGallery.remove(img);
+    });
   }
 
   void _addVariantGroup() {
@@ -995,8 +1045,10 @@ class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
     setState(() => _isLoading = true);
 
     // Saqlashdan oldin barcha narxlarni toza songa keltiramiz (probel/vergul
-    // backendga ketmasligi uchun).
-    final fields = <String, dynamic>{
+    // backendga ketmasligi uchun). FormData EMAS — serializatsiyalanadigan
+    // ProductSubmission quramiz (#12: tarmoq uzilsa navbatga qo'yiladi va
+    // ulanish tiklanganda avtomatik yuboriladi).
+    final fields = <String, String>{
       'name': _name.text.trim(),
       'description': _description.text.trim(),
       'price': _stripNum(_price.text),
@@ -1008,37 +1060,28 @@ class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
     if (_selectedCategoryId != null) {
       fields['category'] = _selectedCategoryId.toString();
     }
-    if (_priceUsd.text.trim().isNotEmpty)
+    if (_priceUsd.text.trim().isNotEmpty) {
       fields['price_usd'] = _stripNum(_priceUsd.text);
-    if (_discountPrice.text.trim().isNotEmpty)
+    }
+    if (_discountPrice.text.trim().isNotEmpty) {
       fields['discount_price'] = _stripNum(_discountPrice.text);
-    if (_discountPriceUsd.text.trim().isNotEmpty)
+    }
+    if (_discountPriceUsd.text.trim().isNotEmpty) {
       fields['discount_price_usd'] = _stripNum(_discountPriceUsd.text);
-    if (_costPrice.text.trim().isNotEmpty)
+    }
+    if (_costPrice.text.trim().isNotEmpty) {
       fields['cost_price'] = _stripNum(_costPrice.text);
-    if (_costPriceUsd.text.trim().isNotEmpty)
+    }
+    if (_costPriceUsd.text.trim().isNotEmpty) {
       fields['cost_price_usd'] = _stripNum(_costPriceUsd.text);
-
-    final formParts = fields.entries
-        .map((e) => MapEntry(e.key, e.value.toString()))
-        .toList();
-    final formData = FormData.fromMap(Map.fromEntries(formParts));
-
-    if (_pickedImage != null) {
-      formData.files.add(
-        MapEntry(
-          'image',
-          MultipartFile.fromFileSync(
-            _pickedImage!.path,
-            filename: 'product.jpg',
-          ),
-        ),
-      );
     }
 
-    // Process Variants
+    final swatchPaths = <int, String>{};
+    final galleryPaths = <int, List<String>>{};
+    String variantsDataJson = '';
+
     if (_variants.isNotEmpty) {
-      List<Map<String, dynamic>> variantsJson = [];
+      final variantsJson = <Map<String, dynamic>>[];
       for (int i = 0; i < _variants.length; i++) {
         final v = _variants[i];
         final vMap = <String, dynamic>{
@@ -1054,33 +1097,47 @@ class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
         if (v.sku?.isNotEmpty == true) vMap['sku'] = v.sku;
         if (v.price?.isNotEmpty == true) vMap['price'] = v.price;
         if (v.priceUsd?.isNotEmpty == true) vMap['price_usd'] = v.priceUsd;
-        if (v.discountPrice?.isNotEmpty == true)
+        if (v.discountPrice?.isNotEmpty == true) {
           vMap['discount_price'] = v.discountPrice;
+        }
         if (v.discountPriceUsd?.isNotEmpty == true) {
           vMap['discount_price_usd'] = v.discountPriceUsd;
         }
         if (v.costPrice?.isNotEmpty == true) vMap['cost_price'] = v.costPrice;
-        if (v.costPriceUsd?.isNotEmpty == true)
+        if (v.costPriceUsd?.isNotEmpty == true) {
           vMap['cost_price_usd'] = v.costPriceUsd;
+        }
         if (v.removeImage) vMap['remove_image'] = true;
+        // #11: o'chirilgan galereya rasm id'lari (faqat tahrirda bo'ladi).
+        if (v.deleteImageIds.isNotEmpty) {
+          vMap['delete_image_ids'] = v.deleteImageIds.toList();
+        }
 
         variantsJson.add(vMap);
 
-        // Attach variant images if selected
-        if (v.imageFile != null) {
-          formData.files.add(
-            MapEntry(
-              'variant_image_$i',
-              MultipartFile.fromFileSync(
-                v.imageFile!.path,
-                filename: 'variant_$i.jpg',
-              ),
-            ),
-          );
+        // #11: swatch (asosiy variant rasmi) — `variant_image_$i`.
+        if (v.imageFile != null) swatchPaths[i] = v.imageFile!.path;
+        // #11: galereya (ko'p rasm) — `variant_images_${i}_${j}`.
+        if (v.galleryFiles.isNotEmpty) {
+          galleryPaths[i] = v.galleryFiles.map((f) => f.path).toList();
         }
       }
-      formData.fields.add(MapEntry('variants_data', jsonEncode(variantsJson)));
+      variantsDataJson = jsonEncode(variantsJson);
     }
+
+    final submission = ProductSubmission(
+      localId:
+          '${DateTime.now().microsecondsSinceEpoch}_${Random().nextInt(1 << 31)}',
+      isUpdate: _isEdit,
+      productId: _isEdit ? widget.product!.id : null,
+      name: _name.text.trim(),
+      fields: fields,
+      imagePath: _pickedImage?.path,
+      variantsDataJson: variantsDataJson,
+      variantSwatchPaths: swatchPaths,
+      variantGalleryPaths: galleryPaths,
+      createdAtMs: DateTime.now().millisecondsSinceEpoch,
+    );
 
     final bloc = context.read<AdminBloc>();
     if (_isCreate) {
@@ -1088,7 +1145,7 @@ class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
       _submitted = true;
       _draftTimer?.cancel();
       _clearDraft();
-      bloc.add(CreateAdminProduct(formData));
+      bloc.add(CreateAdminProduct(submission));
       if (addAnother) {
         // #N4: yopmaymiz — formani tozalab, navbatdagi mahsulotga tayyorlaymiz.
         _resetForm();
@@ -1101,7 +1158,7 @@ class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
         return;
       }
     } else {
-      bloc.add(UpdateAdminProduct(widget.product!.id, formData));
+      bloc.add(UpdateAdminProduct(submission));
     }
     Navigator.pop(context);
   }
@@ -2312,6 +2369,105 @@ class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
                 ),
               ),
             ],
+          ),
+          const SizedBox(height: 10),
+          // #11: variant galereyasi (ko'p rasm)
+          _buildVariantGallery(v),
+        ],
+      ),
+    );
+  }
+
+  // #11: variant uchun qo'shimcha rasmlar galereyasi (mavjud + yangi tanlangan).
+  Widget _buildVariantGallery(_VariantData v) {
+    final globalIndex = _variants.indexOf(v);
+    final thumbs = <Widget>[
+      for (final img in v.existingGallery)
+        _galleryThumb(
+          child: CachedNetworkImage(imageUrl: img.url, fit: BoxFit.cover),
+          onRemove: () => _removeExistingGalleryImage(globalIndex, img),
+        ),
+      for (final f in v.galleryFiles)
+        _galleryThumb(
+          child: Image.file(f, fit: BoxFit.cover),
+          onRemove: () => _removeGalleryFile(globalIndex, f),
+        ),
+    ];
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Icon(Icons.collections_outlined, size: 14, color: Colors.grey[600]),
+            const SizedBox(width: 4),
+            Text(
+              "Galereya (qo'shimcha rasmlar)",
+              style: TextStyle(
+                fontSize: 11,
+                color: Colors.grey[600],
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 6),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            ...thumbs,
+            GestureDetector(
+              onTap: globalIndex == -1
+                  ? null
+                  : () => _pickVariantGallery(globalIndex),
+              child: Container(
+                width: 56,
+                height: 56,
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade100,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.grey.shade300),
+                ),
+                child: Icon(
+                  Icons.add_photo_alternate_outlined,
+                  color: Colors.grey[500],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _galleryThumb({
+    required Widget child,
+    required VoidCallback onRemove,
+  }) {
+    return SizedBox(
+      width: 56,
+      height: 56,
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          ClipRRect(
+            borderRadius: BorderRadius.circular(8),
+            child: SizedBox(width: 56, height: 56, child: child),
+          ),
+          Positioned(
+            right: -4,
+            top: -4,
+            child: GestureDetector(
+              onTap: onRemove,
+              child: Container(
+                decoration: const BoxDecoration(
+                  color: Color(0xFFDC2626),
+                  shape: BoxShape.circle,
+                ),
+                padding: const EdgeInsets.all(2),
+                child: const Icon(Icons.close, size: 13, color: Colors.white),
+              ),
+            ),
           ),
         ],
       ),

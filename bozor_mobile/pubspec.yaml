@@ -55,6 +55,7 @@ dependencies:
   intl: ^0.20.2
   image_picker: ^1.1.2
   file_picker: ^8.1.6          # #N3: CSV/Excel bulk mahsulot import (fayl tanlash)
+  connectivity_plus: ^6.1.0    # #12: internet holatini kuzatish (offline navbat)
   # Sentry — production xato kuzatish (free 5,000 event/oy)
   sentry_flutter: ^8.10.1
   package_info_plus: ^8.0.0  # Sentry release identifier uchun

@@ -67,31 +67,42 @@ class _AdminProductsPageState extends State<AdminProductsPage> {
             return const Center(child: CircularProgressIndicator());
           }
           final products = state.products;
-          if (products.isEmpty) {
-            return _EmptyState(onAdd: () => _showProductForm(context, null));
-          }
-          return ListView.builder(
-            controller: _scrollController,
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 100),
-            itemCount: products.length + (state.hasReachedMaxProducts ? 0 : 1),
-            itemBuilder: (context, i) {
-              if (i == products.length) {
-                return const Center(
-                  child: Padding(
-                    padding: EdgeInsets.all(16.0),
-                    child: CircularProgressIndicator(),
-                  ),
+          final Widget content = products.isEmpty
+              ? _EmptyState(onAdd: () => _showProductForm(context, null))
+              : ListView.builder(
+                  controller: _scrollController,
+                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 100),
+                  itemCount:
+                      products.length + (state.hasReachedMaxProducts ? 0 : 1),
+                  itemBuilder: (context, i) {
+                    if (i == products.length) {
+                      return const Center(
+                        child: Padding(
+                          padding: EdgeInsets.all(16.0),
+                          child: CircularProgressIndicator(),
+                        ),
+                      );
+                    }
+                    return _ProductTile(
+                      product: products[i],
+                      onEdit: () => _showProductForm(context, products[i]),
+                      onClone: () =>
+                          _showProductForm(context, products[i], clone: true),
+                      onDelete: () => _confirmDelete(
+                        context,
+                        products[i].id,
+                        products[i].name,
+                      ),
+                    );
+                  },
                 );
-              }
-              return _ProductTile(
-                product: products[i],
-                onEdit: () => _showProductForm(context, products[i]),
-                onClone: () =>
-                    _showProductForm(context, products[i], clone: true),
-                onDelete: () =>
-                    _confirmDelete(context, products[i].id, products[i].name),
-              );
-            },
+          // #12: internetni kutayotgan (offline navbatdagi) mahsulotlar banneri.
+          return Column(
+            children: [
+              if (state.pendingSyncCount > 0)
+                _PendingSyncBanner(count: state.pendingSyncCount),
+              Expanded(child: content),
+            ],
           );
         },
       ),
@@ -204,6 +215,54 @@ class _AdminProductsPageState extends State<AdminProductsPage> {
       builder: (_) => BlocProvider.value(
         value: context.read<AdminBloc>(),
         child: const AdminBulkImportSheet(),
+      ),
+    );
+  }
+}
+
+// #12: offline navbatdagi mahsulotlar haqida ogohlantirish + qo'lda yuborish.
+class _PendingSyncBanner extends StatelessWidget {
+  const _PendingSyncBanner({required this.count});
+  final int count;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: const Color(0xFFFFF7E6),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 10, 12, 10),
+        child: Row(
+          children: [
+            const Icon(
+              Icons.cloud_off_rounded,
+              size: 20,
+              color: Color(0xFFD97706),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                "$count ta mahsulot internetni kutmoqda — ulanish tiklanganda avtomatik yuboriladi.",
+                style: const TextStyle(
+                  fontSize: 12.5,
+                  color: Color(0xFF92400E),
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+            TextButton(
+              onPressed: () =>
+                  context.read<AdminBloc>().add(const SyncOfflineQueue()),
+              style: TextButton.styleFrom(
+                foregroundColor: const Color(0xFFD97706),
+                visualDensity: VisualDensity.compact,
+              ),
+              child: const Text(
+                'Hozir yuborish',
+                style: TextStyle(fontWeight: FontWeight.w800),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
