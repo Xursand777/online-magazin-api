@@ -114,6 +114,12 @@ class _VariantData {
   String? sku;
   String? price;
   String? priceUsd;
+  // #N(per-variant cost/discount): web bilan to'liq tenglash — har variant o'z
+  // chegirma va tannarxiga ega (hisobotda variant foydasi aniq bo'lishi uchun).
+  String? discountPrice;
+  String? discountPriceUsd;
+  String? costPrice;
+  String? costPriceUsd;
   String? stock;
   File? imageFile;
   String? existingImageUrl;
@@ -126,6 +132,10 @@ class _VariantData {
   /// konvertatsiya saytdagidek ishlashi uchun (har bir variant alohida).
   late final TextEditingController priceCtrl;
   late final TextEditingController priceUsdCtrl;
+  late final TextEditingController discountCtrl;
+  late final TextEditingController discountUsdCtrl;
+  late final TextEditingController costCtrl;
+  late final TextEditingController costUsdCtrl;
 
   _VariantData({
     this.groupId,
@@ -139,21 +149,37 @@ class _VariantData {
     this.sku,
     this.price,
     this.priceUsd,
+    this.discountPrice,
+    this.discountPriceUsd,
+    this.costPrice,
+    this.costPriceUsd,
     this.stock,
     this.imageFile,
     this.existingImageUrl,
   }) {
     // Controllerda chiroyli (probelli) ko'rinish, lekin saqlash uchun
-    // toza qiymatni (price/priceUsd) saqlaymiz.
+    // toza qiymatni saqlaymiz.
     priceCtrl = TextEditingController(text: _formatUzsDigits(price ?? ''));
     priceUsdCtrl = TextEditingController(text: priceUsd ?? '');
+    discountCtrl = TextEditingController(text: _formatUzsDigits(discountPrice ?? ''));
+    discountUsdCtrl = TextEditingController(text: discountPriceUsd ?? '');
+    costCtrl = TextEditingController(text: _formatUzsDigits(costPrice ?? ''));
+    costUsdCtrl = TextEditingController(text: costPriceUsd ?? '');
     price = _stripNum(price ?? '');
     priceUsd = _stripNum(priceUsd ?? '');
+    discountPrice = _stripNum(discountPrice ?? '');
+    discountPriceUsd = _stripNum(discountPriceUsd ?? '');
+    costPrice = _stripNum(costPrice ?? '');
+    costPriceUsd = _stripNum(costPriceUsd ?? '');
   }
 
   void disposeControllers() {
     priceCtrl.dispose();
     priceUsdCtrl.dispose();
+    discountCtrl.dispose();
+    discountUsdCtrl.dispose();
+    costCtrl.dispose();
+    costUsdCtrl.dispose();
   }
 }
 
@@ -238,6 +264,11 @@ class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
             sku: widget.clone ? null : v.sku,
             price: v.price?.toStringAsFixed(0),
             priceUsd: v.priceUsd?.toStringAsFixed(2),
+            // Chegirma/tannarx — klonда ham saqlanadi (iqtisod, SKU emas).
+            discountPrice: v.discountPrice?.toStringAsFixed(0),
+            discountPriceUsd: v.discountPriceUsd?.toStringAsFixed(2),
+            costPrice: v.costPrice?.toStringAsFixed(0),
+            costPriceUsd: v.costPriceUsd?.toStringAsFixed(2),
             stock: v.stock.toString(),
             existingImageUrl:
                 widget.clone ? null : (v.images.isNotEmpty ? v.images.first.url : null),
@@ -330,6 +361,10 @@ class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
                   'sku': v.sku,
                   'price': v.priceCtrl.text,
                   'price_usd': v.priceUsdCtrl.text,
+                  'discount': v.discountCtrl.text,
+                  'discount_usd': v.discountUsdCtrl.text,
+                  'cost': v.costCtrl.text,
+                  'cost_usd': v.costUsdCtrl.text,
                   'stock': v.stock,
                   'image_path': v.imageFile?.path,
                 })
@@ -407,6 +442,10 @@ class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
           sku: m['sku'] as String?,
           price: m['price'] as String?,
           priceUsd: m['price_usd'] as String?,
+          discountPrice: m['discount'] as String?,
+          discountPriceUsd: m['discount_usd'] as String?,
+          costPrice: m['cost'] as String?,
+          costPriceUsd: m['cost_usd'] as String?,
           stock: m['stock'] as String?,
         );
         final vip = m['image_path'] as String?;
@@ -495,10 +534,17 @@ class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
   void _addSubVariant(String groupId) {
     setState(() {
       final base = _variants.firstWhere((v) => v.groupId == groupId, orElse: () => _VariantData());
+      // Web kabi — yangi sifat/hajm bazaviy rang narx/tannarxini meros oladi.
       _variants.add(_VariantData(
         groupId: groupId,
         color: base.color,
         colorHex: base.colorHex,
+        price: base.price,
+        priceUsd: base.priceUsd,
+        discountPrice: base.discountPrice,
+        discountPriceUsd: base.discountPriceUsd,
+        costPrice: base.costPrice,
+        costPriceUsd: base.costPriceUsd,
         stock: '0',
       ));
     });
@@ -570,6 +616,7 @@ class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
     final modelsCtrl = TextEditingController();
     final sizesCtrl = TextEditingController();
     final priceCtrl = TextEditingController(text: _price.text);
+    final costCtrl = TextEditingController(text: _costPrice.text);
     final stockCtrl = TextEditingController(text: _stock.text.isEmpty ? '0' : _stock.text);
 
     List<String> split(String s) =>
@@ -645,6 +692,8 @@ class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
                     field("O'lchamlar (vergul bilan)", sizesCtrl, '128GB, 256GB'),
                     field('Asosiy narx (so\'m)', priceCtrl, '15 000 000',
                         kb: TextInputType.number),
+                    field('Asosiy tannarx (so\'m)', costCtrl, '10 000 000',
+                        kb: TextInputType.number),
                     field('Ombor soni', stockCtrl, '10', kb: TextInputType.number),
                     const SizedBox(height: 4),
                     SizedBox(
@@ -655,6 +704,7 @@ class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
                             ? null
                             : () {
                                 final price = _stripNum(priceCtrl.text);
+                                final cost = _stripNum(costCtrl.text);
                                 final stock = stockCtrl.text.trim().isEmpty
                                     ? '0'
                                     : stockCtrl.text.trim();
@@ -677,6 +727,7 @@ class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
                                           model: m,
                                           size: sz,
                                           price: price,
+                                          costPrice: cost,
                                           stock: stock,
                                         ));
                                       }
@@ -710,6 +761,7 @@ class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
     modelsCtrl.dispose();
     sizesCtrl.dispose();
     priceCtrl.dispose();
+    costCtrl.dispose();
     stockCtrl.dispose();
 
     if (created != null && created.isNotEmpty && mounted) {
@@ -723,17 +775,26 @@ class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
   // 0/bo'sh bo'lsa pol yo'q. Mobil variantда alohida tannarx yo'q — variant
   // narxi MAHSULOT tannarxiga qarshi tekshiriladi.
   bool _hasBelowCost() {
-    final cost = double.tryParse(_stripNum(_costPrice.text)) ?? 0;
-    if (cost <= 0) return false;
-    final disc = double.tryParse(_stripNum(_discountPrice.text)) ?? 0;
-    final price = double.tryParse(_stripNum(_price.text)) ?? 0;
-    final sell = disc > 0 ? disc : price;
-    if (sell > 0 && sell < cost) return true;
-    for (final v in _variants) {
-      final vp = double.tryParse(_stripNum(v.priceCtrl.text)) ?? 0;
-      if (vp > 0 && vp < cost) return true;
+    double n(String s) => double.tryParse(_stripNum(s)) ?? 0;
+    // Variantli holatda — HAR variant O'Z tannarxiga qarshi (web bilan bir xil).
+    if (_variants.isNotEmpty) {
+      for (final v in _variants) {
+        final vCost = n(v.costCtrl.text);
+        if (vCost <= 0) continue;
+        final vDisc = n(v.discountCtrl.text);
+        final vPrice = n(v.priceCtrl.text);
+        final vSell = vDisc > 0 ? vDisc : vPrice;
+        if (vSell > 0 && vSell < vCost) return true;
+      }
+      return false;
     }
-    return false;
+    // Variatsiz — mahsulot darajasi.
+    final cost = n(_costPrice.text);
+    if (cost <= 0) return false;
+    final disc = n(_discountPrice.text);
+    final price = n(_price.text);
+    final sell = disc > 0 ? disc : price;
+    return sell > 0 && sell < cost;
   }
 
   // #N4: formani tozalab, yangi mahsulot kiritishga tayyorlaymiz.
@@ -829,6 +890,12 @@ class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
         if (v.sku?.isNotEmpty == true) vMap['sku'] = v.sku;
         if (v.price?.isNotEmpty == true) vMap['price'] = v.price;
         if (v.priceUsd?.isNotEmpty == true) vMap['price_usd'] = v.priceUsd;
+        if (v.discountPrice?.isNotEmpty == true) vMap['discount_price'] = v.discountPrice;
+        if (v.discountPriceUsd?.isNotEmpty == true) {
+          vMap['discount_price_usd'] = v.discountPriceUsd;
+        }
+        if (v.costPrice?.isNotEmpty == true) vMap['cost_price'] = v.costPrice;
+        if (v.costPriceUsd?.isNotEmpty == true) vMap['cost_price_usd'] = v.costPriceUsd;
         if (v.removeImage) vMap['remove_image'] = true;
 
         variantsJson.add(vMap);
@@ -1699,6 +1766,64 @@ class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
                     _syncUzs(val, v.priceCtrl);
                     v.price = _stripNum(v.priceCtrl.text);
                   },
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          // Chegirma (UZS↔USD avtomatik sinxron, narx kabi)
+          Row(
+            children: [
+              Expanded(
+                child: TextFormField(
+                  controller: v.discountCtrl,
+                  keyboardType: TextInputType.number,
+                  inputFormatters: [_ThousandsFormatter()],
+                  decoration: _inputDeco('Chegirma (UZS)'),
+                  onChanged: (val) {
+                    v.discountPrice = _stripNum(val);
+                    _syncUsd(val, v.discountUsdCtrl);
+                    v.discountPriceUsd = _stripNum(v.discountUsdCtrl.text);
+                  },
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: TextFormField(
+                  controller: v.discountUsdCtrl,
+                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                  inputFormatters: _usdFormatters,
+                  decoration: _inputDeco('Chegirma (USD)'),
+                  onChanged: (val) {
+                    v.discountPriceUsd = _stripNum(val);
+                    _syncUzs(val, v.discountCtrl);
+                    v.discountPrice = _stripNum(v.discountCtrl.text);
+                  },
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          // Tannarx (kursdan MUSTAQIL — sinxronlanmaydi, web qoidasi bilan bir xil)
+          Row(
+            children: [
+              Expanded(
+                child: TextFormField(
+                  controller: v.costCtrl,
+                  keyboardType: TextInputType.number,
+                  inputFormatters: [_ThousandsFormatter()],
+                  decoration: _inputDeco('Tannarx (UZS)'),
+                  onChanged: (val) => v.costPrice = _stripNum(val),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: TextFormField(
+                  controller: v.costUsdCtrl,
+                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                  inputFormatters: _usdFormatters,
+                  decoration: _inputDeco('Tannarx (USD)'),
+                  onChanged: (val) => v.costPriceUsd = _stripNum(val),
                 ),
               ),
             ],
