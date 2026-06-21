@@ -148,20 +148,24 @@ class _AdminProductsPageState extends State<AdminProductsPage> {
   }
 
   void _confirmDelete(BuildContext context, int id, String name) {
+    // go_router (nested navigator) + showDialog (root navigator) — dialog'ni
+    // AYNAN o'z builder context'i (dialogCtx) bilan yopamiz, aks holda
+    // Navigator.pop(context) noto'g'ri navigator'ni yopib, qora barier qoladi.
+    final bloc = context.read<AdminBloc>();
     showDialog(
       context: context,
-      builder: (_) => AlertDialog(
+      builder: (dialogCtx) => AlertDialog(
         title: const Text("O'chirishni tasdiqlang"),
         content: Text("'$name' mahsulotini o'chirasizmi?"),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(context),
+            onPressed: () => Navigator.pop(dialogCtx),
             child: const Text('Bekor qilish'),
           ),
           TextButton(
             onPressed: () {
-              Navigator.pop(context);
-              context.read<AdminBloc>().add(DeleteAdminProduct(id));
+              Navigator.pop(dialogCtx);
+              bloc.add(DeleteAdminProduct(id));
             },
             child: const Text("O'chirish", style: TextStyle(color: Colors.red)),
           ),

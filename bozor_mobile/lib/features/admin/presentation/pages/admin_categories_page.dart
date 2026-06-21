@@ -94,20 +94,22 @@ class _AdminCategoriesPageState extends State<AdminCategoriesPage> {
   }
 
   void _confirmDelete(BuildContext context, int id, String name) {
+    // go_router nested navigator + root-dialog: AYNAN dialogCtx bilan yopamiz.
+    final bloc = context.read<AdminBloc>();
     showDialog(
       context: context,
-      builder: (_) => AlertDialog(
+      builder: (dialogCtx) => AlertDialog(
         title: const Text("O'chirishni tasdiqlang"),
         content: Text("'$name' kategoriyasini o'chirasizmi?"),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(context),
+            onPressed: () => Navigator.pop(dialogCtx),
             child: const Text('Bekor qilish'),
           ),
           TextButton(
             onPressed: () {
-              Navigator.pop(context);
-              context.read<AdminBloc>().add(DeleteAdminCategory(id));
+              Navigator.pop(dialogCtx);
+              bloc.add(DeleteAdminCategory(id));
             },
             child: const Text("O'chirish", style: TextStyle(color: Colors.red)),
           ),

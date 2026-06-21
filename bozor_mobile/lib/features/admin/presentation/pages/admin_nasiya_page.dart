@@ -455,9 +455,11 @@ class _NasiyaCard extends StatelessWidget {
   }
 
   void _confirmPayment(BuildContext context, int orderId) {
+    // go_router nested navigator + root-dialog: AYNAN dialogCtx bilan yopamiz.
+    final bloc = context.read<AdminNasiyaBloc>();
     showDialog(
       context: context,
-      builder: (_) {
+      builder: (dialogCtx) {
         return AlertDialog(
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
           title: const Row(
@@ -470,7 +472,7 @@ class _NasiyaCard extends StatelessWidget {
           content: const Text('Ushbu muddatli to\'lov to\'liqligicha to\'langanini tasdiqlaysizmi? Bu amalni orqaga qaytarib bo\'lmaydi.'),
           actions: [
             TextButton(
-              onPressed: () => Navigator.pop(context),
+              onPressed: () => Navigator.pop(dialogCtx),
               child: const Text('Bekor qilish', style: TextStyle(color: Colors.grey)),
             ),
             FilledButton(
@@ -479,8 +481,8 @@ class _NasiyaCard extends StatelessWidget {
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
               ),
               onPressed: () {
-                Navigator.pop(context);
-                context.read<AdminNasiyaBloc>().add(PayNasiyaOrder(orderId));
+                Navigator.pop(dialogCtx);
+                bloc.add(PayNasiyaOrder(orderId));
               },
               child: const Text('Ha, tasdiqlayman'),
             ),
