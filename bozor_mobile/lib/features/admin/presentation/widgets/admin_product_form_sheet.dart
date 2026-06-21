@@ -314,6 +314,21 @@ class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
       }
     }
 
+    // Variantlardan avto-derive: mavjud variantlarning narx/chegirma/tannarx
+    // controllerlariga listener ulaymiz va dastlabki recompute ham qilamiz
+    // (web useEffect mount'da ishlagani kabi).
+    for (final v in _variants) {
+      _wireVariantAutoDerive(v);
+    }
+    if (_variants.isNotEmpty) {
+      // Bitta frame keyinroq — initState ichidan to'g'ridan-to'g'ri text yozish
+      // controller listenerlarini chaqirishi mumkin, build hali tugamaganligi
+      // sababli xavfsiz emas. Microtask'da bajaramiz.
+      Future.microtask(() {
+        if (mounted) _recomputeProductPrices();
+      });
+    }
+
     // #N8: narx/chegirma/tannarx o'zgarsa — "tannarxdan past" ogohlantirishi
     // va Saqlash tugmasi holatini jonli yangilab turamiz (ikkala rejimda ham).
     for (final c in [_price, _discountPrice, _costPrice]) {
@@ -513,6 +528,12 @@ class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
       }).toList();
       _pendingDraft = null;
     });
+    // Tiklangan variantlarga avto-derive listenerlarini ulaymiz va MIN'ni
+    // qayta hisoblaymiz (qoralamada saqlangan asosiy narxni qayta to'ldiradi).
+    for (final v in _variants) {
+      _wireVariantAutoDerive(v);
+    }
+    _recomputeProductPrices();
   }
 
   void _discardDraft() {
@@ -609,42 +630,40 @@ class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
   }
 
   void _addVariantGroup() {
-    setState(() {
-      _variants.add(
-        _VariantData(
-          groupId: 'g_${DateTime.now().microsecondsSinceEpoch}',
-          color: '',
-          colorHex: '',
-          stock: '0',
-        ),
-      );
-    });
+    final v = _VariantData(
+      groupId: 'g_${DateTime.now().microsecondsSinceEpoch}',
+      color: '',
+      colorHex: '',
+      stock: '0',
+    );
+    _wireVariantAutoDerive(v);
+    setState(() => _variants.add(v));
     _scheduleSaveDraft();
   }
 
   void _addSubVariant(String groupId) {
-    setState(() {
-      final base = _variants.firstWhere(
-        (v) => v.groupId == groupId,
-        orElse: () => _VariantData(),
-      );
-      // Web kabi — yangi sifat/hajm bazaviy rang narx/tannarxini meros oladi.
-      _variants.add(
-        _VariantData(
-          groupId: groupId,
-          color: base.color,
-          colorHex: base.colorHex,
-          price: base.price,
-          priceUsd: base.priceUsd,
-          discountPrice: base.discountPrice,
-          discountPriceUsd: base.discountPriceUsd,
-          costPrice: base.costPrice,
-          costPriceUsd: base.costPriceUsd,
-          stock: '0',
-        ),
-      );
-    });
+    final base = _variants.firstWhere(
+      (v) => v.groupId == groupId,
+      orElse: () => _VariantData(),
+    );
+    // Web kabi — yangi sifat/hajm bazaviy rang narx/tannarxini meros oladi.
+    final v = _VariantData(
+      groupId: groupId,
+      color: base.color,
+      colorHex: base.colorHex,
+      price: base.price,
+      priceUsd: base.priceUsd,
+      discountPrice: base.discountPrice,
+      discountPriceUsd: base.discountPriceUsd,
+      costPrice: base.costPrice,
+      costPriceUsd: base.costPriceUsd,
+      stock: '0',
+    );
+    _wireVariantAutoDerive(v);
+    setState(() => _variants.add(v));
     _scheduleSaveDraft();
+    // Bazaviy narx meros olindi — Mahsulot maydonlarini qayta hisoblaymiz.
+    _recomputeProductPrices();
   }
 
   void _removeVariant(_VariantData variant) {
@@ -653,6 +672,8 @@ class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
       _variants.remove(variant);
     });
     _scheduleSaveDraft();
+    // Variant olib tashlandi — qolganlardan MIN'ni qayta hisoblaymiz.
+    _recomputeProductPrices();
   }
 
   // ── SKU avto-generatsiya (web generateVariantSku bilan bir xil mantiq) ──────
@@ -720,6 +741,69 @@ class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
       }
     });
     _scheduleSaveDraft();
+  }
+
+  // ── Variant → Mahsulot narxi avto-derivatsiya (web ProductEditor:230 mantiq) ─
+  // Variantlar borligida Mahsulot maydonlari (narx/chegirma/tannarx) MIN
+  // variant qiymatiga avtomatik to'ldiriladi — admin qo'lda yozish shart emas.
+  // Web: variantlardan birortasida narx YO'Q bo'lsa, oldingi qiymat saqlanadi.
+  bool _recomputing = false; // re-entry'dan himoya (listener loop'ini bloklash)
+  void _recomputeProductPrices() {
+    if (!mounted || _recomputing) return;
+    if (_variants.isEmpty) return;
+    double parse(String s) => double.tryParse(_stripNum(s)) ?? 0;
+    final validPrices = _variants
+        .map((v) => parse(v.priceCtrl.text))
+        .where((p) => p > 0)
+        .toList();
+    if (validPrices.isEmpty) return;
+    final minPrice = validPrices.reduce(min);
+    final minDisc = _variants
+        .map((v) => parse(v.discountCtrl.text))
+        .where((p) => p > 0)
+        .fold<double>(double.infinity, (a, b) => a < b ? a : b);
+    final minCost = _variants
+        .map((v) => parse(v.costCtrl.text))
+        .where((p) => p > 0)
+        .fold<double>(double.infinity, (a, b) => a < b ? a : b);
+    _recomputing = true;
+    try {
+      // Narx
+      final newPrice = _formatUzsDigits(minPrice.toStringAsFixed(0));
+      if (_price.text != newPrice) _price.text = newPrice;
+      if (_usdRate > 0) {
+        final usd = (minPrice / _usdRate).toStringAsFixed(2);
+        final newPriceUsd = usd == '0.00' ? '' : usd;
+        if (_priceUsd.text != newPriceUsd) _priceUsd.text = newPriceUsd;
+      }
+      // Chegirma — variantlarning birortasida bor bo'lsa
+      if (minDisc.isFinite && minDisc > 0) {
+        final s = _formatUzsDigits(minDisc.toStringAsFixed(0));
+        if (_discountPrice.text != s) _discountPrice.text = s;
+        if (_usdRate > 0) {
+          final usd = (minDisc / _usdRate).toStringAsFixed(2);
+          final s2 = usd == '0.00' ? '' : usd;
+          if (_discountPriceUsd.text != s2) _discountPriceUsd.text = s2;
+        }
+      }
+      // Tannarx — variantlarning birortasida bor bo'lsa.
+      // USD tannarx kursdan MUSTAQIL — avtomatik yangilanmaydi (web qoidasi).
+      if (minCost.isFinite && minCost > 0) {
+        final s = _formatUzsDigits(minCost.toStringAsFixed(0));
+        if (_costPrice.text != s) _costPrice.text = s;
+      }
+    } finally {
+      _recomputing = false;
+    }
+  }
+
+  /// Variantning narx/chegirma/tannarx controllerlariga avto-derive listenerni
+  /// ulaydi. Variant olib tashlanganda disposeControllers() listenerni
+  /// avtomatik o'chiradi (disposed controller listener'lari otmaydi).
+  void _wireVariantAutoDerive(_VariantData v) {
+    v.priceCtrl.addListener(_recomputeProductPrices);
+    v.discountCtrl.addListener(_recomputeProductPrices);
+    v.costCtrl.addListener(_recomputeProductPrices);
   }
 
   // ── #N(bulk-gen): Tez variant generator — rang×sifat×model×o'lcham ─────────
@@ -935,8 +1019,14 @@ class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
     stockCtrl.dispose();
 
     if (created != null && created.isNotEmpty && mounted) {
+      for (final v in created) {
+        _wireVariantAutoDerive(v);
+      }
       setState(() => _variants.addAll(created));
       _scheduleSaveDraft();
+      // Yangi generatsiya qilingan variantlar narx bilan keldi —
+      // Mahsulot maydonlarini darhol to'ldiramiz.
+      _recomputeProductPrices();
     }
   }
 
@@ -1048,11 +1138,16 @@ class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
     // backendga ketmasligi uchun). FormData EMAS — serializatsiyalanadigan
     // ProductSubmission quramiz (#12: tarmoq uzilsa navbatga qo'yiladi va
     // ulanish tiklanganda avtomatik yuboriladi).
+    // Backend `Product.price` NOT NULL — bo'sh bo'lsa '0' fallback (web kabi).
+    // Variantli mahsulotda avto-derive normalda allaqachon to'ldirgan, lekin
+    // hech bir variantda narx yo'q bo'lsa, bu nuqta ishonchli qilib qaytaradi.
+    final stripPrice = _stripNum(_price.text);
+    final stripStock = _stock.text.trim();
     final fields = <String, String>{
       'name': _name.text.trim(),
       'description': _description.text.trim(),
-      'price': _stripNum(_price.text),
-      'stock': _stock.text.trim(),
+      'price': stripPrice.isEmpty ? '0' : stripPrice,
+      'stock': stripStock.isEmpty ? '0' : stripStock,
       'is_active': _isActive.toString(),
       'is_new': _isNew.toString(),
       'is_popular': _isPopular.toString(),
@@ -1311,18 +1406,28 @@ class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
                         padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
                         children: [
                           _ExchangeRateHint(usdRate: _usdRate),
+                          // Variantli mahsulot — Mahsulot maydonlari avtomatik
+                          // to'ldirilishini aniq tushuntiramiz.
+                          if (_variants.isNotEmpty) _VariantPriceAutoHint(),
                           Row(
                             children: [
                               Expanded(
                                 child: _FormField(
-                                  label: "Narx (UZS) *",
+                                  // Variantli mahsulotda Mahsulot narxi MIN
+                                  // variantdan avtomatik to'ldiriladi (web kabi)
+                                  // — admin uchun majburiy emas.
+                                  label: _variants.isEmpty
+                                      ? "Narx (UZS) *"
+                                      : "Narx (UZS) — avto",
                                   controller: _price,
                                   keyboardType: TextInputType.number,
                                   textInputAction: TextInputAction.next,
                                   inputFormatters: [_ThousandsFormatter()],
                                   onChanged: (v) => _syncUsd(v, _priceUsd),
                                   validator: (v) =>
-                                      v!.isEmpty ? 'Majburiy' : null,
+                                      (_variants.isEmpty && v!.isEmpty)
+                                      ? 'Majburiy'
+                                      : null,
                                 ),
                               ),
                               const SizedBox(width: 10),
@@ -1426,11 +1531,18 @@ class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
                             ),
                           ),
                           _FormField(
-                            label: "Umumiy Stok miqdori *",
+                            // Variantli mahsulotda umumiy stok kerak emas —
+                            // har variantning O'Z stogi (Variantlar bosqichida)
+                            // backend uchun yetarli.
+                            label: _variants.isEmpty
+                                ? "Umumiy Stok miqdori *"
+                                : "Umumiy Stok (variantlar bo'lsa shart emas)",
                             controller: _stock,
                             keyboardType: TextInputType.number,
                             textInputAction: TextInputAction.done,
-                            validator: (v) => v!.isEmpty ? 'Majburiy' : null,
+                            validator: (v) => (_variants.isEmpty && v!.isEmpty)
+                                ? 'Majburiy'
+                                : null,
                           ),
                           const SizedBox(height: 24),
 
@@ -2555,6 +2667,47 @@ class _FormField extends StatelessWidget {
 
 /// Narxlar bo'limi tepasidagi kichik eslatma: joriy dollar kursi va UZS↔USD
 /// avtomatik hisoblanishini bildiradi (saytdagi tajribaga mos).
+/// Variantli mahsulot uchun banner: Mahsulot narxi/chegirma/tannarx maydonlari
+/// VARIANT MIN qiymatidan avtomatik to'ldirilishini admin tushunsin.
+/// Maydonlar buzilmagan (faqat o'qish emas) — admin xohlasa qo'lda yozishi
+/// mumkin, lekin keyingi variant o'zgarishida MIN bilan qayta yoziladi.
+class _VariantPriceAutoHint extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: const Color(0xFF0A7C55).withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(
+          color: const Color(0xFF0A7C55).withValues(alpha: 0.35),
+        ),
+      ),
+      child: Row(
+        children: [
+          const Icon(
+            Icons.auto_awesome_rounded,
+            size: 18,
+            color: Color(0xFF0A7C55),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              "Variantli mahsulot — Mahsulot narxi/chegirma/tannarx variantlarning ENG ARZONIDAN avtomatik to'ldiriladi. Sizdan faqat har variant narxini kiriting.",
+              style: TextStyle(
+                fontSize: 11.5,
+                color: Colors.grey[800],
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _ExchangeRateHint extends StatelessWidget {
   const _ExchangeRateHint({required this.usdRate});
   final double usdRate;
