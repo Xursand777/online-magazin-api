@@ -84,6 +84,8 @@ class _AdminProductsPageState extends State<AdminProductsPage> {
               return _ProductTile(
                 product: products[i],
                 onEdit: () => _showProductForm(context, products[i]),
+                onClone: () =>
+                    _showProductForm(context, products[i], clone: true),
                 onDelete: () =>
                     _confirmDelete(context, products[i].id, products[i].name),
               );
@@ -168,14 +170,15 @@ class _AdminProductsPageState extends State<AdminProductsPage> {
     );
   }
 
-  void _showProductForm(BuildContext context, AdminProductModel? product) {
+  void _showProductForm(BuildContext context, AdminProductModel? product,
+      {bool clone = false}) {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
       builder: (_) => BlocProvider.value(
         value: context.read<AdminBloc>(),
-        child: AdminProductFormSheet(product: product),
+        child: AdminProductFormSheet(product: product, clone: clone),
       ),
     );
   }
@@ -198,10 +201,12 @@ class _ProductTile extends StatelessWidget {
   const _ProductTile({
     required this.product,
     required this.onEdit,
+    required this.onClone,
     required this.onDelete,
   });
   final AdminProductModel product;
   final VoidCallback onEdit;
+  final VoidCallback onClone;
   final VoidCallback onDelete;
 
   @override
@@ -285,11 +290,19 @@ class _ProductTile extends StatelessWidget {
             IconButton(
               icon: const Icon(Icons.edit_outlined, size: 20),
               color: const Color(0xFF2563EB),
+              tooltip: 'Tahrirlash',
               onPressed: onEdit,
+            ),
+            IconButton(
+              icon: const Icon(Icons.content_copy_outlined, size: 19),
+              color: Colors.grey,
+              tooltip: 'Nusxa olish',
+              onPressed: onClone,
             ),
             IconButton(
               icon: const Icon(Icons.delete_outline, size: 20),
               color: Colors.red,
+              tooltip: "O'chirish",
               onPressed: onDelete,
             ),
           ],

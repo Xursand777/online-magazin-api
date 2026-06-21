@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -12,6 +13,8 @@ import '../bloc/admin_bloc.dart';
 import '../../data/models/admin_product_model.dart';
 import '../../data/repositories/admin_repository.dart';
 import '../../../../core/di/injection_container.dart';
+
+const Color _genGreen = Color(0xFF0A7C55);
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  UZS ↔ USD AVTOMATIK KONVERTATSIYA
@@ -88,8 +91,12 @@ const List<Map<String, String>> COLOR_PRESETS = [
 const List<String> QUALITY_PRESETS = ['Original', 'Premium', 'OEM', 'Copy A', 'Copy B'];
 
 class AdminProductFormSheet extends StatefulWidget {
-  const AdminProductFormSheet({super.key, this.product});
+  const AdminProductFormSheet({super.key, this.product, this.clone = false});
   final AdminProductModel? product;
+
+  /// #N(clone): product berilgan, lekin YANGI mahsulot sifatida (id'siz) —
+  /// ma'lumotlar manba mahsulotdan to'ldiriladi, saqlashda Create yuboriladi.
+  final bool clone;
 
   @override
   State<AdminProductFormSheet> createState() => _AdminProductFormSheetState();
@@ -111,6 +118,9 @@ class _VariantData {
   File? imageFile;
   String? existingImageUrl;
   bool removeImage = false;
+  // #N(SKU): SKU dasturiy generatsiya qilinganda oshiriladi — SKU maydoni
+  // (controllersiz, initialValue) yangi qiymat bilan qayta quriladi.
+  int skuGen = 0;
 
   /// Variant narx maydonlari uchun controllerlar — UZS↔USD avtomatik
   /// konvertatsiya saytdagidek ishlashi uchun (har bir variant alohida).
@@ -178,7 +188,11 @@ class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
   // uchun forma avtomat saqlanadi (FAQAT yangi qo'shishda, tahrirда emas).
   // Surib yopilganda darhol saqlanadi (PopScope), yozish asnosida debounce bilan.
   static const String _draftKey = 'admin_product_draft';
-  bool get _isCreate => widget.product == null;
+  // Tahrirlash = product bor VA klon emas. Create = qolgani (yangi yoki klon).
+  // Qoralama (draft) FAQAT toza create'da (klon manbadan to'lgani uchun emas).
+  bool get _isEdit => widget.product != null && !widget.clone;
+  bool get _isCreate => !_isEdit;
+  bool get _isPureCreate => widget.product == null && !widget.clone;
   Map<String, dynamic>? _pendingDraft; // ochilganda topilgan saqlanmagan qoralama
   Timer? _draftTimer;
   bool _submitted = false; // "Qo'shish" bosilgan — pop'da qoralama qayta yozilmasin
@@ -213,18 +227,20 @@ class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
           final gid = v.color?.isNotEmpty == true ? v.color!.toLowerCase() : 'g_${v.id ?? DateTime.now().microsecondsSinceEpoch}';
           return _VariantData(
             groupId: gid,
-            id: v.id,
+            // Klonда: id/sku/barcode/rasm tashlanadi (yangi variant yaratiladi).
+            id: widget.clone ? null : v.id,
             color: v.color,
             colorHex: v.colorHex,
             quality: v.quality,
             model: v.model,
             size: v.size,
-            barcode: v.barcode,
-            sku: v.sku,
+            barcode: widget.clone ? null : v.barcode,
+            sku: widget.clone ? null : v.sku,
             price: v.price?.toStringAsFixed(0),
             priceUsd: v.priceUsd?.toStringAsFixed(2),
             stock: v.stock.toString(),
-            existingImageUrl: v.images.isNotEmpty ? v.images.first.url : null,
+            existingImageUrl:
+                widget.clone ? null : (v.images.isNotEmpty ? v.images.first.url : null),
           );
         }).toList();
       }
@@ -239,8 +255,8 @@ class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
     }
 
     // #N6: yangi qo'shishda — asosiy maydonlar o'zgarsa qoralamani saqlaymiz
-    // (debounce) va saqlanmagan qoralamani tekshiramiz.
-    if (_isCreate) {
+    // (debounce) va saqlanmagan qoralamani tekshiramiz. Klonда draft YO'Q.
+    if (_isPureCreate) {
       for (final c in [
         _name, _description, _price, _priceUsd, _discountPrice,
         _discountPriceUsd, _costPrice, _costPriceUsd, _stock,
@@ -282,7 +298,7 @@ class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
 
   // ── #N6: Qoralama (draft) — saqlash / yuklash / tiklash ────────────────────
   void _scheduleSaveDraft() {
-    if (!_isCreate) return;
+    if (!_isPureCreate) return;
     _draftTimer?.cancel();
     _draftTimer = Timer(const Duration(milliseconds: 600), _saveDraftNow);
   }
@@ -321,7 +337,7 @@ class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
       };
 
   Future<void> _saveDraftNow() async {
-    if (!_isCreate || _submitted) return;
+    if (!_isPureCreate || _submitted) return;
     // Bo'sh formani saqlamaymiz (nom ham, variant ham yo'q bo'lsa).
     if (_name.text.trim().isEmpty && _variants.isEmpty) return;
     // MUHIM: controllerlarni `await`'dan OLDIN sinxron o'qiymiz — varaq
@@ -497,6 +513,211 @@ class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
     _scheduleSaveDraft();
   }
 
+  // ── SKU avto-generatsiya (web generateVariantSku bilan bir xil mantiq) ──────
+  static String _genSku(String productName, _VariantData v) {
+    String alnum(String? s, int n) {
+      final x = (s ?? '').toUpperCase().replaceAll(RegExp(r'[^A-Z0-9]'), '');
+      return x.substring(0, x.length < n ? x.length : n);
+    }
+
+    final initials = productName
+        .split(' ')
+        .where((w) => w.isNotEmpty)
+        .map((w) => w[0])
+        .join();
+    final prefixClean = initials.toUpperCase().replaceAll(RegExp(r'[^A-Z0-9]'), '');
+    final prefix = prefixClean.substring(0, prefixClean.length < 4 ? prefixClean.length : 4);
+
+    final quality = alnum(v.quality, 3);
+    final model = alnum(v.model, 3);
+    final size = alnum(v.size, 4);
+    final colorClean = (v.color ?? '').toUpperCase().replaceAll(RegExp(r'[AEIOUY\s]'), '');
+    final color = colorClean.substring(0, colorClean.length < 3 ? colorClean.length : 3);
+
+    const chars = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+    final rnd = List.generate(4, (_) => chars[Random().nextInt(chars.length)]).join();
+
+    return [prefix, quality, model, size, color, rnd]
+        .where((s) => s.isNotEmpty)
+        .join('-');
+  }
+
+  void _regenerateSku(_VariantData v) {
+    setState(() {
+      v.sku = _genSku(_name.text, v);
+      v.skuGen++;
+    });
+    _scheduleSaveDraft();
+  }
+
+  void _generateAllSkus() {
+    setState(() {
+      for (final v in _variants) {
+        v.sku = _genSku(_name.text, v);
+        v.skuGen++;
+      }
+    });
+    _scheduleSaveDraft();
+  }
+
+  // ── #N(bulk-gen): Tez variant generator — rang×sifat×model×o'lcham ─────────
+  // Vergul bilan ajratilgan ro'yxatlardan barcha kombinatsiyalarni yaratadi
+  // (web BulkVariantGenerator bilan bir xil). Mobil variantда tannarx/chegirma
+  // yo'q — faqat narx + ombor beriladi.
+  Future<void> _showBulkVariantGenerator() async {
+    final colorsCtrl = TextEditingController();
+    final qualitiesCtrl = TextEditingController();
+    final modelsCtrl = TextEditingController();
+    final sizesCtrl = TextEditingController();
+    final priceCtrl = TextEditingController(text: _price.text);
+    final stockCtrl = TextEditingController(text: _stock.text.isEmpty ? '0' : _stock.text);
+
+    List<String> split(String s) =>
+        s.split(',').map((e) => e.trim()).where((e) => e.isNotEmpty).toList();
+
+    final created = await showModalBottomSheet<List<_VariantData>>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (ctx, setSheet) {
+            final colors = split(colorsCtrl.text);
+            final quals = split(qualitiesCtrl.text);
+            final models = split(modelsCtrl.text);
+            final sizes = split(sizesCtrl.text);
+            final count = (colors.isEmpty ? 1 : colors.length) *
+                (quals.isEmpty ? 1 : quals.length) *
+                (models.isEmpty ? 1 : models.length) *
+                (sizes.isEmpty ? 1 : sizes.length);
+            Widget field(String label, TextEditingController c, String hint,
+                {TextInputType? kb}) {
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 10),
+                child: TextField(
+                  controller: c,
+                  keyboardType: kb,
+                  onChanged: (_) => setSheet(() {}),
+                  decoration: InputDecoration(
+                    labelText: label,
+                    hintText: hint,
+                    isDense: true,
+                    border: const OutlineInputBorder(),
+                  ),
+                ),
+              );
+            }
+
+            return Padding(
+              padding: EdgeInsets.only(
+                left: 16, right: 16, top: 16,
+                bottom: MediaQuery.of(ctx).viewInsets.bottom + 16,
+              ),
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        const Icon(Icons.auto_fix_high, color: _genGreen),
+                        const SizedBox(width: 8),
+                        Text('Tez variant generator',
+                            style: Theme.of(ctx).textTheme.titleMedium?.copyWith(
+                                fontWeight: FontWeight.w800)),
+                        const Spacer(),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: _genGreen.withValues(alpha: 0.12),
+                            borderRadius: BorderRadius.circular(20),
+                          ),
+                          child: Text('$count ta',
+                              style: const TextStyle(
+                                  color: _genGreen, fontWeight: FontWeight.w800)),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    field('Ranglar (vergul bilan)', colorsCtrl, "Qora, Oq, Ko'k"),
+                    field('Sifatlar (vergul bilan)', qualitiesCtrl, 'Original, OEM'),
+                    field('Modellar (vergul bilan)', modelsCtrl, 'Pro, Ultra'),
+                    field("O'lchamlar (vergul bilan)", sizesCtrl, '128GB, 256GB'),
+                    field('Asosiy narx (so\'m)', priceCtrl, '15 000 000',
+                        kb: TextInputType.number),
+                    field('Ombor soni', stockCtrl, '10', kb: TextInputType.number),
+                    const SizedBox(height: 4),
+                    SizedBox(
+                      width: double.infinity,
+                      height: 50,
+                      child: ElevatedButton.icon(
+                        onPressed: count <= 0
+                            ? null
+                            : () {
+                                final price = _stripNum(priceCtrl.text);
+                                final stock = stockCtrl.text.trim().isEmpty
+                                    ? '0'
+                                    : stockCtrl.text.trim();
+                                final cList = colors.isEmpty ? [''] : colors;
+                                final qList = quals.isEmpty ? [''] : quals;
+                                final mList = models.isEmpty ? [''] : models;
+                                final sList = sizes.isEmpty ? [''] : sizes;
+                                final out = <_VariantData>[];
+                                for (final c in cList) {
+                                  final gid = c.isNotEmpty
+                                      ? c.toLowerCase()
+                                      : 'g_${DateTime.now().microsecondsSinceEpoch}_${out.length}';
+                                  for (final q in qList) {
+                                    for (final m in mList) {
+                                      for (final sz in sList) {
+                                        out.add(_VariantData(
+                                          groupId: gid,
+                                          color: c,
+                                          quality: q,
+                                          model: m,
+                                          size: sz,
+                                          price: price,
+                                          stock: stock,
+                                        ));
+                                      }
+                                    }
+                                  }
+                                }
+                                Navigator.pop(ctx, out);
+                              },
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: _genGreen,
+                          shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12)),
+                        ),
+                        icon: const Icon(Icons.auto_fix_high, color: Colors.white),
+                        label: Text('$count ta variant yaratish',
+                            style: const TextStyle(
+                                color: Colors.white, fontWeight: FontWeight.w700)),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+
+    colorsCtrl.dispose();
+    qualitiesCtrl.dispose();
+    modelsCtrl.dispose();
+    sizesCtrl.dispose();
+    priceCtrl.dispose();
+    stockCtrl.dispose();
+
+    if (created != null && created.isNotEmpty && mounted) {
+      setState(() => _variants.addAll(created));
+      _scheduleSaveDraft();
+    }
+  }
+
   // #N8: tannarxdan past sotuv (POS/web bilan bir xil qoida) — samarali sotuv
   // narxi (chegirma>0 ? chegirma : narx) tannarxdan past bo'lsa true. Tannarx
   // 0/bo'sh bo'lsa pol yo'q. Mobil variantда alohida tannarx yo'q — variant
@@ -626,7 +847,7 @@ class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
     }
 
     final bloc = context.read<AdminBloc>();
-    if (widget.product == null) {
+    if (_isCreate) {
       // #N6: ataylab saqlandi — qoralamani tozalaymiz, pop'da qayta yozilmasin.
       _submitted = true;
       _draftTimer?.cancel();
@@ -653,13 +874,13 @@ class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final state = context.watch<AdminBloc>().state;
-    final isEdit = widget.product != null;
+    final isEdit = _isEdit;
 
     // #N6: varaq surib yopilganda (yoki orqaga) — qoralamani darhol saqlaymiz.
     return PopScope(
       canPop: true,
       onPopInvokedWithResult: (didPop, result) {
-        if (_isCreate && !_submitted) _saveDraftNow();
+        if (_isPureCreate && !_submitted) _saveDraftNow();
       },
       child: DraggableScrollableSheet(
       initialChildSize: 0.94,
@@ -688,7 +909,11 @@ class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
                   children: [
                     Expanded(
                       child: Text(
-                        isEdit ? 'Mahsulotni tahrirlash' : "Yangi mahsulot qo'shish",
+                        isEdit
+                            ? 'Mahsulotni tahrirlash'
+                            : widget.clone
+                                ? 'Mahsulotdan nusxa'
+                                : "Yangi mahsulot qo'shish",
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: theme.textTheme.titleLarge?.copyWith(
@@ -743,7 +968,7 @@ class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
                                     width: double.infinity,
                                   ),
                                 )
-                              : (widget.product?.mainImage != null
+                              : (_isEdit && widget.product?.mainImage != null
                                   ? ClipRRect(
                                       borderRadius: BorderRadius.circular(13),
                                       child: CachedNetworkImage(
@@ -912,6 +1137,35 @@ class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
                       const SizedBox(height: 24),
 
                       _buildSectionTitle(context, 'Variantlar (Modifikatsiyalar)'),
+                      // Tez generator + barcha SKU generatsiya
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 8),
+                        child: Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: [
+                            OutlinedButton.icon(
+                              onPressed: _showBulkVariantGenerator,
+                              icon: const Icon(Icons.auto_fix_high, size: 16),
+                              label: const Text('Tez generator'),
+                              style: OutlinedButton.styleFrom(
+                                foregroundColor: _genGreen,
+                                side: const BorderSide(color: _genGreen),
+                                visualDensity: VisualDensity.compact,
+                              ),
+                            ),
+                            if (_variants.isNotEmpty)
+                              OutlinedButton.icon(
+                                onPressed: _generateAllSkus,
+                                icon: const Icon(Icons.auto_awesome, size: 16),
+                                label: const Text('Barcha SKU'),
+                                style: OutlinedButton.styleFrom(
+                                  visualDensity: VisualDensity.compact,
+                                ),
+                              ),
+                          ],
+                        ),
+                      ),
                       if (_variants.isEmpty)
                         Padding(
                           padding: const EdgeInsets.only(bottom: 12),
@@ -1375,10 +1629,19 @@ class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
                         const SizedBox(width: 8),
                         Expanded(
                           child: TextFormField(
+                            // SKU dasturiy generatsiya qilinganda maydon yangi
+                            // qiymat bilan qayta quriladi (skuGen kalitда).
+                            key: ValueKey('sku-${identityHashCode(v)}-${v.skuGen}'),
                             initialValue: v.sku,
                             decoration: _inputDeco('SKU (kod)'),
                             onChanged: (val) => v.sku = val,
                           ),
+                        ),
+                        IconButton(
+                          tooltip: 'SKU generatsiya',
+                          visualDensity: VisualDensity.compact,
+                          icon: const Icon(Icons.auto_awesome, size: 18, color: _genGreen),
+                          onPressed: () => _regenerateSku(v),
                         ),
                       ],
                     ),
