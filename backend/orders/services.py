@@ -11,7 +11,16 @@ from django.db.models import Q
 from django.utils import timezone
 from rest_framework import serializers
 
-from .models import Order, OrderDispute, OrderDisputeImage, OrderHistory, OrderItem, Payment
+from .models import (
+    Order,
+    OrderDispute,
+    OrderDisputeImage,
+    OrderHistory,
+    OrderItem,
+    OrderReturn,
+    OrderReturnItem,
+    Payment,
+)
 
 
 # ────────────────────────────────────────────────────────────────────────────
@@ -1511,3 +1520,346 @@ def lift_user_credit_ban(*, user, admin, reason: str = ''):
         'forgiven_orders': forgiven_count,
         'reason': reason,
     }
+
+
+# ────────────────────────────────────────────────────────────────────────────
+#  Phase 3.1 — Qaytarish (Return / Refund) servislari
+#
+#  Asosiy kontrakt:
+#    check_return_eligibility(order, items=None) — yagona eligibility manbasi.
+#      `items` berilsa, faqat shu OrderItem'lar uchun tekshiradi (qisman qaytarish).
+#      Block holatda RAISES `serializers.ValidationError({error, code})`.
+#      Allowed holatda QAYTARADI {'window_left_seconds': int, 'returnable_items': [...]}.
+#
+#    transition_return_status(return_obj, new_status, actor, ...) — yagona
+#      chokepoint barcha status o'tishlari uchun (Phase 2 dizayni bilan bir xil).
+#      Status mashinasi STATE_TRANSITIONS_RETURN'da. Stok va Order.returned_qty
+#      faqat SUCCESS_STATUSES ga o'tganda yangilanadi.
+# ────────────────────────────────────────────────────────────────────────────
+
+
+# Qaytarish status zanjiri (state machine).
+# REQUESTED → APPROVED → PICKUP_SCHEDULED → PICKED_UP → INSPECTING → ACCEPTED →
+#             REFUNDED | REPLACED                                    → REJECTED
+# CANCELLED — har qanday faol holatdan mumkin (lekin TERMINAL'dan emas).
+STATUS_TRANSITIONS_RETURN = {
+    OrderReturn.STATUS_REQUESTED: {
+        OrderReturn.STATUS_APPROVED,
+        OrderReturn.STATUS_REJECTED,
+        OrderReturn.STATUS_CANCELLED,
+    },
+    OrderReturn.STATUS_APPROVED: {
+        OrderReturn.STATUS_PICKUP_SCHEDULED,
+        # POS holatda — mijoz tovarni o'zi olib kelsa, pickup skip qilinadi.
+        OrderReturn.STATUS_PICKED_UP,
+        OrderReturn.STATUS_CANCELLED,
+    },
+    OrderReturn.STATUS_PICKUP_SCHEDULED: {
+        OrderReturn.STATUS_PICKED_UP,
+        OrderReturn.STATUS_CANCELLED,
+    },
+    OrderReturn.STATUS_PICKED_UP: {
+        OrderReturn.STATUS_INSPECTING,
+        OrderReturn.STATUS_CANCELLED,
+    },
+    OrderReturn.STATUS_INSPECTING: {
+        OrderReturn.STATUS_ACCEPTED,
+        OrderReturn.STATUS_REJECTED,
+        OrderReturn.STATUS_CANCELLED,
+    },
+    OrderReturn.STATUS_ACCEPTED: {
+        OrderReturn.STATUS_REFUNDED,
+        OrderReturn.STATUS_REPLACED,
+    },
+    # TERMINAL holatlardan chiqib bo'lmaydi — buxgalteriya integrity.
+    OrderReturn.STATUS_REFUNDED:  set(),
+    OrderReturn.STATUS_REPLACED:  set(),
+    OrderReturn.STATUS_REJECTED:  set(),
+    OrderReturn.STATUS_CANCELLED: set(),
+}
+
+
+# Eligibility uchun buyurtma statuslari — qaytarish faqat shu statuslarda bo'lsa
+# mumkin (DELIVERED yoki RECEIVED). SHIPPING'da rad etish alohida oqim
+# (kuryer ilovasidan).
+RETURNABLE_ORDER_STATUSES = frozenset({
+    Order.STATUS_DELIVERED,
+    Order.STATUS_RECEIVED,
+})
+
+
+def check_return_eligibility(order: Order, items: list | None = None) -> dict:
+    """
+    Buyurtma (yoki uning bir qancha item'lari) qaytarish uchun mosligini tekshiradi.
+
+    Block holatda RAISES `serializers.ValidationError({error, code})`.
+    Allow holatda QAYTARADI:
+        {
+          'window_left_seconds': int,
+          'returnable_items': [{'order_item_id': int, 'returnable_qty': int, 'price': Decimal}, ...]
+        }
+
+    Tartib (eng cheklov birinchi — Phase 2.5 `check_credit_eligibility` uslubi):
+
+      1. Buyurtma DELIVERED yoki RECEIVED bo'lishi kerak (window mantiqiy
+         hisoblanadi shu statuslar uchun).
+      2. dispute_deadline > now (Phase 2.6 bilan tenglash — 7 kun).
+      3. Hech bir aktiv qaytarish bo'lmasligi (bir buyurtma uchun bitta vaqtning
+         o'zida bittadan ortiq aktiv jarayon yo'q — admin xato qilmasin).
+      4. Belgilangan item'lar (yoki barcha item'lar) hali to'liq qaytarilmagan
+         bo'lishi (returned_qty < quantity).
+      5. Belgilangan miqdor mumkin bo'lgan miqdordan oshmasligi.
+
+    XAVFSIZLIK: bu funksiya AUTHORITATIVE — API view'lardan oldin chaqiriladi,
+    UI'dagi tekshiruvga ishonmaydi.
+    """
+    now = timezone.now()
+
+    # 1) Buyurtma holati
+    if order.status not in RETURNABLE_ORDER_STATUSES:
+        raise serializers.ValidationError({
+            'error': (
+                f"Qaytarish faqat yetkazib berilgan buyurtmalarga ruxsat etiladi "
+                f"(hozir: {order.get_status_display()})."
+            ),
+            'code': 'not_eligible_status',
+        })
+
+    # 2) Qaytarish oynasi (window) — dispute_deadline ni qayta ishlatamiz.
+    # Eski (Phase 2.6 dan oldingi) buyurtmalar uchun dispute_deadline=None.
+    # Bu holda created_at + 7 kun deb hisoblaymiz (defensiv fallback).
+    if order.dispute_deadline is not None:
+        deadline = order.dispute_deadline
+    else:
+        deadline = order.created_at + timedelta(days=Order.DISPUTE_WINDOW_DAYS)
+
+    if deadline <= now:
+        raise serializers.ValidationError({
+            'error': (
+                f"Qaytarish muddati o'tib ketgan "
+                f"(muddat: {deadline:%Y-%m-%d %H:%M})."
+            ),
+            'code': 'window_expired',
+        })
+
+    # 3) Aktiv qaytarish mavjudligi
+    has_active = order.returns.filter(status__in=OrderReturn.ACTIVE_STATUSES).exists()
+    if has_active:
+        raise serializers.ValidationError({
+            'error': "Bu buyurtma uchun allaqachon faol qaytarish jarayoni bor.",
+            'code': 'already_in_progress',
+        })
+
+    # 4–5) Item'lar bo'yicha — `items` berilmagan bo'lsa barcha qoldiq item'lar
+    requested_map: dict[int, int] = {}
+    if items:
+        for entry in items:
+            oid = int(entry['order_item_id'])
+            qty = int(entry['quantity'])
+            if qty <= 0:
+                raise serializers.ValidationError({
+                    'error': "Qaytarish miqdori 0 dan katta bo'lishi kerak.",
+                    'code': 'invalid_quantity',
+                })
+            requested_map[oid] = requested_map.get(oid, 0) + qty
+
+    returnable_items = []
+    for it in order.items.select_related('product', 'variant').all():
+        avail = it.returnable_qty
+        if avail <= 0:
+            # Allaqachon to'liq qaytarilgan — skip
+            if it.id in requested_map:
+                raise serializers.ValidationError({
+                    'error': f"Item #{it.id} allaqachon to'liq qaytarilgan.",
+                    'code': 'already_returned_fully',
+                })
+            continue
+
+        if requested_map:
+            wanted = requested_map.get(it.id)
+            if wanted is None:
+                continue   # admin shu item'ni so'ramagan
+            if wanted > avail:
+                raise serializers.ValidationError({
+                    'error': (
+                        f"Item #{it.id}: so'ralgan miqdor ({wanted}) mumkin bo'lgan "
+                        f"qoldiqdan ({avail}) ortiq."
+                    ),
+                    'code': 'over_quantity',
+                })
+            qty_to_use = wanted
+        else:
+            qty_to_use = avail
+
+        returnable_items.append({
+            'order_item_id': it.id,
+            'returnable_qty': qty_to_use,
+            'price': it.price_snapshot,
+            'product_name': it.product.name if it.product else 'Unknown',
+            'variant_id': it.variant_id,
+        })
+
+    if not returnable_items:
+        raise serializers.ValidationError({
+            'error': "Qaytarish uchun mos item topilmadi (barchasi allaqachon qaytarilgan).",
+            'code': 'already_returned_fully',
+        })
+
+    return {
+        'window_left_seconds': int((deadline - now).total_seconds()),
+        'returnable_items': returnable_items,
+    }
+
+
+def _restock_quantity(*, product_id: int, variant_id: int | None, quantity: int) -> None:
+    """
+    `restore_inventory(order_item)`'ning umumlashtirilgan versiyasi — qisman
+    qaytarish uchun miqdor parametri bilan. `select_for_update()` lost-update
+    himoyasini ta'minlaydi.
+    """
+    if quantity <= 0:
+        return
+    from products.models import Product as _Product, ProductVariant as _Variant
+
+    if variant_id:
+        locked = _Variant.objects.select_for_update().get(pk=variant_id)
+        locked.stock += quantity
+        locked.save(update_fields=['stock'])
+        return
+
+    if product_id:
+        locked = _Product.objects.select_for_update().get(pk=product_id)
+        locked.stock += quantity
+        locked.save(update_fields=['stock'])
+
+
+@transaction.atomic
+def transition_return_status(
+    *,
+    return_obj: OrderReturn,
+    new_status: str,
+    actor,
+    note: str = '',
+    inspection_notes: str = '',
+):
+    """
+    Yagona chokepoint qaytarish status o'tishlari uchun (Phase 2'dagi
+    `transition_order_status` uslubi).
+
+    SIDE-EFFECTS:
+      • ACCEPTED — inspector qarorlari `OrderReturnItem.restock`/`writeoff`
+        belgilangan bo'lishi kerak. Bu chiziqda hech narsa qilmaydi —
+        haqiqiy stok yangilash REFUNDED/REPLACED'ga o'tganda.
+
+      • REFUNDED yoki REPLACED — har OrderReturnItem uchun:
+          - OrderItem.returned_qty += quantity (INVARIANT)
+          - Agar restock=True → ProductVariant.stock yoki Product.stock += quantity
+          - Agar restock=False → writeoff (alohida jadval qo'shilmaydi, audit log yetarli)
+        Bundan tashqari:
+          - refund_processed_at = now
+          - refund_processed_by = actor
+
+      • REJECTED — hech qanday stok harakati yo'q. Tovar mijozga qaytariladi
+        (UI da admin xabar qiladi).
+
+    Race condition'dan himoya: `select_for_update()` qaytarish ob'ektida
+    (parallel admin ikkita marta REFUNDED bosishi kabi holatlar).
+    """
+    # Ob'ektni lock qilib, tug'ri statusni qayta o'qiymiz (stale read'dan himoya).
+    return_obj = OrderReturn.objects.select_for_update().get(pk=return_obj.pk)
+
+    if new_status == return_obj.status:
+        return return_obj
+
+    allowed = STATUS_TRANSITIONS_RETURN.get(return_obj.status, set())
+    if new_status not in allowed:
+        raise serializers.ValidationError({
+            'error': (
+                f"Qaytarish statusini {return_obj.status} dan {new_status} ga "
+                f"o'zgartirib bo'lmaydi."
+            ),
+            'code': 'invalid_transition',
+        })
+
+    previous_status = return_obj.status
+    return_obj.status = new_status
+    return_obj.status_changed_by = actor
+    update_fields = ['status', 'status_changed_by', 'status_changed_at', 'updated_at']
+
+    if new_status == OrderReturn.STATUS_INSPECTING:
+        return_obj.inspector = actor
+        return_obj.inspection_at = timezone.now()
+        update_fields.extend(['inspector', 'inspection_at'])
+
+    if new_status in (OrderReturn.STATUS_ACCEPTED, OrderReturn.STATUS_REJECTED) and inspection_notes:
+        return_obj.inspection_notes = inspection_notes
+        update_fields.append('inspection_notes')
+
+    if new_status == OrderReturn.STATUS_REJECTED and note:
+        return_obj.rejection_reason = note
+        update_fields.append('rejection_reason')
+
+    # ── SUCCESS yo'l — stok va OrderItem.returned_qty yangilash ─────────────
+    if new_status in OrderReturn.SUCCESS_STATUSES:
+        # Idempotency: agar oldindan ham SUCCESS bo'lsa qayta yangilamaymiz.
+        # (Bu yerda kelmaymiz STATUS_TRANSITIONS_RETURN ga rahmat — TERMINAL'dan
+        # chiqish yo'q. Lekin defensiv yondashuv.)
+        if previous_status in OrderReturn.SUCCESS_STATUSES:
+            pass
+        else:
+            return_items = return_obj.items.select_related(
+                'order_item__product', 'order_item__variant'
+            ).all()
+
+            if not return_items.exists():
+                raise serializers.ValidationError({
+                    'error': "Qaytarish item'lari yo'q — yakunlash mumkin emas.",
+                    'code': 'no_items',
+                })
+
+            for ri in return_items:
+                oi = ri.order_item
+                # OrderItem.returned_qty INVARIANTini buzmaslik
+                new_returned = oi.returned_qty + ri.quantity
+                if new_returned > oi.quantity:
+                    raise serializers.ValidationError({
+                        'error': (
+                            f"Item #{oi.id}: qaytarish miqdori ({ri.quantity}) "
+                            f"qolgan miqdordan ortiq."
+                        ),
+                        'code': 'over_quantity_at_commit',
+                    })
+                oi.returned_qty = new_returned
+                oi.save(update_fields=['returned_qty'])
+
+                if ri.restock:
+                    _restock_quantity(
+                        product_id=oi.product_id,
+                        variant_id=oi.variant_id,
+                        quantity=ri.quantity,
+                    )
+                # restock=False holatda — writeoff. AuditLog allaqachon
+                # endpoint'da yoziladi (Phase 1.1). Stok teginmaydi.
+
+        return_obj.refund_processed_at = timezone.now()
+        return_obj.refund_processed_by = actor
+        update_fields.extend(['refund_processed_at', 'refund_processed_by'])
+
+    return_obj.save(update_fields=update_fields)
+
+    # OrderHistory ga ham yozamiz — buyurtma tarixida qaytarish ko'rinsin.
+    create_order_history(
+        return_obj.order,
+        to_status=return_obj.order.status,   # Order holati o'zgarmadi
+        from_status=return_obj.order.status,
+        actor_type=(
+            OrderHistory.ACTOR_ADMIN if actor and getattr(actor, 'is_staff', False)
+            else OrderHistory.ACTOR_SYSTEM
+        ),
+        actor=actor,
+        note=(
+            f"Qaytarish {return_obj.return_number}: "
+            f"{previous_status} → {new_status}" + (f" ({note})" if note else '')
+        ),
+    )
+    return return_obj

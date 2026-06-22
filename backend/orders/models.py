@@ -336,6 +336,21 @@ class OrderItem(models.Model):
     quantity = models.PositiveIntegerField(default=1)
     price_snapshot = models.DecimalField(max_digits=12, decimal_places=2)
 
+    # ── Phase 3.1 — Return tracker ───────────────────────────────────────────
+    # Necha donasi allaqachon qaytarib olingan (refunded yoki replaced).
+    # INVARIANT: returned_qty <= quantity. Eligibility tekshiruvi shu maydonni
+    # ishlatadi: agar `returned_qty >= quantity` bo'lsa, qayta qaytarib bo'lmaydi.
+    # Hisobotda haqiqiy sotuv = quantity - returned_qty.
+    returned_qty = models.PositiveIntegerField(
+        default=0,
+        help_text="Necha donasi qaytarib olingan (refunded yoki replaced)",
+    )
+
+    @property
+    def returnable_qty(self) -> int:
+        """Hali qaytarish mumkin bo'lgan miqdor."""
+        return max(0, self.quantity - self.returned_qty)
+
     def __str__(self):
         product_name = self.product.name if self.product else 'Unknown'
         return f"{self.quantity} x {product_name} for Order #{self.order.id}"
@@ -586,3 +601,413 @@ class OrderDisputeImage(models.Model):
 
     def __str__(self):
         return f"DisputeImage #{self.id} (dispute #{self.dispute_id})"
+
+
+# ────────────────────────────────────────────────────────────────────────────
+#  Phase 3.1 — Qaytarish (Return / Refund) tizimi
+#
+#  Dispute (Phase 2.6) — bu mijoz shikoyati (ko'pincha "muammo bor"). Qaytarish
+#  esa alohida ish jarayoni: shikoyatdan kelib chiqishi YOKI mustaqil
+#  boshlanishi mumkin. Bir buyurtmada bir nechta qaytarish ham bo'ladi
+#  (Amazon/Wildberries kabi — har item alohida qaytarilishi mumkin).
+#
+#  INVARIANT: Order.total_price o'zgarmaydi (hisobotlar to'g'ri qolishi uchun).
+#  "Qaytarilgan summa" = Σ OrderReturn.refund_amount (status=REFUNDED/REPLACED).
+#  Foyda hisobi: Σ (price_snapshot - cost) * (quantity - returned_qty).
+# ────────────────────────────────────────────────────────────────────────────
+
+
+def _return_photo_upload_path(instance, filename):
+    """Cloudinary yo'li: orders/returns/<year>/<month>/<filename>."""
+    now = timezone.now()
+    return f"orders/returns/{now:%Y/%m}/{filename}"
+
+
+class OrderReturn(models.Model):
+    # ── Status zanjiri (state machine) ──────────────────────────────────────
+    # REQUESTED → APPROVED → PICKUP_SCHEDULED → PICKED_UP → INSPECTING →
+    #             ACCEPTED → REFUNDED | REPLACED
+    #                                          → REJECTED
+    # Har qanday nuqtada (REFUNDED/REPLACED'dan oldin) CANCELLED ga o'tish mumkin.
+    STATUS_REQUESTED         = 'REQUESTED'           # admin yaratdi, hali ko'rib chiqilmagan
+    STATUS_APPROVED          = 'APPROVED'            # eligibility tasdiqlandi
+    STATUS_PICKUP_SCHEDULED  = 'PICKUP_SCHEDULED'    # kuryer biriktirildi
+    STATUS_PICKED_UP         = 'PICKED_UP'           # tovar mijozdan olindi (yoki POS ga keltirildi)
+    STATUS_INSPECTING        = 'INSPECTING'          # inspector tekshirmoqda
+    STATUS_ACCEPTED          = 'ACCEPTED'            # qabul qilindi, pul/almashish kerak
+    STATUS_REFUNDED          = 'REFUNDED'            # yakuniy: pul qaytarildi
+    STATUS_REPLACED          = 'REPLACED'            # yakuniy: yangi mahsulot berildi
+    STATUS_REJECTED          = 'REJECTED'            # rad etildi (inspection_notes da sabab)
+    STATUS_CANCELLED         = 'CANCELLED'           # admin/mijoz bekor qildi
+
+    STATUS_CHOICES = [
+        (STATUS_REQUESTED,        "So'rov yuborildi"),
+        (STATUS_APPROVED,         "Tasdiqlandi"),
+        (STATUS_PICKUP_SCHEDULED, "Kuryer biriktirildi"),
+        (STATUS_PICKED_UP,        "Tovar olindi"),
+        (STATUS_INSPECTING,       "Tekshirilmoqda"),
+        (STATUS_ACCEPTED,         "Qabul qilindi"),
+        (STATUS_REFUNDED,         "Pul qaytarildi"),
+        (STATUS_REPLACED,         "Almashtirildi"),
+        (STATUS_REJECTED,         "Rad etildi"),
+        (STATUS_CANCELLED,        "Bekor qilindi"),
+    ]
+
+    # Hali yakunlanmagan (faol) qaytarishlar — buyurtmaga qarshi qayta yaratish
+    # bloklanadi shu statuslarda mavjudlar bo'lsa.
+    ACTIVE_STATUSES = frozenset({
+        STATUS_REQUESTED, STATUS_APPROVED, STATUS_PICKUP_SCHEDULED,
+        STATUS_PICKED_UP, STATUS_INSPECTING, STATUS_ACCEPTED,
+    })
+    # Yakuniy holatlar — stok va Order.returned_qty shu nuqtada qulflanadi.
+    TERMINAL_STATUSES = frozenset({
+        STATUS_REFUNDED, STATUS_REPLACED, STATUS_REJECTED, STATUS_CANCELLED,
+    })
+    # "Buyumlar haqiqatan qaytarildi" — bu nuqtada OrderItem.returned_qty oshadi
+    # va (restock=True bo'lsa) stok qaytariladi.
+    SUCCESS_STATUSES = frozenset({STATUS_REFUNDED, STATUS_REPLACED})
+
+    # ── Qaytarish sabablari ─────────────────────────────────────────────────
+    REASON_DEFECTIVE         = 'defective'           # ishlamayapti / sinishgan
+    REASON_WRONG_ITEM        = 'wrong_item'          # boshqa mahsulot keldi
+    REASON_NOT_AS_DESCRIBED  = 'not_as_described'    # tavsifga mos emas
+    REASON_DAMAGED_IN_TRANSIT = 'damaged_in_transit' # yo'lda buzilgan
+    REASON_QUALITY_ISSUE     = 'quality_issue'       # sifat past
+    REASON_SIZE_MISMATCH     = 'size_mismatch'       # o'lcham to'g'ri kelmadi
+    REASON_CHANGED_MIND      = 'changed_mind'        # fikr o'zgardi
+    REASON_DUPLICATE_ORDER   = 'duplicate_order'     # ikki marta buyurtma
+    REASON_CUSTOMER_REFUSED  = 'customer_refused'    # kuryerdan rad etish
+
+    REASON_CHOICES = [
+        (REASON_DEFECTIVE,         'Aybli (defective)'),
+        (REASON_WRONG_ITEM,        "Noto'g'ri mahsulot"),
+        (REASON_NOT_AS_DESCRIBED,  'Tavsifga mos emas'),
+        (REASON_DAMAGED_IN_TRANSIT,"Yo'lda buzildi"),
+        (REASON_QUALITY_ISSUE,     'Sifat masalasi'),
+        (REASON_SIZE_MISMATCH,     "O'lcham to'g'ri kelmadi"),
+        (REASON_CHANGED_MIND,      "Fikr o'zgardi"),
+        (REASON_DUPLICATE_ORDER,   'Takroriy buyurtma'),
+        (REASON_CUSTOMER_REFUSED,  'Mijoz qabul qilmadi'),
+    ]
+
+    # ── Tashabbus turi ──────────────────────────────────────────────────────
+    INITIATOR_ADMIN   = 'admin'
+    INITIATOR_COURIER = 'courier'
+    INITIATOR_CUSTOMER = 'customer'   # Phase 3.6 uchun (hozir admin kiritadi)
+
+    INITIATOR_CHOICES = [
+        (INITIATOR_ADMIN,    'Admin'),
+        (INITIATOR_COURIER,  'Kuryer'),
+        (INITIATOR_CUSTOMER, 'Mijoz'),
+    ]
+
+    # ── Refund usullari ─────────────────────────────────────────────────────
+    REFUND_CASH         = 'cash'         # Kassa.withdraw() bilan
+    REFUND_CARD         = 'card'         # bank ilovasidan qo'lda
+    REFUND_CLICK        = 'click'
+    REFUND_PAYME        = 'payme'
+    REFUND_STORE_CREDIT = 'store_credit' # foydalanuvchi balansiga (Phase 3.6)
+    REFUND_REPLACEMENT  = 'replacement'  # pul qaytarish o'rniga yangi tovar
+
+    REFUND_METHOD_CHOICES = [
+        (REFUND_CASH,         'Naqd (kassa)'),
+        (REFUND_CARD,         'Karta'),
+        (REFUND_CLICK,        'Click'),
+        (REFUND_PAYME,        'Payme'),
+        (REFUND_STORE_CREDIT, "Do'kon balansi"),
+        (REFUND_REPLACEMENT,  'Almashtirish'),
+    ]
+
+    # ── Buyurtma bog'lanishlari ─────────────────────────────────────────────
+    order = models.ForeignKey(
+        Order,
+        on_delete=models.CASCADE,
+        related_name='returns',
+    )
+    # Agar qaytarish disputdan kelib chiqsa — link saqlanadi (analitika uchun).
+    dispute = models.ForeignKey(
+        OrderDispute,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='returns',
+        help_text="Agar shu disputdan kelib chiqqan bo'lsa",
+    )
+    # Replacement (almashtirish) holatda — yangi yaratilgan Order ga link.
+    replacement_order = models.OneToOneField(
+        Order,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='replacement_of',
+        help_text="Almashtirish uchun yaratilgan yangi buyurtma",
+    )
+
+    # ── Foydalanuvchiga ko'rinadigan raqam (R-2026-000123) ──────────────────
+    # Telegram alert va SMS'da ishlatiladi. Bo'sh — keyin save() to'ldiradi.
+    return_number = models.CharField(
+        max_length=24,
+        unique=True,
+        db_index=True,
+        blank=True,
+        default='',
+    )
+
+    # ── Kim boshlagan ───────────────────────────────────────────────────────
+    initiated_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        related_name='returns_initiated',
+    )
+    initiator_role = models.CharField(
+        max_length=16,
+        choices=INITIATOR_CHOICES,
+        default=INITIATOR_ADMIN,
+    )
+    customer_request_note = models.TextField(
+        blank=True,
+        default='',
+        help_text="Admin mijoz so'rovini yozib qoladi (telefon orqali bo'lsa)",
+    )
+
+    # ── Sabab ──────────────────────────────────────────────────────────────
+    reason_code = models.CharField(
+        max_length=32,
+        choices=REASON_CHOICES,
+        db_index=True,
+    )
+    reason_text = models.TextField(
+        blank=True,
+        default='',
+        help_text="Sabab batafsil (admin yoki mijoz)",
+    )
+
+    # ── Status va status-meta ───────────────────────────────────────────────
+    status = models.CharField(
+        max_length=32,
+        choices=STATUS_CHOICES,
+        default=STATUS_REQUESTED,
+        db_index=True,
+    )
+    status_changed_at = models.DateTimeField(auto_now=True)
+    status_changed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='returns_status_changed',
+    )
+
+    # ── Pickup (kuryer) ─────────────────────────────────────────────────────
+    pickup_address = models.TextField(blank=True, default='')
+    pickup_courier = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='returns_pickup',
+    )
+    pickup_at = models.DateTimeField(null=True, blank=True)
+
+    # ── Inspeksiya ─────────────────────────────────────────────────────────
+    inspector = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='returns_inspected',
+    )
+    inspection_at = models.DateTimeField(null=True, blank=True)
+    inspection_notes = models.TextField(blank=True, default='')
+
+    # ── Refund / Replacement ────────────────────────────────────────────────
+    refund_method = models.CharField(
+        max_length=16,
+        choices=REFUND_METHOD_CHOICES,
+        blank=True,
+        default='',
+        help_text="Yakuniy refund usuli (ACCEPTED dan keyin tanlanadi)",
+    )
+    refund_amount = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        default=Decimal('0.00'),
+        help_text="Mijozga qaytarilgan summa (UZS)",
+    )
+    refund_reference = models.CharField(
+        max_length=255,
+        blank=True,
+        default='',
+        help_text="Bank tranzaksiya raqami / Payme refund ID / Withdrawal #",
+    )
+    refund_processed_at = models.DateTimeField(null=True, blank=True)
+    refund_processed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='returns_refund_processed',
+    )
+
+    rejection_reason = models.TextField(blank=True, default='')
+
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        indexes = [
+            # Admin dashboard: faol qaytarishlar ro'yxati
+            models.Index(fields=['status', '-created_at'], name='return_status_created_idx'),
+            # Bir buyurtma uchun barcha qaytarishlar (eligibility check tez bo'lsin)
+            models.Index(fields=['order', 'status'], name='return_order_status_idx'),
+        ]
+
+    def __str__(self):
+        return f"Return {self.return_number or f'#{self.id}'} — Order #{self.order_id} ({self.status})"
+
+    @property
+    def is_active(self) -> bool:
+        return self.status in self.ACTIVE_STATUSES
+
+    @property
+    def is_terminal(self) -> bool:
+        return self.status in self.TERMINAL_STATUSES
+
+    @property
+    def is_success(self) -> bool:
+        return self.status in self.SUCCESS_STATUSES
+
+    def save(self, *args, **kwargs):
+        # Birinchi save() da return_number ni shakllantiramiz.
+        # Format: R-YYYY-NNNNNN  (R-2026-000123)
+        # ID hali ma'lum emas — birinchi save'dan SO'NG yangilaymiz.
+        is_new = self._state.adding
+        super().save(*args, **kwargs)
+        if is_new and not self.return_number:
+            year = self.created_at.year if self.created_at else timezone.now().year
+            self.return_number = f"R-{year}-{self.id:06d}"
+            super().save(update_fields=['return_number'])
+
+
+class OrderReturnItem(models.Model):
+    """
+    Qaytarilayotgan har bir buyum (qisman qaytarish uchun).
+
+    Misol: Buyurtmada 5 ta tovar bor edi, mijoz faqat 2 tasini qaytarmoqchi —
+    shu jadvalga 1 ta yozuv (quantity=2) yoziladi. Stok va OrderItem.returned_qty
+    AYNAN shu miqdorga qaytariladi/oshiriladi.
+    """
+    CONDITION_NEW         = 'new'           # ochilmagan, original o'rami
+    CONDITION_USED_OPEN   = 'used_open'     # ochilgan, lekin holatda
+    CONDITION_USED_DAMAGED = 'used_damaged' # zararlangan
+    CONDITION_DEFECTIVE   = 'defective'     # buzilgan/ishlamaydigan
+
+    CONDITION_CHOICES = [
+        (CONDITION_NEW,           'Yangi (ochilmagan)'),
+        (CONDITION_USED_OPEN,     'Ochilgan'),
+        (CONDITION_USED_DAMAGED,  'Zararlangan'),
+        (CONDITION_DEFECTIVE,     'Aybli'),
+    ]
+
+    # Stok qaytarish qarori (inspector belgilaydi).
+    WRITEOFF_NONE     = ''
+    WRITEOFF_DEFECT   = 'defect'    # ta'minotchidan kompensatsiya kelajakda
+    WRITEOFF_LOST     = 'lost'      # kompaniya zarari
+    WRITEOFF_CUSTOMER_FAULT = 'customer_fault'
+
+    WRITEOFF_CHOICES = [
+        (WRITEOFF_NONE,            "Yo'q (stokka qaytarildi)"),
+        (WRITEOFF_DEFECT,          "Aybli — writeoff"),
+        (WRITEOFF_LOST,            "Yo'qotildi"),
+        (WRITEOFF_CUSTOMER_FAULT,  "Mijoz aybi — write-off"),
+    ]
+
+    return_obj = models.ForeignKey(
+        OrderReturn,
+        on_delete=models.CASCADE,
+        related_name='items',
+    )
+    order_item = models.ForeignKey(
+        OrderItem,
+        on_delete=models.PROTECT,   # OrderItem o'chmasin — hisobot integrity
+        related_name='return_entries',
+    )
+    quantity = models.PositiveIntegerField(default=1)
+    # Snapshot — OrderItem.price_snapshot dan ko'chiriladi. Hisobot uchun
+    # ishonchli manba (OrderItem.price_snapshot kelajak migration'larda
+    # o'zgarmaydi, lekin alohida snapshot defensiv yondashuv).
+    refund_unit_price = models.DecimalField(max_digits=12, decimal_places=2)
+
+    condition = models.CharField(
+        max_length=16,
+        choices=CONDITION_CHOICES,
+        default=CONDITION_NEW,
+    )
+    restock = models.BooleanField(
+        default=True,
+        help_text="Tovar stokka qaytariladimi (False bo'lsa writeoff)",
+    )
+    writeoff_reason = models.CharField(
+        max_length=32,
+        choices=WRITEOFF_CHOICES,
+        blank=True,
+        default=WRITEOFF_NONE,
+    )
+
+    class Meta:
+        ordering = ['id']
+        indexes = [
+            # OrderItem bo'yicha "necha marta qaytarilgan" hisoblash uchun
+            models.Index(fields=['order_item'], name='return_item_order_item_idx'),
+        ]
+
+    @property
+    def line_total(self) -> Decimal:
+        """Bu satr uchun qaytariladigan summa."""
+        return (self.refund_unit_price * self.quantity).quantize(Decimal('0.01'))
+
+    def __str__(self):
+        return f"ReturnItem #{self.id} (return #{self.return_obj_id}, qty={self.quantity})"
+
+
+class OrderReturnPhoto(models.Model):
+    """
+    Qaytarish bilan bog'liq fotolar (dalil).
+      - kind='claim'      → mijoz/admin tomonidan da'voga ilova qilingan
+      - kind='inspection' → inspector tekshirgan paytda olingan
+    """
+    KIND_CLAIM      = 'claim'
+    KIND_INSPECTION = 'inspection'
+
+    KIND_CHOICES = [
+        (KIND_CLAIM,      "Da'vo (claim) rasmi"),
+        (KIND_INSPECTION, "Tekshiruv rasmi"),
+    ]
+
+    return_obj = models.ForeignKey(
+        OrderReturn,
+        on_delete=models.CASCADE,
+        related_name='photos',
+    )
+    image = models.ImageField(upload_to=_return_photo_upload_path)
+    uploaded_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='return_photos_uploaded',
+    )
+    uploaded_at = models.DateTimeField(auto_now_add=True)
+    kind = models.CharField(
+        max_length=16,
+        choices=KIND_CHOICES,
+        default=KIND_CLAIM,
+    )
+
+    class Meta:
+        ordering = ['id']
+
+    def __str__(self):
+        return f"ReturnPhoto #{self.id} (return #{self.return_obj_id}, {self.kind})"
