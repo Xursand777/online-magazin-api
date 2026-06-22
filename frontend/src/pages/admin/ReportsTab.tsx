@@ -1014,8 +1014,18 @@ export const ReportsTab = () => {
                             </span>
                           )}
                         </td>
+                        {/* Soni — to'liq qaytarilgan: 0 (chizilgan asl); qisman: net (yashil) + asl izoh */}
                         <td className='border border-outline-variant/40 px-3 py-2 text-center font-semibold'>
-                          {itemRetQty > 0 ? (
+                          {itemFullyReturned ? (
+                            <div className='flex flex-col items-center leading-tight'>
+                              <span className='text-on-surface-variant line-through opacity-60'>
+                                {item.quantity}
+                              </span>
+                              <span className='text-[10px] font-normal text-rose-500 dark:text-rose-400'>
+                                0
+                              </span>
+                            </div>
+                          ) : itemRetQty > 0 ? (
                             <div className='flex flex-col items-center leading-tight'>
                               <span className='text-emerald-600 dark:text-emerald-300'>
                                 {item.net_quantity ?? item.quantity - itemRetQty}
@@ -1028,13 +1038,21 @@ export const ReportsTab = () => {
                             item.quantity
                           )}
                         </td>
-                        <td className='border border-outline-variant/40 px-3 py-2 text-right'>
+                        {/* Narxi — to'liq qaytarilgan: line-through xira */}
+                        <td
+                          className={`border border-outline-variant/40 px-3 py-2 text-right ${
+                            itemFullyReturned
+                              ? 'text-on-surface-variant line-through opacity-60'
+                              : ''
+                          }`}
+                        >
                           {fmt(item.original_price)}
                         </td>
+                        {/* Sotilgan narxi */}
                         <td
                           className={`border border-outline-variant/40 px-3 py-2 text-right font-semibold ${
                             itemFullyReturned
-                              ? 'text-on-surface-variant line-through'
+                              ? 'text-on-surface-variant line-through opacity-60'
                               : 'text-primary'
                           }`}
                         >
@@ -1045,55 +1063,161 @@ export const ReportsTab = () => {
                             </div>
                           )}
                         </td>
-                        <td className='border border-outline-variant/40 px-3 py-2 text-center text-error'>
+                        {/* Chegirma % — to'liq qaytarilgan: line-through */}
+                        <td
+                          className={`border border-outline-variant/40 px-3 py-2 text-center ${
+                            itemFullyReturned
+                              ? 'text-on-surface-variant line-through opacity-60'
+                              : 'text-error'
+                          }`}
+                        >
                           {item.discount_percent > 0 ? `${item.discount_percent}%` : '0%'}
                         </td>
-                        <td className='border border-outline-variant/40 px-3 py-2 text-right text-error font-medium'>
+                        {/* Chegirma summasi — to'liq qaytarilgan: line-through */}
+                        <td
+                          className={`border border-outline-variant/40 px-3 py-2 text-right font-medium ${
+                            itemFullyReturned
+                              ? 'text-on-surface-variant line-through opacity-60'
+                              : 'text-error'
+                          }`}
+                        >
                           {item.discount_amount > 0 ? fmt(item.discount_amount) : '0'}
                         </td>
                       </tr>
                       );
                     })}
-                    {/* Order Subtotal Row */}
-                    <tr className='bg-surface-container-high font-semibold text-on-surface text-sm border-b-[3px] border-outline-variant/30'>
-                      <td colSpan={2} className='border border-outline-variant/40 px-3 py-2.5 text-right opacity-80'>Shu chek bo'yicha jami:</td>
-                      <td className='border border-outline-variant/40 px-3 py-2.5 text-center text-primary'>
-                        {order.items.reduce((acc, item) => acc + item.quantity, 0)}
-                      </td>
-                      <td className='border border-outline-variant/40 px-3 py-2.5 text-right'>
-                        {fmt(order.items.reduce((acc, item) => acc + (item.original_price * item.quantity), 0))}
-                      </td>
-                      <td className='border border-outline-variant/40 px-3 py-2.5 text-right'>
-                        {/* Phase 3.5: yalpi vs sof tushum — qaytarish bo'lsa ikkalasi ham ko'rinadi */}
-                        {isReturned && order.net_total != null ? (
-                          <div className='flex flex-col items-end leading-tight'>
-                            <span
-                              className={
-                                retStatus === 'full'
-                                  ? 'text-on-surface-variant line-through'
-                                  : 'text-on-surface-variant text-xs'
-                              }
-                            >
-                              {fmt(order.total_price)}
-                            </span>
-                            <span className='text-emerald-600 dark:text-emerald-300 text-sm'>
-                              Sof: {fmt(order.net_total)}
-                            </span>
-                            <span className='text-[10px] font-normal text-rose-500 dark:text-rose-400'>
-                              −{fmt(order.refunded_amount || 0)} qaytarildi
-                            </span>
-                          </div>
-                        ) : (
-                          <span className='text-primary'>{fmt(order.total_price)}</span>
-                        )}
-                      </td>
-                      <td className='border border-outline-variant/40 px-3 py-2.5 text-center text-error'>
-                        {receiptDiscountPct > 0 ? `${receiptDiscountPct.toFixed(2)}%` : '0%'}
-                      </td>
-                      <td className='border border-outline-variant/40 px-3 py-2.5 text-right text-error'>
-                        {receiptDiscount > 0 ? fmt(receiptDiscount) : '0'}
-                      </td>
-                    </tr>
+                    {/* Order Subtotal Row.
+                        Phase 3.5: to'liq qaytarilgan chek — Soni/Narxi/Chegirma%/
+                        Chegirma summasi line-through. Sotilgan narxda 3 qatorli
+                        format (Yalpi/Sof/qaytarildi). Qisman: net qiymatlar
+                        proportsional kamayadi. */}
+                    {(() => {
+                      // Per-chek sof (net) qiymatlarni item-darajada hisoblaymiz.
+                      const totalQty = order.items.reduce(
+                        (s, i) => s + (i.quantity || 0),
+                        0,
+                      );
+                      const netQty = order.items.reduce(
+                        (s, i) =>
+                          s + (i.net_quantity ?? (i.quantity - (i.returned_qty || 0))),
+                        0,
+                      );
+                      const grossOrig = order.items.reduce(
+                        (s, i) => s + i.original_price * i.quantity,
+                        0,
+                      );
+                      const netOrig = order.items.reduce(
+                        (s, i) =>
+                          s +
+                          i.original_price *
+                            (i.net_quantity ?? i.quantity - (i.returned_qty || 0)),
+                        0,
+                      );
+                      // Chegirma per-unit, keyin net qty bilan ko'paytirish.
+                      const netDiscount = order.items.reduce((s, i) => {
+                        const q = i.quantity || 0;
+                        if (q === 0) return s;
+                        const perUnit = i.discount_amount / q;
+                        const nQ =
+                          i.net_quantity ?? q - (i.returned_qty || 0);
+                        return s + perUnit * nQ;
+                      }, 0);
+                      const netDiscountPct =
+                        netOrig > 0 ? (netDiscount / netOrig) * 100 : 0;
+                      const isFull = retStatus === 'full';
+                      const subtotalDim =
+                        'text-on-surface-variant line-through opacity-60';
+
+                      return (
+                        <tr className='bg-surface-container-high font-semibold text-on-surface text-sm border-b-[3px] border-outline-variant/30'>
+                          <td colSpan={2} className='border border-outline-variant/40 px-3 py-2.5 text-right opacity-80'>
+                            Shu chek bo'yicha jami:
+                          </td>
+                          {/* Soni */}
+                          <td className='border border-outline-variant/40 px-3 py-2.5 text-center'>
+                            {isReturned ? (
+                              <div className='flex flex-col items-center leading-tight'>
+                                <span className={isFull ? subtotalDim : 'text-on-surface-variant text-xs'}>
+                                  {totalQty}
+                                </span>
+                                <span className='text-emerald-600 dark:text-emerald-300'>
+                                  Sof: {netQty}
+                                </span>
+                              </div>
+                            ) : (
+                              <span className='text-primary'>{totalQty}</span>
+                            )}
+                          </td>
+                          {/* Narxi (asl) */}
+                          <td className='border border-outline-variant/40 px-3 py-2.5 text-right'>
+                            {isReturned ? (
+                              <div className='flex flex-col items-end leading-tight'>
+                                <span className={isFull ? subtotalDim : 'text-on-surface-variant text-xs'}>
+                                  {fmt(grossOrig)}
+                                </span>
+                                <span className='text-emerald-600 dark:text-emerald-300'>
+                                  Sof: {fmt(netOrig)}
+                                </span>
+                              </div>
+                            ) : (
+                              fmt(grossOrig)
+                            )}
+                          </td>
+                          {/* Sotilgan narxi — 3 qatorli format (Yalpi/Sof/qaytarildi) */}
+                          <td className='border border-outline-variant/40 px-3 py-2.5 text-right'>
+                            {isReturned && order.net_total != null ? (
+                              <div className='flex flex-col items-end leading-tight'>
+                                <span className={isFull ? subtotalDim : 'text-on-surface-variant text-xs'}>
+                                  {fmt(order.total_price)}
+                                </span>
+                                <span className='text-emerald-600 dark:text-emerald-300 text-sm'>
+                                  Sof: {fmt(order.net_total)}
+                                </span>
+                                <span className='text-[10px] font-normal text-rose-500 dark:text-rose-400'>
+                                  −{fmt(order.refunded_amount || 0)} qaytarildi
+                                </span>
+                              </div>
+                            ) : (
+                              <span className='text-primary'>{fmt(order.total_price)}</span>
+                            )}
+                          </td>
+                          {/* Chegirma % */}
+                          <td className='border border-outline-variant/40 px-3 py-2.5 text-center'>
+                            {isReturned ? (
+                              <div className='flex flex-col items-center leading-tight'>
+                                <span className={isFull ? subtotalDim : 'text-on-surface-variant text-xs'}>
+                                  {receiptDiscountPct > 0 ? `${receiptDiscountPct.toFixed(2)}%` : '0%'}
+                                </span>
+                                <span className='text-error'>
+                                  {isFull ? '0%' : netDiscountPct > 0 ? `${netDiscountPct.toFixed(2)}%` : '0%'}
+                                </span>
+                              </div>
+                            ) : (
+                              <span className='text-error'>
+                                {receiptDiscountPct > 0 ? `${receiptDiscountPct.toFixed(2)}%` : '0%'}
+                              </span>
+                            )}
+                          </td>
+                          {/* Chegirma summasi */}
+                          <td className='border border-outline-variant/40 px-3 py-2.5 text-right'>
+                            {isReturned ? (
+                              <div className='flex flex-col items-end leading-tight'>
+                                <span className={isFull ? subtotalDim : 'text-on-surface-variant text-xs'}>
+                                  {fmt(receiptDiscount)}
+                                </span>
+                                <span className='text-error'>
+                                  {isFull ? '0' : fmt(netDiscount)}
+                                </span>
+                              </div>
+                            ) : (
+                              <span className='text-error'>
+                                {receiptDiscount > 0 ? fmt(receiptDiscount) : '0'}
+                              </span>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })()}
                   </Fragment>
                   );
                 })}
@@ -1112,49 +1236,147 @@ export const ReportsTab = () => {
                 Hozir loaded pages bo'yicha hisoblanadi.
               */}
               <tfoot className='bg-surface-container border-t-2 border-outline-variant font-bold text-on-surface'>
-                <tr>
-                  <td colSpan={2} className='px-3 py-4 text-right uppercase'>
-                    Jami {orders.length < ordersTotalCount ? `(yuklangan: ${orders.length}/${ordersTotalCount})` : ''}:
-                  </td>
-                  <td className='px-3 py-4 text-center text-primary text-base'>
-                    {orders.reduce((acc, order) => acc + order.items.reduce((sum, item) => sum + item.quantity, 0), 0)}
-                  </td>
-                  <td className='px-3 py-4 text-right text-base'>
-                    {fmt(orders.reduce((acc, order) => acc + order.items.reduce((sum, item) => sum + (item.original_price * item.quantity), 0), 0))} so'm
-                  </td>
-                  {/* Phase 3.5: Sotilgan narx ustunida yalpi va sof tushum.
-                      Agar yuklangan cheklarning birortasida qaytarish bo'lsa,
-                      "Sof: X" qatori chiqadi. Aks holda faqat yalpi. */}
-                  <td className='px-3 py-4 text-right text-base'>
-                    {(() => {
-                      const gross = orders.reduce((acc, o) => acc + o.total_price, 0);
-                      const refunded = orders.reduce(
-                        (acc, o) => acc + (o.refunded_amount || 0),
+                {(() => {
+                  // Phase 3.5: JAMI footer'da NET (sof) qiymatlar.
+                  // Qaytarib olingan tovarlar Soni/Narxi/Chegirma summasi'dan
+                  // ham olib tashlanadi (chunki ular endi sotuv emas).
+                  // Chegirma proportsional per-unit asosida hisoblanadi:
+                  //   per_unit = discount_amount / quantity
+                  //   net_discount = per_unit × net_quantity
+                  // Mantiq: 5 dona × 1000 chegirma = 5000; 2 ta qaytdi →
+                  //   sof 3 × 1000 = 3000 chegirma. Foydalanuvchi ham aniq
+                  //   shu hisobni xohladi (rasm: 2,443,580 → 1,582,580).
+                  const grossQty = orders.reduce(
+                    (a, o) => a + o.items.reduce((s, i) => s + i.quantity, 0),
+                    0,
+                  );
+                  const netQty = orders.reduce(
+                    (a, o) =>
+                      a +
+                      o.items.reduce(
+                        (s, i) => s + (i.net_quantity ?? i.quantity - (i.returned_qty || 0)),
                         0,
-                      );
-                      if (refunded <= 0) {
-                        return <span className='text-primary'>{fmt(gross)} so'm</span>;
-                      }
-                      return (
-                        <div className='flex flex-col items-end leading-tight'>
-                          <span className='text-on-surface-variant text-xs'>
-                            Yalpi: {fmt(gross)}
+                      ),
+                    0,
+                  );
+                  const grossOrig = orders.reduce(
+                    (a, o) =>
+                      a + o.items.reduce((s, i) => s + i.original_price * i.quantity, 0),
+                    0,
+                  );
+                  const netOrig = orders.reduce(
+                    (a, o) =>
+                      a +
+                      o.items.reduce(
+                        (s, i) =>
+                          s +
+                          i.original_price *
+                            (i.net_quantity ?? i.quantity - (i.returned_qty || 0)),
+                        0,
+                      ),
+                    0,
+                  );
+                  const grossSold = orders.reduce((a, o) => a + o.total_price, 0);
+                  const refunded = orders.reduce(
+                    (a, o) => a + (o.refunded_amount || 0),
+                    0,
+                  );
+                  const netSold = grossSold - refunded;
+                  const grossDiscount = orders.reduce(
+                    (a, o) =>
+                      a + o.items.reduce((s, i) => s + i.discount_amount, 0),
+                    0,
+                  );
+                  const netDiscount = orders.reduce(
+                    (a, o) =>
+                      a +
+                      o.items.reduce((s, i) => {
+                        const q = i.quantity || 0;
+                        if (q === 0) return s;
+                        const perUnit = i.discount_amount / q;
+                        const nQ = i.net_quantity ?? q - (i.returned_qty || 0);
+                        return s + perUnit * nQ;
+                      }, 0),
+                    0,
+                  );
+                  const grossDiscPct =
+                    netOrig > 0 ? (netDiscount / netOrig) * 100 : 0;
+                  const hasReturn = refunded > 0 || netQty < grossQty;
+                  const dim = 'text-on-surface-variant text-xs';
+
+                  return (
+                    <tr>
+                      <td colSpan={2} className='px-3 py-4 text-right uppercase'>
+                        Jami {orders.length < ordersTotalCount ? `(yuklangan: ${orders.length}/${ordersTotalCount})` : ''}:
+                      </td>
+                      {/* Soni */}
+                      <td className='px-3 py-4 text-center text-base'>
+                        {hasReturn ? (
+                          <div className='flex flex-col items-center leading-tight'>
+                            <span className={dim}>{grossQty}</span>
+                            <span className='text-emerald-600 dark:text-emerald-300'>
+                              Sof: {netQty}
+                            </span>
+                          </div>
+                        ) : (
+                          <span className='text-primary'>{grossQty}</span>
+                        )}
+                      </td>
+                      {/* Narxi (asl) */}
+                      <td className='px-3 py-4 text-right text-base'>
+                        {hasReturn ? (
+                          <div className='flex flex-col items-end leading-tight'>
+                            <span className={dim}>{fmt(grossOrig)}</span>
+                            <span className='text-emerald-600 dark:text-emerald-300'>
+                              Sof: {fmt(netOrig)} so'm
+                            </span>
+                          </div>
+                        ) : (
+                          `${fmt(grossOrig)} so'm`
+                        )}
+                      </td>
+                      {/* Sotilgan narx — 3 qatorli format (Yalpi/Sof/qaytarildi) */}
+                      <td className='px-3 py-4 text-right text-base'>
+                        {hasReturn ? (
+                          <div className='flex flex-col items-end leading-tight'>
+                            <span className={dim}>Yalpi: {fmt(grossSold)}</span>
+                            <span className='text-emerald-600 dark:text-emerald-300'>
+                              Sof: {fmt(netSold)} so'm
+                            </span>
+                            <span className='text-[10px] font-normal text-rose-500 dark:text-rose-400'>
+                              −{fmt(refunded)} qaytarildi
+                            </span>
+                          </div>
+                        ) : (
+                          <span className='text-primary'>{fmt(grossSold)} so'm</span>
+                        )}
+                      </td>
+                      {/* Chegirma % — net qiymatga moslab */}
+                      <td className='px-3 py-4 text-center'>
+                        {hasReturn && grossDiscPct > 0 && (
+                          <span className='text-error text-sm'>
+                            {grossDiscPct.toFixed(2)}%
                           </span>
-                          <span className='text-emerald-600 dark:text-emerald-300'>
-                            Sof: {fmt(gross - refunded)} so'm
+                        )}
+                      </td>
+                      {/* Chegirma summasi — net (foydalanuvchi so'rovi: 1,582,580 misol) */}
+                      <td className='px-3 py-4 text-right text-base'>
+                        {hasReturn ? (
+                          <div className='flex flex-col items-end leading-tight'>
+                            <span className={dim}>{fmt(grossDiscount)}</span>
+                            <span className='text-error'>
+                              Sof: {fmt(netDiscount)} so'm
+                            </span>
+                          </div>
+                        ) : (
+                          <span className='text-error'>
+                            {fmt(grossDiscount)} so'm
                           </span>
-                          <span className='text-[10px] font-normal text-rose-500 dark:text-rose-400'>
-                            −{fmt(refunded)} qaytarildi
-                          </span>
-                        </div>
-                      );
-                    })()}
-                  </td>
-                  <td className='px-3 py-4 text-center'></td>
-                  <td className='px-3 py-4 text-right text-error text-base'>
-                    {fmt(orders.reduce((acc, order) => acc + order.items.reduce((sum, item) => sum + item.discount_amount, 0), 0))} so'm
-                  </td>
-                </tr>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })()}
               </tfoot>
             </table>
             {/* "Yana yuklash" tugmasi — keyingi sahifa borligi uchun */}
