@@ -42,6 +42,7 @@ from .services import (
     courier_confirm_delivery,
     create_order_dispute,
     create_order_with_items,
+    get_kassa_balance,
     mark_overdue_credits,
     pay_credit_order,
     transition_order_status,
@@ -1805,6 +1806,8 @@ class AdminReturnEligibilityView(views.APIView):
                 status=200,  # 200 — bu rejected emas, axborot
             )
 
+        # Phase 3.3: kassa balansi ham qaytariladi — UI'da cash refund
+        # tanlanganda admin darhol ko'rishi uchun.
         return Response({
             'eligible': True,
             'window_left_seconds': result['window_left_seconds'],
@@ -1815,6 +1818,7 @@ class AdminReturnEligibilityView(views.APIView):
             'refund_methods': [
                 {'code': c[0], 'label': c[1]} for c in OrderReturn.REFUND_METHOD_CHOICES
             ],
+            'kassa_balance': float(get_kassa_balance()),
         })
 
 
@@ -1935,7 +1939,7 @@ class AdminCreateReturnView(views.APIView):
 
 
 class AdminReturnDetailView(views.APIView):
-    """GET /api/admin/returns/<int:pk>/ — bitta qaytarish."""
+    """GET /api/admin/returns/<int:pk>/ — bitta qaytarish (+ kassa balansi)."""
     permission_classes = (IsAuthenticated, IsAdminOrAbove)
 
     def get(self, request, pk, *args, **kwargs):
@@ -1952,7 +1956,10 @@ class AdminReturnDetailView(views.APIView):
             ),
             pk=pk,
         )
-        return Response(OrderReturnSerializer(ret, context={'request': request}).data)
+        data = OrderReturnSerializer(ret, context={'request': request}).data
+        # Phase 3.3: kassa balansi — admin cash refund qilishidan oldin ko'rsin
+        data['kassa_balance'] = float(get_kassa_balance())
+        return Response(data)
 
 
 class AdminReturnTransitionView(views.APIView):

@@ -7,7 +7,7 @@ from uuid import uuid4
 
 from django.conf import settings
 from django.db import transaction
-from django.db.models import Q
+from django.db.models import Q, Sum
 from django.utils import timezone
 from rest_framework import serializers
 
@@ -20,6 +20,7 @@ from .models import (
     OrderReturn,
     OrderReturnItem,
     Payment,
+    Withdrawal,
 )
 
 
@@ -1733,6 +1734,79 @@ def _restock_quantity(*, product_id: int, variant_id: int | None, quantity: int)
         locked.save(update_fields=['stock'])
 
 
+# ────────────────────────────────────────────────────────────────────────────
+#  Phase 3.3 — Kassa balans hisobi va naqd refund integratsiyasi
+#
+#  Kassa naqd refund'i KassaWithdrawView bilan AYNAN bir xil qoidaga
+#  bo'ysunadi: race-safe (SELECT FOR UPDATE) + balans tekshiruvi. Buyurtmadan
+#  qaytariladigan summa kassada bo'lishi kerak; aks holda transition rad
+#  etiladi va butun atomik tranzaksiya rollback bo'ladi.
+# ────────────────────────────────────────────────────────────────────────────
+
+
+def get_kassa_balance(*, lock: bool = False) -> Decimal:
+    """
+    Kassa joriy balansi: total_income (DELIVERED+RECEIVED total_price) -
+    total_expense (Withdrawal.amount summasi).
+
+    `lock=True` — Withdrawal jadvalini SELECT FOR UPDATE bilan qulflaydi
+    (KassaWithdraw bilan bir xil race-safety). Faqat @transaction.atomic
+    ichida ishlatilishi mumkin.
+    """
+    if lock:
+        # Lock effekti uchun aggregate qilamiz — natija qayta hisoblanadi
+        Withdrawal.objects.select_for_update().aggregate(total=Sum('amount'))
+
+    zero = Decimal('0')
+    delivered_qs = Order.objects.filter(
+        status__in=[Order.STATUS_DELIVERED, Order.STATUS_RECEIVED]
+    )
+    total_income = delivered_qs.aggregate(total=Sum('total_price'))['total'] or zero
+    total_expense = Withdrawal.objects.aggregate(total=Sum('amount'))['total'] or zero
+    return total_income - total_expense
+
+
+def _create_kassa_withdrawal_for_return(return_obj: 'OrderReturn', *, actor) -> Withdrawal:
+    """
+    Naqd refund uchun Withdrawal yaratadi.
+
+    Logika (race-safe):
+      1. Withdrawal jadvalini lock qilamiz (SELECT FOR UPDATE)
+      2. Joriy balansni qayta hisoblaymiz
+      3. Balans yetarli emas → ValidationError raise → atomic rollback
+      4. Yetarli → Withdrawal yaratamiz
+      5. return_obj.refund_reference = "WD-<id>" avtomat
+
+    INVARIANT: bu funksiya HAR DOIM @transaction.atomic kontekstida chaqiriladi
+    (transition_return_status `@transaction.atomic`).
+    """
+    amount = Decimal(return_obj.refund_amount).quantize(Decimal('0.01'))
+    if amount <= 0:
+        return None
+
+    balance = get_kassa_balance(lock=True)
+    if amount > balance:
+        raise serializers.ValidationError({
+            'error': (
+                f"Kassada yetarli mablag' yo'q. "
+                f"Qoldiq: {balance:.2f} so'm, kerak: {amount:.2f} so'm."
+            ),
+            'code': 'insufficient_kassa_balance',
+        })
+
+    reason = (
+        f"Qaytarish {return_obj.return_number} — Buyurtma #{return_obj.order_id}"
+    )
+    withdrawal = Withdrawal.objects.create(amount=amount, reason=reason, admin=actor)
+
+    # refund_reference avtomat (admin qo'lda yozgan bo'lsa o'sha qoldiriladi).
+    if not return_obj.refund_reference:
+        return_obj.refund_reference = f"WD-{withdrawal.id}"
+        return_obj.save(update_fields=['refund_reference', 'updated_at'])
+
+    return withdrawal
+
+
 @transaction.atomic
 def transition_return_status(
     *,
@@ -1840,6 +1914,16 @@ def transition_return_status(
                     )
                 # restock=False holatda — writeoff. AuditLog allaqachon
                 # endpoint'da yoziladi (Phase 1.1). Stok teginmaydi.
+
+            # ── Phase 3.3: Kassa integratsiyasi ──────────────────────────
+            # `cash` usuli — Withdrawal yoziladi (kassadan pul yechiladi).
+            # SHU NUQTADA balansni qayta tekshiramiz (race-safe): KassaWithdraw
+            # bilan bir xil qonun. Yetarli bo'lmasa ATOMIC rollback.
+            # refund_reference avtomatik to'ldiriladi (WD-<id>).
+            if (new_status == OrderReturn.STATUS_REFUNDED
+                    and return_obj.refund_method == OrderReturn.REFUND_CASH
+                    and return_obj.refund_amount > 0):
+                _create_kassa_withdrawal_for_return(return_obj, actor=actor)
 
         return_obj.refund_processed_at = timezone.now()
         return_obj.refund_processed_by = actor

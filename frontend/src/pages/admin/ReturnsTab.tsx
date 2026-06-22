@@ -101,6 +101,8 @@ type AdminReturn = {
   photos: ReturnPhoto[];
   is_active: boolean;
   is_terminal: boolean;
+  // Phase 3.3 — detail endpointi qaytaradi
+  kassa_balance?: number;
 };
 
 export const ReturnsTab = () => {
@@ -486,6 +488,13 @@ const ReturnDetailModal = ({
               className='rounded-lg border border-outline-variant bg-white px-3 py-2 text-sm'
             />
           </div>
+          {/* Phase 3.3 — Kassa balansi ko'rsatish (faqat cash uchun) */}
+          {refundMethod === 'cash' && data.kassa_balance != null && (
+            <KassaBalanceHint
+              balance={data.kassa_balance}
+              required={parseFloat(refundAmount || String(itemsTotal))}
+            />
+          )}
         </Section>
       )}
 
@@ -765,3 +774,29 @@ const Section = ({ title, children }: { title: string; children: React.ReactNode
     {children}
   </div>
 );
+
+// Phase 3.3 — Kassa balansi va kerakli summa taqqoslash banneri (cash refund)
+const KassaBalanceHint = ({ balance, required }: { balance: number; required: number }) => {
+  const enough = balance >= required;
+  return (
+    <div
+      className={`mt-2 flex items-center justify-between gap-3 rounded-lg border px-3 py-2 text-sm ${
+        enough
+          ? 'border-green-300 bg-green-50 text-green-800'
+          : 'border-red-300 bg-red-50 text-red-800'
+      }`}
+    >
+      <div>
+        <span className='font-bold'>Kassada:</span>{' '}
+        {formatMoney(String(balance))} so'm
+      </div>
+      <div>
+        <span className='font-bold'>Qaytariladi:</span>{' '}
+        {formatMoney(String(required || 0))} so'm
+      </div>
+      <div className='font-bold'>
+        {enough ? "✓ Yetarli" : "✗ Yetmaydi — backend bloklaydi"}
+      </div>
+    </div>
+  );
+};
