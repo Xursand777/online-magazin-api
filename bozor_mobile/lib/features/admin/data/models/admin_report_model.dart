@@ -8,6 +8,15 @@ class ReportSummary {
   final int cancelledOrders;
   final int pendingOrders;
   final double netProfit;
+  // Phase 3.5 — Qaytarish (Returns) maydonlari (backend bilan bir xil)
+  final double returnsAmount;
+  final int returnsCount;
+  final double replacementAmount;
+  final int replacementCount;
+  final double recoveredCost;
+  final double netRevenue;
+  final double netProfitAfterReturns;
+  final double returnRate;
 
   ReportSummary({
     required this.totalRevenue,
@@ -19,6 +28,14 @@ class ReportSummary {
     required this.cancelledOrders,
     required this.pendingOrders,
     required this.netProfit,
+    this.returnsAmount = 0,
+    this.returnsCount = 0,
+    this.replacementAmount = 0,
+    this.replacementCount = 0,
+    this.recoveredCost = 0,
+    this.netRevenue = 0,
+    this.netProfitAfterReturns = 0,
+    this.returnRate = 0,
   });
 
   factory ReportSummary.fromJson(Map<String, dynamic> json) {
@@ -32,8 +49,18 @@ class ReportSummary {
       cancelledOrders: _int(json['cancelled_orders']),
       pendingOrders: _int(json['pending_orders']),
       netProfit: _double(json['net_profit']),
+      returnsAmount: _double(json['returns_amount']),
+      returnsCount: _int(json['returns_count']),
+      replacementAmount: _double(json['replacement_amount']),
+      replacementCount: _int(json['replacement_count']),
+      recoveredCost: _double(json['recovered_cost']),
+      netRevenue: _double(json['net_revenue']),
+      netProfitAfterReturns: _double(json['net_profit_after_returns']),
+      returnRate: _double(json['return_rate']),
     );
   }
+
+  bool get hasReturns => returnsCount > 0 || replacementCount > 0;
 }
 
 class ReportProduct {

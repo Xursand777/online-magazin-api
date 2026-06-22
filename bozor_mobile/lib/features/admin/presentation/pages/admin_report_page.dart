@@ -177,7 +177,14 @@ class _AdminReportPageState extends State<AdminReportPage> {
 
                   // 2. KPI Cards
                   _buildKPICards(context, summary),
-                  const SizedBox(height: 20),
+                  const SizedBox(height: 16),
+
+                  // Phase 3.5 — Qaytarish bloki (faqat returns bo'lsa)
+                  if (summary.hasReturns) ...[
+                    _buildReturnsPanel(context, summary),
+                    const SizedBox(height: 20),
+                  ] else
+                    const SizedBox(height: 4),
 
                   // 3. Sub Tabs
                   _buildSubTabs(context, state),
@@ -316,6 +323,267 @@ class _AdminReportPageState extends State<AdminReportPage> {
                 ),
               ),
             ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  // Phase 3.5 — Qaytarishlar va sof tushum paneli (web ReportsTab bilan teng).
+  // Industry naqsh (Amazon/Shopify/Wildberries):
+  //   Gross (yalpi) → Returns → Net (sof) → Return Rate %
+  Widget _buildReturnsPanel(BuildContext context, ReportSummary summary) {
+    final theme = Theme.of(context);
+    String fmt(double v) =>
+        NumberFormat('#,###', 'uz_UZ').format(v).replaceAll(',', ' ');
+
+    // Return rate adaptiv rang (web bilan bir xil)
+    final rrColor = summary.returnRate < 3
+        ? const Color(0xFF10B981) // emerald — sog'lom
+        : summary.returnRate < 10
+            ? const Color(0xFFD97706) // amber — o'rtacha
+            : const Color(0xFFEF4444); // rose — muammoli
+
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surface,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: theme.colorScheme.outlineVariant),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.03),
+            blurRadius: 6,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.assignment_return_rounded,
+                  color: Color(0xFFEF4444), size: 22),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'Qaytarishlar va sof tushum',
+                  style: TextStyle(
+                    color: theme.colorScheme.onSurface,
+                    fontWeight: FontWeight.w800,
+                    fontSize: 15,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          // 5 KPI: Pul qaytarildi / Almashtirildi / Stokga qaytdi / Sof tushum / Return rate
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              _returnsKpiCard(
+                context,
+                label: 'Pul qaytarildi',
+                value: "${fmt(summary.returnsAmount)} so'm",
+                sub: '${summary.returnsCount} ta',
+                color: const Color(0xFFEF4444), // rose
+                icon: Icons.currency_exchange_rounded,
+              ),
+              _returnsKpiCard(
+                context,
+                label: 'Almashtirildi',
+                value: '${summary.replacementCount} ta',
+                sub: "${fmt(summary.replacementAmount)} so'm qiymat",
+                color: const Color(0xFFD97706), // amber
+                icon: Icons.swap_horiz_rounded,
+              ),
+              _returnsKpiCard(
+                context,
+                label: 'Stokga qaytdi',
+                value: "${fmt(summary.recoveredCost)} so'm",
+                sub: 'restock=true tannarx',
+                color: const Color(0xFF0284C7), // sky
+                icon: Icons.inventory_2_rounded,
+              ),
+              _returnsKpiCard(
+                context,
+                label: 'Sof tushum',
+                value: "${fmt(summary.netRevenue)} so'm",
+                sub: 'Yalpi − qaytarilgan',
+                color: const Color(0xFF10B981), // emerald
+                icon: Icons.savings_rounded,
+              ),
+              _returnsKpiCard(
+                context,
+                label: 'Qaytarish darajasi',
+                value: '${summary.returnRate.toStringAsFixed(2)}%',
+                sub: summary.returnRate < 3
+                    ? "Sog'lom"
+                    : summary.returnRate < 10
+                        ? "O'rtacha"
+                        : 'Yuqori — tekshiring',
+                color: rrColor,
+                icon: Icons.percent_rounded,
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          // Yalpi vs Sof foyda taqqoslash
+          Row(
+            children: [
+              Expanded(
+                child: _profitCard(
+                  context,
+                  label: 'Yalpi foyda (gross)',
+                  value: "${fmt(summary.netProfit)} so'm",
+                  sub: 'Qaytarishsiz',
+                  color: const Color(0xFF0A7C55),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: _profitCard(
+                  context,
+                  label: 'Sof foyda (after)',
+                  value: "${fmt(summary.netProfitAfterReturns)} so'm",
+                  sub: 'Tannarx recovery hisobi',
+                  color: const Color(0xFF10B981),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _returnsKpiCard(
+    BuildContext context, {
+    required String label,
+    required String value,
+    required String sub,
+    required Color color,
+    required IconData icon,
+  }) {
+    final theme = Theme.of(context);
+    final cardWidth =
+        (MediaQuery.of(context).size.width - 14 * 2 - 8 * 2) / 2 - 0.5;
+    return SizedBox(
+      width: cardWidth,
+      child: Container(
+        padding: const EdgeInsets.all(10),
+        decoration: BoxDecoration(
+          color: theme.colorScheme.surfaceContainerLowest,
+          borderRadius: BorderRadius.circular(10),
+          border: Border(left: BorderSide(color: color, width: 4)),
+        ),
+        child: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(6),
+              decoration: BoxDecoration(
+                color: color.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Icon(icon, color: color, size: 18),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    label.toUpperCase(),
+                    style: TextStyle(
+                      fontSize: 9.5,
+                      fontWeight: FontWeight.w800,
+                      color: theme.colorScheme.onSurfaceVariant,
+                      letterSpacing: 0.4,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    value,
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w800,
+                      color: theme.colorScheme.onSurface,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  Text(
+                    sub,
+                    style: TextStyle(
+                      fontSize: 9.5,
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _profitCard(
+    BuildContext context, {
+    required String label,
+    required String value,
+    required String sub,
+    required Color color,
+  }) {
+    final theme = Theme.of(context);
+    return Container(
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surface,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: theme.colorScheme.outlineVariant),
+      ),
+      foregroundDecoration: BoxDecoration(
+        border: Border(left: BorderSide(color: color, width: 4)),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label.toUpperCase(),
+            style: TextStyle(
+              fontSize: 10,
+              fontWeight: FontWeight.w800,
+              color: theme.colorScheme.onSurfaceVariant,
+              letterSpacing: 0.5,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            value,
+            style: TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.w900,
+              color: theme.colorScheme.onSurface,
+            ),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+          Text(
+            sub,
+            style: TextStyle(
+              fontSize: 10,
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
           ),
         ],
       ),
