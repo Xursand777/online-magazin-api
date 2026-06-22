@@ -7,6 +7,7 @@ import 'package:intl/intl.dart';
 
 import '../../../../core/i18n/language_extension.dart';
 import '../../../admin/data/models/order_status_helper.dart';
+import '../../../returns/presentation/pages/create_return_page.dart';
 import '../cubit/my_orders_cubit.dart';
 import '../cubit/my_orders_state.dart';
 import '../../data/models/user_order_model.dart';
@@ -504,6 +505,21 @@ class _OrderCard extends StatelessWidget {
                       ),
                     ),
                   ),
+                // Phase 3.6 — Qaytarish boshlash (DELIVERED/RECEIVED holatida)
+                if (order.status == 'DELIVERED' || order.status == 'RECEIVED')
+                  ElevatedButton.icon(
+                    onPressed: () => _handleReturn(context, order.id),
+                    icon: const Icon(Icons.assignment_return_rounded, size: 16),
+                    label: const Text('Qaytarish'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFFFEE2E2),
+                      foregroundColor: const Color(0xFFB91C1C),
+                      elevation: 0,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                    ),
+                  ),
               ],
             ),
           ),
@@ -569,6 +585,23 @@ class _OrderCard extends StatelessWidget {
         ],
       ),
     );
+  }
+
+  // Phase 3.6 — mijoz qaytarish so'rovini boshlash
+  Future<void> _handleReturn(BuildContext context, int orderId) async {
+    final cubit = context.read<MyOrdersCubit>();
+    final ok = await Navigator.of(context).push<bool>(
+      MaterialPageRoute(
+        builder: (_) => CreateReturnPage(
+          initiator: 'customer',
+          lockedOrderId: orderId,
+        ),
+      ),
+    );
+    if (ok == true) {
+      // List'ni yangilash — yangi qaytarish "Mening qaytarishlarim"da ko'rinadi
+      cubit.loadOrders();
+    }
   }
 
   void _handleCancel(BuildContext context, UserOrderModel order) {

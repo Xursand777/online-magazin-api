@@ -622,6 +622,13 @@ class _AuthenticatedProfileState extends State<_AuthenticatedProfile> {
                 context.push('/my-orders');
               },
             ),
+            // Phase 3.6 — Mening qaytarishlarim
+            _menuTile(
+              theme,
+              icon: Icons.assignment_return_outlined,
+              title: 'Qaytarishlarim',
+              onTap: () => context.push('/my-returns'),
+            ),
             BlocBuilder<FavoritesCubit, FavoritesState>(
               builder: (context, state) {
                 final count = state is FavoritesLoaded ? state.favorites.length : 0;

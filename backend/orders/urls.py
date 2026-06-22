@@ -2,6 +2,9 @@ from django.urls import path
 from .views import (
     AdminCreateReturnView,
     AdminCreditPayView,
+    CustomerCreateReturnView,
+    CustomerMyReturnsView,
+    CustomerReturnEligibilityView,
     AdminCustomerHistoryView,
     AdminDashboardView,
     AdminDisputeDetailView,
@@ -79,6 +82,13 @@ urlpatterns = [
          AdminReturnItemUpdateView.as_view(), name='admin_return_item_update'),
     path('admin/returns/<int:pk>/photos/',
          AdminReturnPhotoUploadView.as_view(), name='admin_return_photo_upload'),
+    # Phase 3.6 — Mijoz qaytarish endpoint'lari (faqat o'z buyurtmasi)
+    path('<int:pk>/return-eligibility/',
+         CustomerReturnEligibilityView.as_view(), name='customer_return_eligibility'),
+    path('<int:pk>/returns/',
+         CustomerCreateReturnView.as_view(), name='customer_return_create'),
+    path('my/returns/',
+         CustomerMyReturnsView.as_view(), name='customer_my_returns'),
     path('quick/', QuickOrderView.as_view(), name='quick_order'),
     path('from-cart/', OrderFromCartView.as_view(), name='order_from_cart'),
 ]

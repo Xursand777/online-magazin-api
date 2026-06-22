@@ -120,4 +120,25 @@ class ApiConstants {
   // ─── Admin: Sozlamalar (Settings) ───────────────────────────────────────────
   static const String adminExchangeRate = '/api/admin/exchange-rate/';
   static const String adminShopInfo = '/api/admin/shop-info/';
+
+  // ─── Phase 3.6 — Qaytarish (Return / Refund) ─────────────────────────────
+  // Mijoz endpoint'lari (faqat o'z buyurtmasiga).
+  static String customerReturnEligibility(int orderId) =>
+      '/api/orders/$orderId/return-eligibility/';
+  static String customerCreateReturn(int orderId) =>
+      '/api/orders/$orderId/returns/';
+  static const String customerMyReturns = '/api/orders/my/returns/';
+
+  // Admin endpoint'lari (auth: IsAdminOrAbove).
+  static String adminReturnEligibility(int orderId) =>
+      '/api/orders/admin/$orderId/return-eligibility/';
+  static String adminCreateReturn(int orderId) =>
+      '/api/orders/admin/$orderId/returns/';
+  static const String adminReturnsList = '/api/orders/admin/returns/';
+  static const String adminReturnsStats = '/api/orders/admin/returns/stats/';
+  static String adminReturnDetail(int id) => '/api/orders/admin/returns/$id/';
+  static String adminReturnTransition(int id) =>
+      '/api/orders/admin/returns/$id/transition/';
+  static String adminReturnPhotos(int id) =>
+      '/api/orders/admin/returns/$id/photos/';
 }

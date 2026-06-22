@@ -47,6 +47,8 @@ import '../di/injection_container.dart';
 import '../../core/models/product_model.dart';
 import '../widgets/main_screen.dart';
 import '../../features/profile/presentation/pages/my_orders_page.dart';
+import '../../features/returns/presentation/pages/admin_returns_page.dart';
+import '../../features/returns/presentation/pages/my_returns_page.dart';
 import '../../features/profile/presentation/pages/favorites_page.dart';
 import '../../features/profile/presentation/pages/profile_edit_page.dart';
 import '../../features/settings/presentation/pages/settings_page.dart';
@@ -249,6 +251,11 @@ class AppRouter {
                 child: const AdminReportPage(),
               ),
             ),
+            // Phase 3.6 — Qaytarishlar admin sahifasi
+            GoRoute(
+              path: '/admin/returns',
+              builder: (context, _) => const AdminReturnsPage(),
+            ),
             GoRoute(
               path: '/admin/masters',
               builder: (context, _) => BlocProvider(
@@ -322,6 +329,11 @@ class AppRouter {
             create: (_) => sl<MyOrdersCubit>()..loadOrders(),
             child: const MyOrdersPage(),
           ),
+        ),
+        // Phase 3.6 — Mijoz "Mening qaytarishlarim"
+        GoRoute(
+          path: '/my-returns',
+          builder: (context, _) => const MyReturnsPage(),
         ),
         // /favorites endi shell branch (tab) — pastdagi navigation'da
         GoRoute(

@@ -33,6 +33,7 @@ import '../../features/admin/data/repositories/admin_users_repository.dart';
 import '../../features/admin/presentation/bloc/admin_users_bloc.dart';
 import '../../features/admin/presentation/bloc/admin_stock_bloc.dart';
 import '../../features/profile/data/repositories/user_orders_repository.dart';
+import '../../features/returns/data/repositories/returns_repository.dart';
 import '../../features/profile/data/repositories/favorites_repository.dart';
 import '../../features/profile/data/repositories/profile_repository.dart';
 import '../../features/profile/data/repositories/master_credit_repository.dart';
@@ -98,6 +99,10 @@ Future<void> init() async {
   );
   sl.registerLazySingleton<UserOrdersRepository>(
     () => UserOrdersRepository(apiClient: sl()),
+  );
+  // Phase 3.6 — Qaytarish (Return) tizimi
+  sl.registerLazySingleton<ReturnsRepository>(
+    () => ReturnsRepository(sl()),
   );
   sl.registerLazySingleton<FavoritesRepository>(
     () => FavoritesRepository(apiClient: sl()),

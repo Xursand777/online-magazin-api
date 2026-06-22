@@ -1943,6 +1943,146 @@ class _AdminReturnPagination(PageNumberPagination):
     max_page_size = 100
 
 
+class CustomerReturnEligibilityView(views.APIView):
+    """
+    GET /api/orders/<int:pk>/return-eligibility/
+
+    Mijoz O'Z buyurtmasi uchun qaytarish mumkinligini tekshiradi.
+    Authoritative manba (`check_return_eligibility`) bilan bir xil — admin
+    bilan farq faqat owner check'da.
+    """
+    permission_classes = (IsAuthenticated,)
+
+    def get(self, request, pk, *args, **kwargs):
+        from .models import OrderReturn
+        order = get_object_or_404(
+            Order.objects.prefetch_related('items__product', 'items__variant', 'returns'),
+            pk=pk, user=request.user,  # XAVFSIZLIK: faqat o'z buyurtmasi
+        )
+        try:
+            result = check_return_eligibility(order)
+        except drf_serializers.ValidationError as exc:
+            payload = exc.detail if isinstance(exc.detail, dict) else {'error': str(exc.detail)}
+            return Response({'eligible': False, **payload}, status=200)
+        return Response({
+            'eligible': True,
+            'window_left_seconds': result['window_left_seconds'],
+            'returnable_items': result['returnable_items'],
+            'reasons': [
+                {'code': c[0], 'label': c[1]} for c in OrderReturn.REASON_CHOICES
+            ],
+        })
+
+
+class CustomerCreateReturnView(views.APIView):
+    """
+    POST /api/orders/<int:pk>/returns/
+
+    Mijoz qaytarish so'rovini yuboradi. Status REQUESTED'da boshlanadi,
+    admin keyin APPROVED/REJECTED qiladi (yagona transition chokepoint).
+    """
+    permission_classes = (IsAuthenticated,)
+
+    @transaction.atomic
+    def post(self, request, pk, *args, **kwargs):
+        from .models import OrderReturn, OrderReturnItem, OrderReturnPhoto
+        order = get_object_or_404(
+            Order.objects.prefetch_related('items'),
+            pk=pk, user=request.user,
+        )
+
+        serializer = CreateOrderReturnSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+
+        items_input = data.get('items') or []
+        result = check_return_eligibility(
+            order,
+            items=items_input if items_input else None,
+        )
+
+        ret = OrderReturn.objects.create(
+            order=order,
+            reason_code=data['reason_code'],
+            reason_text=data.get('reason_text', ''),
+            customer_request_note=data.get('customer_request_note', ''),
+            initiated_by=request.user,
+            initiator_role=OrderReturn.INITIATOR_CUSTOMER,
+            status=OrderReturn.STATUS_REQUESTED,
+            status_changed_by=request.user,
+        )
+
+        for ri_info in result['returnable_items']:
+            order_item = order.items.get(pk=ri_info['order_item_id'])
+            OrderReturnItem.objects.create(
+                return_obj=ret,
+                order_item=order_item,
+                quantity=ri_info['returnable_qty'],
+                refund_unit_price=order_item.price_snapshot,
+                condition=OrderReturnItem.CONDITION_NEW,
+                restock=True,
+            )
+
+        for img in data.get('claim_images', []) or []:
+            OrderReturnPhoto.objects.create(
+                return_obj=ret, image=img, kind=OrderReturnPhoto.KIND_CLAIM,
+                uploaded_by=request.user,
+            )
+
+        # Telegram alert admin'larga (commit'dan keyin, biznesni buzmaydi)
+        def _alert():
+            try:
+                from core.notifications import send_admin_alert, AlertSeverity
+                send_admin_alert(
+                    (
+                        f"*Mijoz qaytarish so'rovi:* `{ret.return_number}`\n"
+                        f"Buyurtma: #{order.id}\n"
+                        f"Mijoz: {getattr(request.user, 'phone', '?')}\n"
+                        f"Sabab: {ret.reason_code}\n"
+                        + (f"Izoh: {ret.reason_text[:200]}\n" if ret.reason_text else '')
+                    ),
+                    severity=AlertSeverity.INFO,
+                )
+            except Exception:
+                import logging
+                logging.getLogger('orders.return').warning(
+                    'Customer return alert failed', exc_info=True,
+                )
+        transaction.on_commit(_alert)
+
+        ret = (
+            OrderReturn.objects
+            .prefetch_related('items__order_item__product', 'items__order_item__variant', 'photos')
+            .select_related('order', 'initiated_by', 'status_changed_by')
+            .get(pk=ret.pk)
+        )
+        return Response(
+            OrderReturnSerializer(ret, context={'request': request}).data,
+            status=201,
+        )
+
+
+class CustomerMyReturnsView(generics.ListAPIView):
+    """GET /api/me/returns/ — mijozning barcha qaytarishlari (eng yangi avval)."""
+    permission_classes = (IsAuthenticated,)
+    serializer_class = OrderReturnSerializer
+    pagination_class = _AdminReturnPagination
+
+    def get_queryset(self):
+        from .models import OrderReturn
+        return (
+            OrderReturn.objects
+            .filter(order__user=self.request.user)
+            .prefetch_related(
+                'items__order_item__product', 'items__order_item__variant', 'photos',
+            )
+            .select_related(
+                'order', 'dispute', 'replacement_order',
+                'initiated_by', 'status_changed_by',
+            )
+        )
+
+
 class AdminReturnEligibilityView(views.APIView):
     """
     GET /api/admin/orders/<int:pk>/return-eligibility/

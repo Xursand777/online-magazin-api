@@ -22,6 +22,7 @@ class AdminAccess {
     '/admin/products':   ['admin'],                       // Mahsulotlar
     '/admin/categories': ['admin'],                       // Kategoriyalar
     '/admin/orders':     ['admin', 'seller', 'courier'],  // Buyurtmalar
+    '/admin/returns':    ['admin'],                       // Qaytarishlar — Phase 3.6
     '/admin/kassa':      ['admin'],                       // Kassa
     '/admin/reports':    ['admin'],                       // Hisobotlar
     '/admin/banners':    ['admin'],                       // Bannerlar
