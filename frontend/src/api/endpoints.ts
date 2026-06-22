@@ -348,3 +348,54 @@ export const adminGetAuditLogs = (params?: {
   page_size?: number;
 }) => apiClient.get('/admin/audit-logs/', { params });
 
+// ── Phase 3.2 — Qaytarish (Return / Refund) admin API ──────────────────────
+export const adminCheckReturnEligibility = (orderId: number | string) =>
+  apiClient.get(`/orders/admin/${orderId}/return-eligibility/`);
+
+export const adminCreateReturn = (orderId: number | string, data: FormData | object) =>
+  apiClient.post(`/orders/admin/${orderId}/returns/`, data, {
+    headers:
+      data instanceof FormData
+        ? { 'Content-Type': 'multipart/form-data' }
+        : undefined,
+  });
+
+export const adminGetReturns = (params?: {
+  status?: string;
+  order?: number | string;
+  active?: 'true' | 'false';
+  reason_code?: string;
+  page?: number;
+  page_size?: number;
+}) => apiClient.get('/orders/admin/returns/', { params });
+
+export const adminGetReturn = (id: number | string) =>
+  apiClient.get(`/orders/admin/returns/${id}/`);
+
+export const adminTransitionReturn = (
+  id: number | string,
+  data: {
+    new_status: string;
+    note?: string;
+    inspection_notes?: string;
+    refund_method?: string;
+    refund_amount?: string;
+    refund_reference?: string;
+  },
+) => apiClient.patch(`/orders/admin/returns/${id}/transition/`, data);
+
+export const adminUpdateReturnItem = (
+  id: number | string,
+  itemId: number | string,
+  data: { condition?: string; restock?: boolean; writeoff_reason?: string },
+) => apiClient.patch(`/orders/admin/returns/${id}/items/${itemId}/`, data);
+
+export const adminUploadReturnPhoto = (id: number | string, file: File, kind: 'claim' | 'inspection') => {
+  const fd = new FormData();
+  fd.append('image', file);
+  fd.append('kind', kind);
+  return apiClient.post(`/orders/admin/returns/${id}/photos/`, fd, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  });
+};
+
