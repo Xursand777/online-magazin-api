@@ -30,7 +30,14 @@ openpyxl==3.1.5
 pillow==11.3.0
 # iPhone HEIC rasmlarini o'qish uchun (rasm WebP optimizatsiyasi — image_optimize.py).
 # Pillow JPG/PNG/WebP/AVIF'ni o'zi o'qiydi; HEIC uchun shu plagin. Import guarded.
-pillow-heif==0.21.0
+#
+# ⚠ Render build muammosi (2026-06-22): pillow-heif==0.21.0 source'dan kompilyatsiya
+# bo'lib `cc1: all warnings being treated as errors` xatosi bilan fail bo'ldi
+# (libheif rivojlanish kutubxonasi yo'q). Vaqtinchalik olib tashlandi —
+# `image_optimize.py` `try/except` da ishlatadi, JPG/PNG/WebP/AVIF baribir
+# Pillow'da ishlaydi. iPhone HEIC qo'llab-quvvatlash kerak bo'lsa, kelajakda
+# manylinux wheel'i mavjud versiyani qayta qo'shish kerak.
+# pillow-heif==0.21.0
 psycopg2-binary==2.9.12
 dj-database-url==2.1.0
 celery==5.4.0
