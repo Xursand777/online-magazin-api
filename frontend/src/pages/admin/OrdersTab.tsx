@@ -16,6 +16,7 @@ import { adminGetOrders, adminUpdateOrderStatus, adminPayCreditOrder } from '../
 import { toast } from '../../utils/toast';
 import { formatMoney, ORDER_STATUS_COLORS, CreditPayConfirmDialog, _notNull } from './shared';
 import type { AdminOrder } from './shared';
+import { OrderHistoryTimeline } from './OrderHistoryTimeline';
 
 const AWAITING_PAYMENT_TIMEOUT_MS = 30 * 60 * 1000;
 
@@ -666,39 +667,10 @@ export const OrdersTab = () => {
                         </div>
                       </div>
                     )}
-                    <div className='rounded-xl border border-outline-variant bg-surface-container p-4'>
-                      <div className='mb-3 flex items-center justify-between'>
-                        <div className='text-sm font-semibold text-on-surface'>Status tarixi</div>
-                        {lastHistory && (
-                          <div className='text-xs text-on-surface-variant'>
-                            Oxirgisi: {new Date(lastHistory.created_at).toLocaleString('uz-UZ')}
-                          </div>
-                        )}
-                      </div>
-                      <div className='space-y-3'>
-                        {order.history?.map((entry) => (
-                          <div key={entry.id} className='flex gap-3'>
-                            <span className='mt-1 h-2.5 w-2.5 rounded-full bg-primary flex-shrink-0' />
-                            <div>
-                              <div className='flex flex-wrap items-center gap-2'>
-                                <span className='text-sm font-medium text-on-surface'>
-                                  {getOrderStatusLabel(entry.to_status)}
-                                </span>
-                                <span className='text-xs text-on-surface-variant'>
-                                  {new Date(entry.created_at).toLocaleString('uz-UZ')}
-                                </span>
-                              </div>
-                              <div className='text-xs text-on-surface-variant'>
-                                {entry.actor_name || entry.actor_type}
-                              </div>
-                              {entry.note && (
-                                <div className='mt-1 text-sm text-on-surface'>{entry.note}</div>
-                              )}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
+                    <OrderHistoryTimeline
+                      history={order.history ?? []}
+                      lastHistory={lastHistory}
+                    />
                   </div>
                   <div className='space-y-4'>
                     {order.is_credit && (

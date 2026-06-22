@@ -208,6 +208,7 @@ class ReturnEligibility {
 
 // UI uchun status va sabab leksikoni (web bilan AYNAN bir xil).
 class ReturnLabels {
+  // Qisqa label — badge'larda, list/detail header'da
   static const Map<String, String> status = {
     'REQUESTED': "So'rov yuborildi",
     'APPROVED': 'Tasdiqlandi',
@@ -219,6 +220,21 @@ class ReturnLabels {
     'REPLACED': 'Almashtirildi',
     'REJECTED': 'Rad etildi',
     'CANCELLED': 'Bekor qilindi',
+  };
+
+  // Phase 3.6 — Timeline uchun to'liq, tushunarli o'zbek tilida labellar
+  // (web RETURN_STATUS_LABELS_UZ bilan AYNAN bir xil).
+  static const Map<String, String> statusTimeline = {
+    'REQUESTED': "Qaytarish so'rovi yuborildi",
+    'APPROVED': 'Qaytarish tasdiqlandi',
+    'PICKUP_SCHEDULED': 'Kuryer biriktirildi',
+    'PICKED_UP': 'Kuryer tovarni oldi',
+    'INSPECTING': "Do'konda tekshirilmoqda",
+    'ACCEPTED': "Do'kon qabul qildi",
+    'REFUNDED': "Do'konga qaytarildi — pul qaytarib berildi",
+    'REPLACED': "Do'konga qaytarildi — yangi tovarga almashtirildi",
+    'REJECTED': 'Qaytarish rad etildi',
+    'CANCELLED': 'Qaytarish bekor qilindi',
   };
 
   static const Map<String, String> reason = {
