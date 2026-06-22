@@ -697,7 +697,13 @@ class _AdminReportPageState extends State<AdminReportPage> {
       
       int totalQty = products.fold(0, (sum, p) => sum + p.quantitySold);
       double totalRev = products.fold(0, (sum, p) => sum + p.totalRevenue);
-      double totalProfit = products.fold(0, (sum, p) => sum + p.netProfit);
+      // Phase 3.5 — net (qaytarishni hisobga olib) jami
+      int totalReturned = products.fold(0, (sum, p) => sum + p.quantityReturned);
+      int totalNetQty = products.fold(0, (sum, p) => sum + p.netQuantitySold);
+      double totalNetRev = products.fold(0, (sum, p) => sum + p.netRevenue);
+      double totalNetProfit =
+          products.fold(0, (sum, p) => sum + p.netProfitAfterReturns);
+      final bool anyReturns = totalReturned > 0;
 
       return Container(
         decoration: BoxDecoration(
@@ -729,6 +735,9 @@ class _AdminReportPageState extends State<AdminReportPage> {
                   DataColumn(label: Text('Sotilgan', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)), numeric: true),
                   DataColumn(label: Text('Kirim', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)), numeric: true),
                   DataColumn(label: Text('Sotildi', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)), numeric: true),
+                  // Phase 3.5 — Qaytarish ustunlari (web ReportsTab bilan teng)
+                  DataColumn(label: Text('Qaytdi', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Color(0xFFEF4444))), numeric: true),
+                  DataColumn(label: Text('Sof', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Color(0xFF10B981))), numeric: true),
                   DataColumn(label: Text('Tushum', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)), numeric: true),
                   DataColumn(label: Text('Foyda', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)), numeric: true),
                 ],
@@ -757,8 +766,88 @@ class _AdminReportPageState extends State<AdminReportPage> {
                             child: Text('${p.quantitySold}', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF0A7C55))),
                           ),
                         ),
-                        DataCell(Text(fmt(p.totalRevenue), style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold))),
-                        DataCell(Text(fmt(p.netProfit), style: TextStyle(fontSize: 12, color: p.netProfit >= 0 ? const Color(0xFF22C55E) : const Color(0xFFEF4444), fontWeight: FontWeight.bold))),
+                        // Phase 3.5 — Qaytdi (qizil badge + foiz)
+                        DataCell(
+                          p.quantityReturned > 0
+                              ? Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFFEF4444).withValues(alpha: 0.12),
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                  child: Column(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Text('${p.quantityReturned}',
+                                          style: const TextStyle(
+                                              fontSize: 12,
+                                              fontWeight: FontWeight.bold,
+                                              color: Color(0xFFEF4444))),
+                                      Text('${p.returnRate.toStringAsFixed(1)}%',
+                                          style: const TextStyle(
+                                              fontSize: 9,
+                                              color: Color(0xFFEF4444))),
+                                    ],
+                                  ),
+                                )
+                              : Text('—',
+                                  style: TextStyle(
+                                      fontSize: 12,
+                                      color: theme.colorScheme.outline)),
+                        ),
+                        // Phase 3.5 — Sof (yashil badge)
+                        DataCell(
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF10B981).withValues(alpha: 0.12),
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: Text('${p.netQuantitySold}',
+                                style: const TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.bold,
+                                    color: Color(0xFF10B981))),
+                          ),
+                        ),
+                        // Tushum — qaytarish bo'lsa "−refunded" izoh
+                        DataCell(
+                          Column(
+                            crossAxisAlignment: CrossAxisAlignment.end,
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Text(fmt(p.totalRevenue),
+                                  style: const TextStyle(
+                                      fontSize: 12, fontWeight: FontWeight.bold)),
+                              if (p.totalRefunded > 0)
+                                Text('−${fmt(p.totalRefunded)}',
+                                    style: const TextStyle(
+                                        fontSize: 9, color: Color(0xFFEF4444))),
+                            ],
+                          ),
+                        ),
+                        // Foyda — sof foyda (after returns)
+                        DataCell(
+                          Column(
+                            crossAxisAlignment: CrossAxisAlignment.end,
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Text(fmt(p.netProfitAfterReturns),
+                                  style: TextStyle(
+                                      fontSize: 12,
+                                      color: p.netProfitAfterReturns >= 0
+                                          ? const Color(0xFF22C55E)
+                                          : const Color(0xFFEF4444),
+                                      fontWeight: FontWeight.bold)),
+                              if (p.hasReturns)
+                                Text('gross: ${fmt(p.netProfit)}',
+                                    style: TextStyle(
+                                        fontSize: 9,
+                                        color: theme
+                                            .colorScheme.onSurfaceVariant)),
+                            ],
+                          ),
+                        ),
                       ],
                     );
                   }),
@@ -776,9 +865,54 @@ class _AdminReportPageState extends State<AdminReportPage> {
                       const DataCell(Text('')),
                       const DataCell(Text('')),
                       const DataCell(Text('')),
-                      DataCell(Text('$totalQty', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Color(0xFF0A7C55)))),
-                      DataCell(Text(fmt(totalRev), style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14))),
-                      DataCell(Text(fmt(totalProfit), style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: totalProfit >= 0 ? const Color(0xFF22C55E) : const Color(0xFFEF4444)))),
+                      DataCell(Text('$totalQty',
+                          style: const TextStyle(
+                              fontWeight: FontWeight.bold,
+                              fontSize: 14,
+                              color: Color(0xFF0A7C55)))),
+                      // Phase 3.5: Qaytdi (jami)
+                      DataCell(Text(anyReturns ? '$totalReturned' : '—',
+                          style: const TextStyle(
+                              fontWeight: FontWeight.bold,
+                              fontSize: 14,
+                              color: Color(0xFFEF4444)))),
+                      // Phase 3.5: Sof miqdor
+                      DataCell(Text('$totalNetQty',
+                          style: const TextStyle(
+                              fontWeight: FontWeight.bold,
+                              fontSize: 14,
+                              color: Color(0xFF10B981)))),
+                      // Tushum — anyReturns bo'lsa Yalpi / Sof
+                      DataCell(
+                        anyReturns
+                            ? Column(
+                                crossAxisAlignment: CrossAxisAlignment.end,
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Text(fmt(totalRev),
+                                      style: TextStyle(
+                                          fontSize: 10,
+                                          color: theme.colorScheme
+                                              .onSurfaceVariant)),
+                                  Text('Sof: ${fmt(totalNetRev)}',
+                                      style: const TextStyle(
+                                          fontWeight: FontWeight.bold,
+                                          fontSize: 13,
+                                          color: Color(0xFF10B981))),
+                                ],
+                              )
+                            : Text(fmt(totalRev),
+                                style: const TextStyle(
+                                    fontWeight: FontWeight.bold, fontSize: 14)),
+                      ),
+                      // Foyda — sof
+                      DataCell(Text(fmt(totalNetProfit),
+                          style: TextStyle(
+                              fontWeight: FontWeight.bold,
+                              fontSize: 14,
+                              color: totalNetProfit >= 0
+                                  ? const Color(0xFF22C55E)
+                                  : const Color(0xFFEF4444)))),
                     ],
                   ),
                 ],
@@ -831,28 +965,73 @@ class _AdminReportPageState extends State<AdminReportPage> {
                     ...orders.asMap().entries.expand((entry) {
                       final orderIndex = entry.key;
                       final o = entry.value;
-                      final dateStr = DateTime.tryParse(o.createdAt) != null 
-                          ? DateFormat('dd.MM.yyyy HH:mm').format(DateTime.parse(o.createdAt).toLocal()) 
+                      final dateStr = DateTime.tryParse(o.createdAt) != null
+                          ? DateFormat('dd.MM.yyyy HH:mm').format(DateTime.parse(o.createdAt).toLocal())
                           : o.createdAt;
-                      
+                      // Phase 3.5 — chek bo'yicha qaytarish ranglari (web ekvivalenti)
+                      final retStatus = o.returnStatus;
+                      final isFull = retStatus == 'full';
+                      final isPartial = retStatus == 'partial';
+                      final headerColor = isFull
+                          ? const Color(0xFFEF4444) // rose — to'liq qaytarib olingan
+                          : isPartial
+                              ? const Color(0xFFD97706) // amber — qisman
+                              : const Color(0xFF0A7C55); // green — standart
                       return [
                         // Order Header
                         Container(
-                          color: const Color(0xFF0A7C55).withValues(alpha: 0.15),
+                          color: headerColor.withValues(alpha: 0.15),
                           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                           child: Row(
                             children: [
-                              SizedBox(width: 50, child: Text('${orderIndex + 1}', textAlign: TextAlign.center, style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF0A7C55)))),
+                              SizedBox(width: 50, child: Text('${orderIndex + 1}', textAlign: TextAlign.center, style: TextStyle(fontWeight: FontWeight.bold, color: headerColor))),
                               Expanded(
-                                child: RichText(
-                                  text: TextSpan(
-                                    style: TextStyle(color: theme.colorScheme.onSurface, fontSize: 13),
-                                    children: [
-                                      TextSpan(text: 'Chek №${o.id} ($dateStr)   ', style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF0A7C55))),
-                                      const TextSpan(text: 'Xaridor: ', style: TextStyle(color: Colors.grey)),
-                                      TextSpan(text: '${o.receiverName} ${o.receiverPhone.isNotEmpty ? "(${o.receiverPhone})" : ""}'),
-                                    ],
-                                  ),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    RichText(
+                                      text: TextSpan(
+                                        style: TextStyle(color: theme.colorScheme.onSurface, fontSize: 13),
+                                        children: [
+                                          TextSpan(text: 'Chek №${o.id} ($dateStr)   ', style: TextStyle(fontWeight: FontWeight.bold, color: headerColor)),
+                                          const TextSpan(text: 'Xaridor: ', style: TextStyle(color: Colors.grey)),
+                                          TextSpan(text: '${o.receiverName} ${o.receiverPhone.isNotEmpty ? "(${o.receiverPhone})" : ""}'),
+                                        ],
+                                      ),
+                                    ),
+                                    if (o.isReturned)
+                                      Padding(
+                                        padding: const EdgeInsets.only(top: 4),
+                                        child: Row(
+                                          children: [
+                                            Icon(Icons.assignment_return_rounded,
+                                                size: 14, color: headerColor),
+                                            const SizedBox(width: 4),
+                                            Text(
+                                              isFull
+                                                  ? "To'liq qaytarildi"
+                                                  : "Qisman qaytarildi (${o.returnedQty} ta)",
+                                              style: TextStyle(
+                                                fontSize: 11,
+                                                fontWeight: FontWeight.w800,
+                                                color: headerColor,
+                                              ),
+                                            ),
+                                            if (o.latestReturnNumber != null) ...[
+                                              const SizedBox(width: 8),
+                                              Text(
+                                                '· ${o.latestReturnNumber}',
+                                                style: TextStyle(
+                                                  fontSize: 10,
+                                                  color: headerColor,
+                                                  fontFamily: 'monospace',
+                                                ),
+                                              ),
+                                            ],
+                                          ],
+                                        ),
+                                      ),
+                                  ],
                                 ),
                               ),
                             ],
@@ -861,6 +1040,15 @@ class _AdminReportPageState extends State<AdminReportPage> {
                         ...o.items.asMap().entries.map((itemEntry) {
                           final itemIndex = itemEntry.key;
                           final item = itemEntry.value;
+                          // Phase 3.5 — qaytarish holatiga qarab vizual stil
+                          final fullRet = item.isFullyReturned;
+                          final partialRet = item.isPartiallyReturned;
+                          final dim = fullRet
+                              ? TextStyle(
+                                  decoration: TextDecoration.lineThrough,
+                                  color: theme.colorScheme.outline,
+                                )
+                              : null;
                           return Container(
                             decoration: BoxDecoration(
                               color: theme.colorScheme.surfaceContainerLowest,
@@ -870,54 +1058,275 @@ class _AdminReportPageState extends State<AdminReportPage> {
                             child: Row(
                               children: [
                                 SizedBox(width: 50, child: Text('${itemIndex + 1}', textAlign: TextAlign.center, style: const TextStyle(fontSize: 12, color: Colors.grey))),
-                                Expanded(child: Text(item.productName, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold))),
-                                SizedBox(width: 80, child: Text('${item.quantity}', textAlign: TextAlign.center, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold))),
-                                SizedBox(width: 120, child: Text(fmt(item.originalPrice), textAlign: TextAlign.right, style: const TextStyle(fontSize: 12))),
-                                SizedBox(width: 120, child: Text(fmt(item.soldPrice), textAlign: TextAlign.right, style: const TextStyle(fontSize: 12, color: Color(0xFF0A7C55), fontWeight: FontWeight.bold))),
-                                SizedBox(width: 100, child: Text(item.discountPercent > 0 ? '${item.discountPercent}%' : '-', textAlign: TextAlign.center, style: const TextStyle(fontSize: 12, color: Colors.red))),
-                                SizedBox(width: 140, child: Text(item.discountAmount > 0 ? fmt(item.discountAmount) : '-', textAlign: TextAlign.right, style: const TextStyle(fontSize: 12, color: Colors.red))),
+                                Expanded(
+                                  child: Row(
+                                    children: [
+                                      Flexible(
+                                        child: Text(
+                                          item.productName,
+                                          style: dim ??
+                                              const TextStyle(
+                                                  fontSize: 12,
+                                                  fontWeight: FontWeight.bold),
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                      ),
+                                      if (item.returnedQty > 0) ...[
+                                        const SizedBox(width: 6),
+                                        Container(
+                                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                                          decoration: BoxDecoration(
+                                            color: fullRet
+                                                ? const Color(0xFFEF4444).withValues(alpha: 0.15)
+                                                : const Color(0xFFD97706).withValues(alpha: 0.15),
+                                            borderRadius: BorderRadius.circular(8),
+                                          ),
+                                          child: Text(
+                                            fullRet
+                                                ? 'Qaytarib olingan'
+                                                : '${item.returnedQty} ta qaytdi',
+                                            style: TextStyle(
+                                              fontSize: 9,
+                                              fontWeight: FontWeight.w800,
+                                              color: fullRet
+                                                  ? const Color(0xFFEF4444)
+                                                  : const Color(0xFFD97706),
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    ],
+                                  ),
+                                ),
+                                SizedBox(
+                                  width: 80,
+                                  child: item.returnedQty > 0
+                                      ? Column(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            Text(
+                                              '${item.netQuantity}',
+                                              textAlign: TextAlign.center,
+                                              style: const TextStyle(
+                                                  fontSize: 12,
+                                                  fontWeight: FontWeight.bold,
+                                                  color: Color(0xFF10B981)),
+                                            ),
+                                            Text(
+                                              '(${item.quantity} − ${item.returnedQty})',
+                                              textAlign: TextAlign.center,
+                                              style: TextStyle(
+                                                fontSize: 9,
+                                                color: theme.colorScheme.outline,
+                                              ),
+                                            ),
+                                          ],
+                                        )
+                                      : Text('${item.quantity}', textAlign: TextAlign.center, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                                ),
+                                SizedBox(width: 120, child: Text(fmt(item.originalPrice), textAlign: TextAlign.right, style: dim ?? const TextStyle(fontSize: 12))),
+                                SizedBox(
+                                  width: 120,
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.end,
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      Text(
+                                        fmt(item.soldPrice),
+                                        textAlign: TextAlign.right,
+                                        style: dim ??
+                                            const TextStyle(
+                                                fontSize: 12,
+                                                color: Color(0xFF0A7C55),
+                                                fontWeight: FontWeight.bold),
+                                      ),
+                                      if (partialRet && item.refundedAmount > 0)
+                                        Text(
+                                          '−${fmt(item.refundedAmount)} qaytdi',
+                                          style: const TextStyle(
+                                              fontSize: 9, color: Color(0xFFEF4444)),
+                                        ),
+                                    ],
+                                  ),
+                                ),
+                                SizedBox(width: 100, child: Text(item.discountPercent > 0 ? '${item.discountPercent}%' : '-', textAlign: TextAlign.center, style: dim ?? const TextStyle(fontSize: 12, color: Colors.red))),
+                                SizedBox(width: 140, child: Text(item.discountAmount > 0 ? fmt(item.discountAmount) : '-', textAlign: TextAlign.right, style: dim ?? const TextStyle(fontSize: 12, color: Colors.red))),
                               ],
                             ),
                           );
                         }),
-                        // Order Subtotal Row (Jami)
-                        Container(
-                          decoration: BoxDecoration(
-                            color: theme.colorScheme.surfaceContainerHighest,
-                            border: Border(bottom: BorderSide(color: theme.colorScheme.outlineVariant, width: 3)),
-                          ),
-                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                          child: Row(
-                            children: [
-                              Expanded(child: Text("Shu chek bo'yicha jami:", textAlign: TextAlign.right, style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: theme.colorScheme.onSurface.withValues(alpha: 0.8)))),
-                              SizedBox(width: 80, child: Text('${o.items.fold<int>(0, (sum, item) => sum + item.quantity)}', textAlign: TextAlign.center, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Color(0xFF0A7C55)))),
-                              SizedBox(width: 120, child: Text(fmt(o.items.fold<double>(0.0, (sum, item) => sum + (item.originalPrice * item.quantity))), textAlign: TextAlign.right, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold))),
-                              SizedBox(width: 120, child: Text(fmt(o.totalPrice), textAlign: TextAlign.right, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Color(0xFF0A7C55)))),
-                              SizedBox(width: 100, child: Text(o.totalDiscount > 0 && o.totalPrice > 0 ? '${((o.totalDiscount / (o.totalPrice + o.totalDiscount)) * 100).toStringAsFixed(2).replaceAll('.00', '')}%' : '0%', textAlign: TextAlign.center, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.red))),
-                              SizedBox(width: 140, child: Text(o.totalDiscount > 0 ? fmt(o.totalDiscount) : '0', textAlign: TextAlign.right, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.red))),
-                            ],
-                          ),
-                        ),
+                        // Order Subtotal Row (Jami) — Phase 3.5: net qiymatlar
+                        Builder(builder: (_) {
+                          final totalQty = o.items.fold<int>(0, (sum, item) => sum + item.quantity);
+                          final netQty = o.items.fold<int>(0, (sum, item) => sum + item.netQuantity);
+                          final grossOrig = o.items.fold<double>(0.0, (sum, item) => sum + (item.originalPrice * item.quantity));
+                          final netOrig = o.items.fold<double>(
+                              0.0,
+                              (sum, item) => sum + (item.originalPrice * item.netQuantity));
+                          // Chegirma proportsional: per_unit × net_qty
+                          final netDiscount = o.items.fold<double>(0.0, (sum, item) {
+                            if (item.quantity == 0) return sum;
+                            final perUnit = item.discountAmount / item.quantity;
+                            return sum + perUnit * item.netQuantity;
+                          });
+                          final netOrigPct = netOrig > 0 ? (netDiscount / netOrig * 100) : 0.0;
+                          final isFullR = o.returnStatus == 'full';
+                          final dimStyle = TextStyle(
+                            fontSize: 11,
+                            decoration: isFullR ? TextDecoration.lineThrough : null,
+                            color: theme.colorScheme.outline,
+                          );
+                          return Container(
+                            decoration: BoxDecoration(
+                              color: theme.colorScheme.surfaceContainerHighest,
+                              border: Border(bottom: BorderSide(color: theme.colorScheme.outlineVariant, width: 3)),
+                            ),
+                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                            child: Row(
+                              children: [
+                                Expanded(child: Text("Shu chek bo'yicha jami:", textAlign: TextAlign.right, style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: theme.colorScheme.onSurface.withValues(alpha: 0.8)))),
+                                // Soni
+                                SizedBox(
+                                  width: 80,
+                                  child: o.isReturned
+                                      ? Column(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            Text('$totalQty', textAlign: TextAlign.center, style: dimStyle),
+                                            Text('Sof: $netQty', textAlign: TextAlign.center, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF10B981))),
+                                          ],
+                                        )
+                                      : Text('$totalQty', textAlign: TextAlign.center, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Color(0xFF0A7C55))),
+                                ),
+                                // Narxi (asl)
+                                SizedBox(
+                                  width: 120,
+                                  child: o.isReturned
+                                      ? Column(
+                                          crossAxisAlignment: CrossAxisAlignment.end,
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            Text(fmt(grossOrig), textAlign: TextAlign.right, style: dimStyle),
+                                            Text('Sof: ${fmt(netOrig)}', textAlign: TextAlign.right, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF10B981))),
+                                          ],
+                                        )
+                                      : Text(fmt(grossOrig), textAlign: TextAlign.right, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
+                                ),
+                                // Sotilgan narxi — 3 qatorli format
+                                SizedBox(
+                                  width: 120,
+                                  child: o.isReturned
+                                      ? Column(
+                                          crossAxisAlignment: CrossAxisAlignment.end,
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            Text(fmt(o.totalPrice), textAlign: TextAlign.right, style: dimStyle),
+                                            Text('Sof: ${fmt(o.netTotal)}', textAlign: TextAlign.right, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF10B981))),
+                                            Text('−${fmt(o.refundedAmount)} qaytdi', textAlign: TextAlign.right, style: const TextStyle(fontSize: 9, color: Color(0xFFEF4444))),
+                                          ],
+                                        )
+                                      : Text(fmt(o.totalPrice), textAlign: TextAlign.right, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Color(0xFF0A7C55))),
+                                ),
+                                // Chegirma %
+                                SizedBox(
+                                  width: 100,
+                                  child: o.isReturned
+                                      ? Column(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            Text(o.totalDiscount > 0 && grossOrig > 0 ? '${((o.totalDiscount / grossOrig) * 100).toStringAsFixed(1)}%' : '0%', textAlign: TextAlign.center, style: dimStyle),
+                                            Text(isFullR ? '0%' : (netOrigPct > 0 ? '${netOrigPct.toStringAsFixed(1)}%' : '0%'), textAlign: TextAlign.center, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.red)),
+                                          ],
+                                        )
+                                      : Text(o.totalDiscount > 0 && o.totalPrice > 0 ? '${((o.totalDiscount / (o.totalPrice + o.totalDiscount)) * 100).toStringAsFixed(2).replaceAll('.00', '')}%' : '0%', textAlign: TextAlign.center, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.red)),
+                                ),
+                                // Chegirma summasi — Phase 3.5: net
+                                SizedBox(
+                                  width: 140,
+                                  child: o.isReturned
+                                      ? Column(
+                                          crossAxisAlignment: CrossAxisAlignment.end,
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            Text(fmt(o.totalDiscount), textAlign: TextAlign.right, style: dimStyle),
+                                            Text(isFullR ? 'Sof: 0' : 'Sof: ${fmt(netDiscount)}', textAlign: TextAlign.right, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.red)),
+                                          ],
+                                        )
+                                      : Text(o.totalDiscount > 0 ? fmt(o.totalDiscount) : '0', textAlign: TextAlign.right, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.red)),
+                                ),
+                              ],
+                            ),
+                          );
+                        }),
                       ];
                     }),
-                    // Grand Total (Umumiy Jami)
-                    Container(
-                      decoration: BoxDecoration(
-                        color: theme.colorScheme.surfaceContainer,
-                        border: Border(top: BorderSide(color: theme.colorScheme.outlineVariant, width: 2)),
-                      ),
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-                      child: Row(
-                        children: [
-                          Expanded(child: Text("JAMI:", textAlign: TextAlign.right, style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: theme.colorScheme.onSurface))),
-                          SizedBox(width: 80, child: Text('${orders.fold<int>(0, (acc, o) => acc + o.items.fold<int>(0, (sum, i) => sum + i.quantity))}', textAlign: TextAlign.center, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Color(0xFF0A7C55)))),
-                          SizedBox(width: 120, child: Text(fmt(orders.fold<double>(0.0, (acc, o) => acc + o.items.fold<double>(0.0, (sum, i) => sum + (i.originalPrice * i.quantity)))), textAlign: TextAlign.right, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold))),
-                          SizedBox(width: 120, child: Text(fmt(orders.fold<double>(0.0, (acc, o) => acc + o.totalPrice)), textAlign: TextAlign.right, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Color(0xFF0A7C55)))),
-                          const SizedBox(width: 100), // Chegirma % учун bo'sh joy
-                          SizedBox(width: 140, child: Text(fmt(orders.fold<double>(0.0, (acc, o) => acc + o.items.fold<double>(0.0, (sum, i) => sum + i.discountAmount))), textAlign: TextAlign.right, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.red))),
-                        ],
-                      ),
-                    ),
+                    // Grand Total (Umumiy Jami) — Phase 3.5: net qiymatlar
+                    Builder(builder: (_) {
+                      final grossQty = orders.fold<int>(0, (acc, o) => acc + o.items.fold<int>(0, (s, i) => s + i.quantity));
+                      final netQty = orders.fold<int>(0, (acc, o) => acc + o.items.fold<int>(0, (s, i) => s + i.netQuantity));
+                      final grossOrig = orders.fold<double>(0.0, (acc, o) => acc + o.items.fold<double>(0.0, (s, i) => s + (i.originalPrice * i.quantity)));
+                      final netOrig = orders.fold<double>(0.0, (acc, o) => acc + o.items.fold<double>(0.0, (s, i) => s + (i.originalPrice * i.netQuantity)));
+                      final grossSold = orders.fold<double>(0.0, (acc, o) => acc + o.totalPrice);
+                      final refunded = orders.fold<double>(0.0, (acc, o) => acc + o.refundedAmount);
+                      final netSold = grossSold - refunded;
+                      final grossDiscount = orders.fold<double>(0.0, (acc, o) => acc + o.items.fold<double>(0.0, (s, i) => s + i.discountAmount));
+                      final netDiscount = orders.fold<double>(0.0, (acc, o) => acc + o.items.fold<double>(0.0, (s, i) {
+                            if (i.quantity == 0) return s;
+                            return s + (i.discountAmount / i.quantity) * i.netQuantity;
+                          }));
+                      final hasReturn = refunded > 0 || netQty < grossQty;
+                      final dim = TextStyle(fontSize: 11, color: theme.colorScheme.outline);
+                      return Container(
+                        decoration: BoxDecoration(
+                          color: theme.colorScheme.surfaceContainer,
+                          border: Border(top: BorderSide(color: theme.colorScheme.outlineVariant, width: 2)),
+                        ),
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+                        child: Row(
+                          children: [
+                            Expanded(child: Text("JAMI:", textAlign: TextAlign.right, style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: theme.colorScheme.onSurface))),
+                            SizedBox(
+                              width: 80,
+                              child: hasReturn
+                                  ? Column(mainAxisSize: MainAxisSize.min, children: [
+                                      Text('$grossQty', textAlign: TextAlign.center, style: dim),
+                                      Text('Sof: $netQty', textAlign: TextAlign.center, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Color(0xFF10B981))),
+                                    ])
+                                  : Text('$grossQty', textAlign: TextAlign.center, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Color(0xFF0A7C55))),
+                            ),
+                            SizedBox(
+                              width: 120,
+                              child: hasReturn
+                                  ? Column(crossAxisAlignment: CrossAxisAlignment.end, mainAxisSize: MainAxisSize.min, children: [
+                                      Text(fmt(grossOrig), textAlign: TextAlign.right, style: dim),
+                                      Text('Sof: ${fmt(netOrig)}', textAlign: TextAlign.right, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Color(0xFF10B981))),
+                                    ])
+                                  : Text(fmt(grossOrig), textAlign: TextAlign.right, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
+                            ),
+                            SizedBox(
+                              width: 120,
+                              child: hasReturn
+                                  ? Column(crossAxisAlignment: CrossAxisAlignment.end, mainAxisSize: MainAxisSize.min, children: [
+                                      Text('Yalpi: ${fmt(grossSold)}', textAlign: TextAlign.right, style: dim),
+                                      Text('Sof: ${fmt(netSold)}', textAlign: TextAlign.right, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Color(0xFF10B981))),
+                                      Text('−${fmt(refunded)} qaytdi', textAlign: TextAlign.right, style: const TextStyle(fontSize: 9, color: Color(0xFFEF4444))),
+                                    ])
+                                  : Text(fmt(grossSold), textAlign: TextAlign.right, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Color(0xFF0A7C55))),
+                            ),
+                            const SizedBox(width: 100),
+                            SizedBox(
+                              width: 140,
+                              child: hasReturn
+                                  ? Column(crossAxisAlignment: CrossAxisAlignment.end, mainAxisSize: MainAxisSize.min, children: [
+                                      Text(fmt(grossDiscount), textAlign: TextAlign.right, style: dim),
+                                      Text('Sof: ${fmt(netDiscount)}', textAlign: TextAlign.right, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.red)),
+                                    ])
+                                  : Text(fmt(grossDiscount), textAlign: TextAlign.right, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.red)),
+                            ),
+                          ],
+                        ),
+                      );
+                    }),
                     if (state.isFetchingOrders)
                       const Padding(
                         padding: EdgeInsets.all(16.0),

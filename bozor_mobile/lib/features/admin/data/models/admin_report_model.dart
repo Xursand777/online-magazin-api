@@ -82,6 +82,13 @@ class ReportProduct {
   final int quantitySold;
   final double totalRevenue;
   final double netProfit;
+  // Phase 3.5 — per-product qaytarish ma'lumotlari (web bilan 1:1 mos)
+  final int quantityReturned;
+  final int netQuantitySold;
+  final double totalRefunded;
+  final double netRevenue;
+  final double returnRate;
+  final double netProfitAfterReturns;
 
   ReportProduct({
     required this.rank,
@@ -102,9 +109,19 @@ class ReportProduct {
     required this.quantitySold,
     required this.totalRevenue,
     required this.netProfit,
+    this.quantityReturned = 0,
+    this.netQuantitySold = 0,
+    this.totalRefunded = 0,
+    this.netRevenue = 0,
+    this.returnRate = 0,
+    this.netProfitAfterReturns = 0,
   });
 
+  bool get hasReturns => quantityReturned > 0;
+
   factory ReportProduct.fromJson(Map<String, dynamic> json) {
+    final qs = _int(json['quantity_sold']);
+    final qr = _int(json['quantity_returned']);
     return ReportProduct(
       rank: _int(json['rank']),
       id: _int(json['id']),
@@ -121,9 +138,17 @@ class ReportProduct {
       soldPrice: _double(json['sold_price']),
       costPrice: _double(json['cost_price']),
       stock: _int(json['stock']),
-      quantitySold: _int(json['quantity_sold']),
+      quantitySold: qs,
       totalRevenue: _double(json['total_revenue']),
       netProfit: _double(json['net_profit']),
+      quantityReturned: qr,
+      netQuantitySold: _int(json['net_quantity_sold']) > 0
+          ? _int(json['net_quantity_sold'])
+          : (qs - qr),
+      totalRefunded: _double(json['total_refunded']),
+      netRevenue: _double(json['net_revenue']),
+      returnRate: _double(json['return_rate']),
+      netProfitAfterReturns: _double(json['net_profit_after_returns']),
     );
   }
 }
@@ -160,6 +185,10 @@ class ReportOrderItem {
   final double soldPrice;
   final double discountPercent;
   final double discountAmount;
+  // Phase 3.5
+  final int returnedQty;
+  final int netQuantity;
+  final double refundedAmount;
 
   ReportOrderItem({
     required this.id,
@@ -170,18 +199,31 @@ class ReportOrderItem {
     required this.soldPrice,
     required this.discountPercent,
     required this.discountAmount,
+    this.returnedQty = 0,
+    this.netQuantity = 0,
+    this.refundedAmount = 0,
   });
 
+  bool get isFullyReturned => returnedQty > 0 && returnedQty >= quantity;
+  bool get isPartiallyReturned => returnedQty > 0 && returnedQty < quantity;
+
   factory ReportOrderItem.fromJson(Map<String, dynamic> json) {
+    final qty = _int(json['quantity']);
+    final ret = _int(json['returned_qty']);
     return ReportOrderItem(
       id: _int(json['id']),
       productName: json['product_name'] as String? ?? 'Noma\'lum',
       variantStr: json['variant_str'] as String?,
-      quantity: _int(json['quantity']),
+      quantity: qty,
       originalPrice: _double(json['original_price']),
       soldPrice: _double(json['sold_price']),
       discountPercent: _double(json['discount_percent']),
       discountAmount: _double(json['discount_amount']),
+      returnedQty: ret,
+      netQuantity: _int(json['net_quantity']) > 0
+          ? _int(json['net_quantity'])
+          : (qty - ret),
+      refundedAmount: _double(json['refunded_amount']),
     );
   }
 }
@@ -194,6 +236,12 @@ class ReportOrder {
   final double totalPrice;
   final double totalDiscount;
   final List<ReportOrderItem> items;
+  // Phase 3.5
+  final String returnStatus; // 'none' | 'partial' | 'full'
+  final int returnedQty;
+  final double refundedAmount;
+  final double netTotal;
+  final String? latestReturnNumber;
 
   ReportOrder({
     required this.id,
@@ -203,19 +251,36 @@ class ReportOrder {
     required this.totalPrice,
     required this.totalDiscount,
     required this.items,
+    this.returnStatus = 'none',
+    this.returnedQty = 0,
+    this.refundedAmount = 0,
+    this.netTotal = 0,
+    this.latestReturnNumber,
   });
 
+  bool get isReturned => returnStatus != 'none';
+  bool get isFullyReturned => returnStatus == 'full';
+
   factory ReportOrder.fromJson(Map<String, dynamic> json) {
+    final total = _double(json['total_price']);
+    final refunded = _double(json['refunded_amount']);
     return ReportOrder(
       id: _int(json['id']),
       createdAt: json['created_at'] as String? ?? '',
       receiverName: json['receiver_name'] as String? ?? 'Noma\'lum',
       receiverPhone: json['receiver_phone'] as String? ?? '',
-      totalPrice: _double(json['total_price']),
+      totalPrice: total,
       totalDiscount: _double(json['total_discount']),
       items: ((json['items'] as List?) ?? [])
           .map((e) => ReportOrderItem.fromJson(e as Map<String, dynamic>))
           .toList(),
+      returnStatus: json['return_status'] as String? ?? 'none',
+      returnedQty: _int(json['returned_qty']),
+      refundedAmount: refunded,
+      netTotal: _double(json['net_total']) > 0
+          ? _double(json['net_total'])
+          : (total - refunded),
+      latestReturnNumber: json['latest_return_number'] as String?,
     );
   }
 }

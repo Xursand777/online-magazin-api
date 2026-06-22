@@ -344,7 +344,11 @@ class _OrderCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final color = OrderStatusHelper.badgeColor(order.status);
+    // Phase 3.5: Effektiv status — agar buyurtma qaytarib olingan bo'lsa,
+    // "Xaridorga topshirildi" emas, qaytarish statusini ko'rsatamiz
+    // ("Do'konga qaytarildi", "Almashtirildi" yoki "Qaytarish rad etildi").
+    final effectiveStatus = order.effectiveStatus;
+    final color = OrderStatusHelper.badgeColor(effectiveStatus);
     // Oldinga tugma — ROL bo'yicha backend-avtoritar `allowedTransitions`dan.
     // Kuryer faqat SHIPPING→DELIVERED ("Yetkazildi") yoki DELIVERED→RECEIVED
     // ("Xaridorga topshirildi") ko'radi; sotuvchi PACKING→SHIPPING gacha.
@@ -402,6 +406,26 @@ class _OrderCard extends StatelessWidget {
                   ),
                 ],
                 const Spacer(),
+                // Status badge — qaytarib olingan bo'lsa qisman badge ham qo'shamiz
+                if (order.isReturned && order.returnStatus == 'partial') ...[
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 8, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFD97706).withValues(alpha: 0.15),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: const Text(
+                      'Qisman qaytarildi',
+                      style: TextStyle(
+                        color: Color(0xFFD97706),
+                        fontSize: 10,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                ],
                 Container(
                   padding:
                       const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
@@ -410,7 +434,7 @@ class _OrderCard extends StatelessWidget {
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: Text(
-                    OrderStatusHelper.label(order.status),
+                    OrderStatusHelper.shortLabel(effectiveStatus),
                     style: theme.textTheme.labelSmall?.copyWith(
                       color: color,
                       fontWeight: FontWeight.w800,
@@ -420,6 +444,37 @@ class _OrderCard extends StatelessWidget {
               ],
             ),
           ),
+          // Phase 3.5: qaytarish raqami (R-2026-NNNNNN) — header ostida kichik chiziq
+          if (order.latestReturnNumber != null)
+            Container(
+              padding: const EdgeInsets.fromLTRB(14, 0, 14, 8),
+              child: Row(
+                children: [
+                  Icon(Icons.assignment_return_rounded,
+                      size: 13, color: color),
+                  const SizedBox(width: 4),
+                  Text(
+                    order.latestReturnNumber!,
+                    style: TextStyle(
+                      color: color,
+                      fontFamily: 'monospace',
+                      fontWeight: FontWeight.w800,
+                      fontSize: 11,
+                    ),
+                  ),
+                  if (order.refundedAmount > 0) ...[
+                    const SizedBox(width: 8),
+                    Text(
+                      '−${formatSom(order.refundedAmount)} so\'m qaytarildi',
+                      style: TextStyle(
+                        color: theme.colorScheme.onSurfaceVariant,
+                        fontSize: 10,
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
           const Divider(height: 1),
           // Body
           Padding(

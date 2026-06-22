@@ -74,6 +74,20 @@ class AdminOrder {
   final List<AdminOrderItem> items;
   final AdminPayment? payment;
   final List<AdminOrderHistory> history;
+  // Phase 3.5 — Qaytarish belgilari (backend OrderSerializer Phase 3.5)
+  final String returnStatus; // 'none' | 'partial' | 'full'
+  final int returnedQty;
+  final double refundedAmount;
+  final String? latestReturnNumber;
+  final String? latestReturnStatus; // 'REFUNDED' | 'REPLACED' | null
+
+  /// Effective display status: qaytarib olingan bo'lsa qaytarish statusi,
+  /// aks holda asl Order.status. Mobil ro'yxati shunga qarab badge chizadi.
+  String get effectiveStatus =>
+      latestReturnStatus != null ? latestReturnStatus! : status;
+
+  bool get isReturned => returnStatus != 'none';
+  bool get isFullyReturned => returnStatus == 'full';
 
   const AdminOrder({
     required this.id,
@@ -103,6 +117,11 @@ class AdminOrder {
     required this.items,
     required this.payment,
     required this.history,
+    this.returnStatus = 'none',
+    this.returnedQty = 0,
+    this.refundedAmount = 0,
+    this.latestReturnNumber,
+    this.latestReturnStatus,
   });
 
   bool get isPos => deliveryAddress.contains('POS');
@@ -169,6 +188,11 @@ class AdminOrder {
       history: ((json['history'] as List?) ?? [])
           .map((e) => AdminOrderHistory.fromJson(e as Map<String, dynamic>))
           .toList(),
+      returnStatus: json['return_status'] as String? ?? 'none',
+      returnedQty: _int(json['returned_qty']),
+      refundedAmount: _double(json['refunded_amount']),
+      latestReturnNumber: json['latest_return_number'] as String?,
+      latestReturnStatus: json['latest_return_status'] as String?,
     );
   }
 }

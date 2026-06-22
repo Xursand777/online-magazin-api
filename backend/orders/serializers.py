@@ -111,6 +111,15 @@ class OrderSerializer(serializers.ModelSerializer):
     # Frontend (web + mobil) shu ro'yxat bo'yicha tugma chizadi — rol bo'yicha
     # tugma ko'rsatishning yagona avtoritar manbai (bekor qilish KIRMAYDI).
     allowed_transitions = serializers.SerializerMethodField()
+    # ── Phase 3.5: Qaytarish (Return) belgilar ───────────────────────────────
+    # Mobil va web ro'yxatda chek "Xaridorga topshirildi" badge'i o'rniga
+    # qaytarish status'ini ko'rsatishi uchun. To'g'ridan-to'g'ri OrderReturn'dan
+    # so'nggi SUCCESS holatdagisini qaytaramiz (REFUNDED yoki REPLACED).
+    return_status = serializers.SerializerMethodField()
+    returned_qty = serializers.SerializerMethodField()
+    refunded_amount = serializers.SerializerMethodField()
+    latest_return_number = serializers.SerializerMethodField()
+    latest_return_status = serializers.SerializerMethodField()
 
     class Meta:
         model = Order
@@ -146,6 +155,12 @@ class OrderSerializer(serializers.ModelSerializer):
             'items',
             'payment',
             'history',
+            # Phase 3.5 — qaytarish belgilari
+            'return_status',
+            'returned_qty',
+            'refunded_amount',
+            'latest_return_number',
+            'latest_return_status',
         )
         read_only_fields = (
             'user',
@@ -169,6 +184,43 @@ class OrderSerializer(serializers.ModelSerializer):
             'can_pay_credit',
             'allowed_transitions',
         )
+
+    # ── Phase 3.5: qaytarish helper'lari ─────────────────────────────────
+    def _success_returns(self, obj):
+        """Buyurtma uchun SUCCESS (REFUNDED/REPLACED) qaytarishlar — eng yangi avval."""
+        from .models import OrderReturn
+        return sorted(
+            [r for r in obj.returns.all() if r.status in OrderReturn.SUCCESS_STATUSES],
+            key=lambda r: r.created_at,
+            reverse=True,
+        )
+
+    def get_return_status(self, obj):
+        """'none' | 'partial' | 'full' — UI badge'ni belgilash uchun."""
+        total_qty = sum(it.quantity for it in obj.items.all())
+        returned = sum(it.returned_qty or 0 for it in obj.items.all())
+        if returned <= 0:
+            return 'none'
+        return 'full' if returned >= total_qty else 'partial'
+
+    def get_returned_qty(self, obj) -> int:
+        return sum(it.returned_qty or 0 for it in obj.items.all())
+
+    def get_refunded_amount(self, obj) -> float:
+        total = sum(
+            float(it.price_snapshot) * (it.returned_qty or 0)
+            for it in obj.items.all()
+        )
+        return round(total, 2)
+
+    def get_latest_return_number(self, obj):
+        rets = self._success_returns(obj)
+        return rets[0].return_number if rets else None
+
+    def get_latest_return_status(self, obj):
+        """'REFUNDED' | 'REPLACED' — qaytarish badge label'i uchun."""
+        rets = self._success_returns(obj)
+        return rets[0].status if rets else None
 
     def get_can_cancel(self, obj):
         return obj.status in Order.CANCELLABLE_STATUSES

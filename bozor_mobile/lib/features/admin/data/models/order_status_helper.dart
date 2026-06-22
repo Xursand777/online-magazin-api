@@ -17,9 +17,25 @@ class OrderStatusHelper {
     'CANCELLED_BY_USER': 'Foydalanuvchi bekor qildi',
     'CANCELLED_BY_ADMIN': 'Admin bekor qildi',
     'SYSTEM_AUTO_CANCEL': 'Tizim bekor qildi',
+    // Phase 3.5 — qaytarish statuslari (Order'da yo'q, lekin OrderSerializer
+    // latest_return_status maydonida kelishi mumkin)
+    'REFUNDED': "Do'konga qaytarildi — pul qaytarib berildi",
+    'REPLACED': "Do'konga qaytarildi — yangi tovarga almashtirildi",
+    'REJECTED': 'Qaytarish rad etildi',
+  };
+
+  // Qisqa (badge'ga sig'adigan) label — list ko'rinishida.
+  static const Map<String, String> shortLabels = {
+    'REFUNDED': "Do'konga qaytarildi",
+    'REPLACED': 'Almashtirildi',
+    'REJECTED': 'Qaytarish rad etildi',
   };
 
   static String label(String status) => labels[status] ?? status;
+
+  /// Ro'yxat ko'rinishi uchun qisqa label (uzun matn badge'ni buzmasligi uchun).
+  static String shortLabel(String status) =>
+      shortLabels[status] ?? labels[status] ?? status;
 
   // ─── Oldinga o'tish (faqat bitta to'g'ri yo'l) ───────────────────────────────
   static const Map<String, String?> _forward = {
@@ -69,6 +85,13 @@ class OrderStatusHelper {
         return const Color(0xFFDC2626);
       case 'SYSTEM_AUTO_CANCEL':
         return const Color(0xFF6B7280);
+      // Phase 3.5 — qaytarish ranglari (web ReturnsTab bilan AYNAN bir xil).
+      case 'REFUNDED':
+        return const Color(0xFF22C55E); // green — yakuniy SUCCESS
+      case 'REPLACED':
+        return const Color(0xFF10B981); // emerald
+      case 'REJECTED':
+        return const Color(0xFFEF4444); // red
       default:
         return const Color(0xFF6B7280);
     }

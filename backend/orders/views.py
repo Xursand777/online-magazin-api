@@ -364,9 +364,13 @@ class AdminOrderListView(generics.ListAPIView):
 
     def get_queryset(self):
 
+        # Phase 3.5: `returns` ham prefetch — OrderSerializer'da `return_status`
+        # va `latest_return_*` qaytarish badge'i uchun. N+1 query'ni oldini olamiz.
         queryset = (
             Order.objects.select_related('user', 'payment')
-            .prefetch_related('items__product__images', 'items__variant', 'history')
+            .prefetch_related(
+                'items__product__images', 'items__variant', 'history', 'returns',
+            )
             .order_by('-created_at')
         )
         status_filter = self.request.query_params.get('status')
