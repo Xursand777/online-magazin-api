@@ -977,10 +977,15 @@ class AdminReportOrdersView(views.APIView, OrderPagePagination):
         date_from_str = request.query_params.get('date_from')
         date_to_str = request.query_params.get('date_to')
 
+        # Phase 3.5: returns ham prefetch — har item uchun qaytarish holatini
+        # JOIN'siz o'qish uchun. Replacement Order'lar bu yerdan chiqarilmaydi
+        # (admin Cheklar tabida ko'rsin — alohida "↪ Almashtirish chek"
+        # belgisi bilan kelajak phase'da).
         qs = Order.objects.filter(
             status__in=[Order.STATUS_DELIVERED, Order.STATUS_RECEIVED]
         ).select_related('payment').prefetch_related(
-            'items__product__variants', 'items__variant'
+            'items__product__variants', 'items__variant',
+            'returns',
         ).order_by('-created_at')
 
         if date_from_str:
@@ -1002,11 +1007,16 @@ class AdminReportOrdersView(views.APIView, OrderPagePagination):
         page = self.paginate_queryset(qs, request, view=self)
         
         from decimal import Decimal as _D
+        from .models import OrderReturn
         orders_list = []
         for order in page:
             order_items = []
             order_discount_sum = 0.0
             order_original_sum = 0.0
+            # Phase 3.5: chek bo'yicha qaytarish hisobi
+            order_returned_qty = 0
+            order_refunded_amount = 0.0
+            order_total_qty = 0
 
             for item in order.items.all():
                 variant = item.variant
@@ -1036,6 +1046,16 @@ class AdminReportOrdersView(views.APIView, OrderPagePagination):
                     if attrs:
                         full_name = f"{full_name} • {' • '.join(attrs)}"
 
+                # Phase 3.5: item-darajasidagi qaytarish.
+                # `returned_qty` INVARIANT'i: faqat SUCCESS (REFUNDED/REPLACED)
+                # statusdagi OrderReturnItem.quantity yig'indisi. Demak admin
+                # "bu chekdan X dona qaytarilgan" deb ishonchli ko'rsata oladi.
+                returned_qty = item.returned_qty or 0
+                refunded_amount = float(item.price_snapshot) * returned_qty
+                order_returned_qty += returned_qty
+                order_refunded_amount += refunded_amount
+                order_total_qty += item.quantity
+
                 order_items.append({
                     'id': item.id,
                     'product_name': full_name,
@@ -1044,7 +1064,29 @@ class AdminReportOrdersView(views.APIView, OrderPagePagination):
                     'sold_price': sold_price,
                     'discount_percent': round(discount_percent, 2),
                     'discount_amount': discount_amount,
+                    # Phase 3.5 — qaytarish maydonlari
+                    'returned_qty': returned_qty,
+                    'net_quantity': max(0, item.quantity - returned_qty),
+                    'refunded_amount': refunded_amount,
                 })
+
+            # Phase 3.5: chek (Order) darajasidagi qaytarish holati.
+            # `return_status`: none | partial | full — UI badge'ni belgilaydi.
+            if order_returned_qty <= 0:
+                return_status = 'none'
+            elif order_returned_qty >= order_total_qty:
+                return_status = 'full'
+            else:
+                return_status = 'partial'
+
+            # So'nggi qaytarish raqami (UI'da bosib ochish uchun foydali —
+            # kelajak link). Faqat SUCCESS statusdagilar.
+            success_returns = [
+                r for r in order.returns.all()
+                if r.status in OrderReturn.SUCCESS_STATUSES
+            ]
+            success_returns.sort(key=lambda r: r.created_at, reverse=True)
+            latest_return = success_returns[0] if success_returns else None
 
             orders_list.append({
                 'id': order.id,
@@ -1055,6 +1097,15 @@ class AdminReportOrdersView(views.APIView, OrderPagePagination):
                 'total_discount': order_discount_sum,
                 'total_original': order_original_sum,
                 'items': order_items,
+                # Phase 3.5 — chek bo'yicha qaytarish
+                'return_status': return_status,
+                'returned_qty': order_returned_qty,
+                'refunded_amount': order_refunded_amount,
+                'net_total': float(order.total_price) - order_refunded_amount,
+                'returns_count': len(success_returns),
+                'latest_return_number': (
+                    latest_return.return_number if latest_return else None
+                ),
             })
 
         return self.get_paginated_response(orders_list)

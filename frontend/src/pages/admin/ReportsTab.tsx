@@ -73,6 +73,10 @@ interface ReportOrderItem {
   sold_price: number;
   discount_percent: number;
   discount_amount: number;
+  // Phase 3.5 — qaytarish maydonlari (har item)
+  returned_qty?: number;
+  net_quantity?: number;
+  refunded_amount?: number;
 }
 
 interface ReportOrder {
@@ -83,6 +87,13 @@ interface ReportOrder {
   total_price: number;
   total_discount: number;
   items: ReportOrderItem[];
+  // Phase 3.5 — chek bo'yicha qaytarish
+  return_status?: 'none' | 'partial' | 'full';
+  returned_qty?: number;
+  refunded_amount?: number;
+  net_total?: number;
+  returns_count?: number;
+  latest_return_number?: string | null;
 }
 
 interface ReportData {
@@ -903,36 +914,136 @@ export const ReportsTab = () => {
                   // VAZNLI o'rta (oddiy o'rta emas — yuqorida izohni o'qing)
                   const receiptDiscountPct =
                     receiptOriginal > 0 ? (receiptDiscount / receiptOriginal) * 100 : 0;
+                  // Phase 3.5: chek bo'yicha qaytarish holati.
+                  const retStatus = order.return_status || 'none';
+                  const isReturned = retStatus !== 'none';
+                  // Qaytarilgan chek uchun rangli vizual aksent.
+                  // 'full' — qizil header (butun chek qaytarib olingan)
+                  // 'partial' — sariq header (qisman)
+                  // 'none' — yashil (standart)
+                  const headerBg =
+                    retStatus === 'full'
+                      ? 'bg-rose-100 dark:bg-rose-900/30'
+                      : retStatus === 'partial'
+                        ? 'bg-amber-100 dark:bg-amber-900/30'
+                        : 'bg-green-100 dark:bg-green-900/30';
+                  const headerText =
+                    retStatus === 'full'
+                      ? 'text-rose-800 dark:text-rose-300'
+                      : retStatus === 'partial'
+                        ? 'text-amber-800 dark:text-amber-300'
+                        : 'text-green-800 dark:text-green-400';
+                  const headerTitle =
+                    retStatus === 'full'
+                      ? 'text-rose-900 dark:text-rose-200'
+                      : retStatus === 'partial'
+                        ? 'text-amber-900 dark:text-amber-200'
+                        : 'text-green-900 dark:text-green-300';
                   return (
                   <Fragment key={order.id}>
                     {/* Order Header Row */}
-                    <tr className='bg-green-100 dark:bg-green-900/30 font-bold'>
-                      <td className='border border-outline-variant/40 px-3 py-2.5 text-center text-green-800 dark:text-green-400'>
+                    <tr className={`${headerBg} font-bold`}>
+                      <td className={`border border-outline-variant/40 px-3 py-2.5 text-center ${headerText}`}>
                         {orderIndex + 1}
                       </td>
-                      <td colSpan={6} className='border border-outline-variant/40 px-3 py-2.5 text-green-900 dark:text-green-300'>
-                        <span className='mr-4'>Chek №{order.id} ({new Date(order.created_at).toLocaleString('uz-UZ')})</span>
-                        <span className='font-normal opacity-80 mr-1'>Xaridor:</span> 
+                      <td colSpan={6} className={`border border-outline-variant/40 px-3 py-2.5 ${headerTitle}`}>
+                        <span className='mr-3'>
+                          Chek №{order.id} ({new Date(order.created_at).toLocaleString('uz-UZ')})
+                        </span>
+                        <span className='font-normal opacity-80 mr-1'>Xaridor:</span>
                         <span>{order.receiver_name || 'Ismsiz'}</span>
+                        {/* Phase 3.5 — qaytarish badge */}
+                        {isReturned && (
+                          <span
+                            className={`ml-3 inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-bold ${
+                              retStatus === 'full'
+                                ? 'bg-rose-200 text-rose-900 dark:bg-rose-800/70 dark:text-rose-100'
+                                : 'bg-amber-200 text-amber-900 dark:bg-amber-800/70 dark:text-amber-100'
+                            }`}
+                            title={
+                              order.latest_return_number
+                                ? `Oxirgi qaytarish: ${order.latest_return_number}`
+                                : ''
+                            }
+                          >
+                            <span className='material-symbols-outlined text-[14px]'>
+                              assignment_return
+                            </span>
+                            {retStatus === 'full'
+                              ? 'To\'liq qaytarildi'
+                              : `Qisman qaytarildi (${order.returned_qty} ta)`}
+                            {order.latest_return_number && (
+                              <span className='font-mono opacity-80'>· {order.latest_return_number}</span>
+                            )}
+                          </span>
+                        )}
                       </td>
                     </tr>
                     {/* Order Items */}
-                    {order.items.map((item, itemIndex) => (
+                    {order.items.map((item, itemIndex) => {
+                      // Phase 3.5: item bo'yicha qaytarish.
+                      const itemRetQty = item.returned_qty || 0;
+                      const itemFullyReturned =
+                        itemRetQty > 0 && itemRetQty >= item.quantity;
+                      const itemPartiallyReturned =
+                        itemRetQty > 0 && itemRetQty < item.quantity;
+                      return (
                       <tr key={item.id} className='bg-surface-container-lowest hover:bg-primary/5'>
                         <td className='border border-outline-variant/40 px-3 py-2 text-center text-on-surface-variant'>
                           {itemIndex + 1}
                         </td>
                         <td className='border border-outline-variant/40 px-3 py-2 text-on-surface'>
-                          {item.product_name}
+                          <span className={itemFullyReturned ? 'opacity-70 line-through' : ''}>
+                            {item.product_name}
+                          </span>
+                          {/* Qaytarish badge'i item nomidan keyin */}
+                          {itemRetQty > 0 && (
+                            <span
+                              className={`ml-2 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold ${
+                                itemFullyReturned
+                                  ? 'bg-rose-100 text-rose-700 dark:bg-rose-900/40 dark:text-rose-300'
+                                  : 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300'
+                              }`}
+                            >
+                              <span className='material-symbols-outlined text-[12px]'>
+                                undo
+                              </span>
+                              {itemFullyReturned
+                                ? "Qaytarib olingan"
+                                : `${itemRetQty} ta qaytdi`}
+                            </span>
+                          )}
                         </td>
                         <td className='border border-outline-variant/40 px-3 py-2 text-center font-semibold'>
-                          {item.quantity}
+                          {itemRetQty > 0 ? (
+                            <div className='flex flex-col items-center leading-tight'>
+                              <span className='text-emerald-600 dark:text-emerald-300'>
+                                {item.net_quantity ?? item.quantity - itemRetQty}
+                              </span>
+                              <span className='text-[10px] font-normal text-on-surface-variant'>
+                                ({item.quantity} − {itemRetQty})
+                              </span>
+                            </div>
+                          ) : (
+                            item.quantity
+                          )}
                         </td>
                         <td className='border border-outline-variant/40 px-3 py-2 text-right'>
                           {fmt(item.original_price)}
                         </td>
-                        <td className='border border-outline-variant/40 px-3 py-2 text-right text-primary font-semibold'>
+                        <td
+                          className={`border border-outline-variant/40 px-3 py-2 text-right font-semibold ${
+                            itemFullyReturned
+                              ? 'text-on-surface-variant line-through'
+                              : 'text-primary'
+                          }`}
+                        >
                           {fmt(item.sold_price)}
+                          {itemPartiallyReturned && item.refunded_amount! > 0 && (
+                            <div className='text-[10px] font-normal text-rose-500 dark:text-rose-400'>
+                              −{fmt(item.refunded_amount!)} qaytarildi
+                            </div>
+                          )}
                         </td>
                         <td className='border border-outline-variant/40 px-3 py-2 text-center text-error'>
                           {item.discount_percent > 0 ? `${item.discount_percent}%` : '0%'}
@@ -941,7 +1052,8 @@ export const ReportsTab = () => {
                           {item.discount_amount > 0 ? fmt(item.discount_amount) : '0'}
                         </td>
                       </tr>
-                    ))}
+                      );
+                    })}
                     {/* Order Subtotal Row */}
                     <tr className='bg-surface-container-high font-semibold text-on-surface text-sm border-b-[3px] border-outline-variant/30'>
                       <td colSpan={2} className='border border-outline-variant/40 px-3 py-2.5 text-right opacity-80'>Shu chek bo'yicha jami:</td>
@@ -951,8 +1063,29 @@ export const ReportsTab = () => {
                       <td className='border border-outline-variant/40 px-3 py-2.5 text-right'>
                         {fmt(order.items.reduce((acc, item) => acc + (item.original_price * item.quantity), 0))}
                       </td>
-                      <td className='border border-outline-variant/40 px-3 py-2.5 text-right text-primary'>
-                        {fmt(order.total_price)}
+                      <td className='border border-outline-variant/40 px-3 py-2.5 text-right'>
+                        {/* Phase 3.5: yalpi vs sof tushum — qaytarish bo'lsa ikkalasi ham ko'rinadi */}
+                        {isReturned && order.net_total != null ? (
+                          <div className='flex flex-col items-end leading-tight'>
+                            <span
+                              className={
+                                retStatus === 'full'
+                                  ? 'text-on-surface-variant line-through'
+                                  : 'text-on-surface-variant text-xs'
+                              }
+                            >
+                              {fmt(order.total_price)}
+                            </span>
+                            <span className='text-emerald-600 dark:text-emerald-300 text-sm'>
+                              Sof: {fmt(order.net_total)}
+                            </span>
+                            <span className='text-[10px] font-normal text-rose-500 dark:text-rose-400'>
+                              −{fmt(order.refunded_amount || 0)} qaytarildi
+                            </span>
+                          </div>
+                        ) : (
+                          <span className='text-primary'>{fmt(order.total_price)}</span>
+                        )}
                       </td>
                       <td className='border border-outline-variant/40 px-3 py-2.5 text-center text-error'>
                         {receiptDiscountPct > 0 ? `${receiptDiscountPct.toFixed(2)}%` : '0%'}
@@ -989,8 +1122,33 @@ export const ReportsTab = () => {
                   <td className='px-3 py-4 text-right text-base'>
                     {fmt(orders.reduce((acc, order) => acc + order.items.reduce((sum, item) => sum + (item.original_price * item.quantity), 0), 0))} so'm
                   </td>
-                  <td className='px-3 py-4 text-right text-primary text-base'>
-                    {fmt(orders.reduce((acc, order) => acc + order.total_price, 0))} so'm
+                  {/* Phase 3.5: Sotilgan narx ustunida yalpi va sof tushum.
+                      Agar yuklangan cheklarning birortasida qaytarish bo'lsa,
+                      "Sof: X" qatori chiqadi. Aks holda faqat yalpi. */}
+                  <td className='px-3 py-4 text-right text-base'>
+                    {(() => {
+                      const gross = orders.reduce((acc, o) => acc + o.total_price, 0);
+                      const refunded = orders.reduce(
+                        (acc, o) => acc + (o.refunded_amount || 0),
+                        0,
+                      );
+                      if (refunded <= 0) {
+                        return <span className='text-primary'>{fmt(gross)} so'm</span>;
+                      }
+                      return (
+                        <div className='flex flex-col items-end leading-tight'>
+                          <span className='text-on-surface-variant text-xs'>
+                            Yalpi: {fmt(gross)}
+                          </span>
+                          <span className='text-emerald-600 dark:text-emerald-300'>
+                            Sof: {fmt(gross - refunded)} so'm
+                          </span>
+                          <span className='text-[10px] font-normal text-rose-500 dark:text-rose-400'>
+                            −{fmt(refunded)} qaytarildi
+                          </span>
+                        </div>
+                      );
+                    })()}
                   </td>
                   <td className='px-3 py-4 text-center'></td>
                   <td className='px-3 py-4 text-right text-error text-base'>
