@@ -6,6 +6,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   adminGetReturns,
   adminGetReturn,
+  adminGetReturnsStats,
   adminCheckReturnEligibility,
   adminCreateReturn,
   adminTransitionReturn,
@@ -134,6 +135,24 @@ export const ReturnsTab = () => {
     staleTime: 15_000,
   });
 
+  // Phase 3.5 — KPI statistikasi
+  const { data: stats } = useQuery({
+    queryKey: ['admin-returns-stats'],
+    queryFn: () =>
+      adminGetReturnsStats().then(
+        (r) =>
+          r.data as {
+            total_returns: number;
+            success_count: number;
+            total_refunded_amount: number;
+            by_status: Array<{ status: string; c: number }>;
+            by_reason: Array<{ reason_code: string; c: number }>;
+            by_method: Array<{ refund_method: string; c: number; total: number }>;
+          },
+      ),
+    staleTime: 60_000,
+  });
+
   return (
     <div className='space-y-4'>
       {/* Header */}
@@ -152,6 +171,28 @@ export const ReturnsTab = () => {
           Yangi qaytarish
         </button>
       </div>
+
+      {/* Phase 3.5 — KPI panel */}
+      {stats && (
+        <div className='grid grid-cols-2 gap-3 md:grid-cols-4'>
+          <KpiCard label='Jami qaytarishlar' value={String(stats.total_returns)} />
+          <KpiCard
+            label='Muvaffaqiyatli'
+            value={String(stats.success_count)}
+            tone='green'
+          />
+          <KpiCard
+            label='Qaytarilgan summa'
+            value={`${formatMoney(String(stats.total_refunded_amount))} so'm`}
+            tone='blue'
+          />
+          <KpiCard
+            label='Top sabab'
+            value={stats.by_reason[0]?.reason_code || '—'}
+            sub={stats.by_reason[0] ? `${stats.by_reason[0].c} ta` : ''}
+          />
+        </div>
+      )}
 
       {/* Filter */}
       <div className='flex flex-wrap items-center gap-2 rounded-xl border border-outline-variant bg-surface-container-lowest p-3'>
@@ -780,6 +821,35 @@ const Section = ({ title, children }: { title: string; children: React.ReactNode
     {children}
   </div>
 );
+
+// Phase 3.5 — KPI mini-card (statistika paneli uchun)
+const KpiCard = ({
+  label,
+  value,
+  sub,
+  tone,
+}: {
+  label: string;
+  value: string;
+  sub?: string;
+  tone?: 'green' | 'blue';
+}) => {
+  const bg =
+    tone === 'green'
+      ? 'bg-green-50 border-green-200'
+      : tone === 'blue'
+        ? 'bg-blue-50 border-blue-200'
+        : 'bg-surface-container-lowest border-outline-variant';
+  return (
+    <div className={`rounded-xl border p-3 ${bg}`}>
+      <div className='text-xs font-semibold uppercase tracking-wide text-on-surface-variant'>
+        {label}
+      </div>
+      <div className='mt-1 text-xl font-extrabold text-on-surface'>{value}</div>
+      {sub && <div className='text-xs text-on-surface-variant'>{sub}</div>}
+    </div>
+  );
+};
 
 // Phase 3.3 — Kassa balansi va kerakli summa taqqoslash banneri (cash refund)
 const KassaBalanceHint = ({ balance, required }: { balance: number; required: number }) => {

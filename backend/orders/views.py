@@ -1932,6 +1932,27 @@ class AdminCreateReturnView(views.APIView):
             )
             .get(pk=ret.pk)
         )
+
+        # Phase 3.5: Yangi qaytarish — Telegram alert (commit'dan keyin)
+        def _alert():
+            try:
+                from core.notifications import send_admin_alert, AlertSeverity
+                send_admin_alert(
+                    (
+                        f"*Yangi qaytarish:* `{ret.return_number}`\n"
+                        f"Buyurtma: #{ret.order_id}\n"
+                        f"Sabab: {ret.reason_code}\n"
+                        f"Admin: {getattr(request.user, 'phone', None) or 'system'}"
+                    ),
+                    severity=AlertSeverity.INFO,
+                )
+            except Exception:
+                import logging
+                logging.getLogger('orders.return').warning(
+                    'Return Telegram alert failed', exc_info=True,
+                )
+        transaction.on_commit(_alert)
+
         return Response(
             OrderReturnSerializer(ret, context={'request': request}).data,
             status=201,
@@ -2066,6 +2087,65 @@ class AdminReturnItemUpdateView(views.APIView):
         if update_fields:
             item.save(update_fields=update_fields)
         return Response(OrderReturnSerializer(ret, context={'request': request}).data)
+
+
+class AdminReturnsStatsView(views.APIView):
+    """
+    GET /api/orders/admin/returns/stats/
+
+    Phase 3.5 — Qaytarish hisoboti (Reports tab):
+      - Status bo'yicha taqsimot (REQUESTED/.../REFUNDED)
+      - Sabab bo'yicha taqsimot (defective/wrong_item/...)
+      - Refund usuli taqsimoti (cash/card/...)
+      - Jami summa: qaytarilgan pul + almashtirilgan summa
+      - Vaqt diapazoni: ?date_from=YYYY-MM-DD&date_to=YYYY-MM-DD
+    """
+    permission_classes = (IsAuthenticated, CanAccessReports)
+
+    def get(self, request, *args, **kwargs):
+        from .models import OrderReturn
+        date_from_str = request.query_params.get('date_from')
+        date_to_str = request.query_params.get('date_to')
+
+        qs = OrderReturn.objects.all()
+        if date_from_str:
+            d = parse_date(date_from_str)
+            if d:
+                qs = qs.filter(created_at__date__gte=d)
+        if date_to_str:
+            d = parse_date(date_to_str)
+            if d:
+                qs = qs.filter(created_at__date__lte=d)
+
+        # Status taqsimoti
+        by_status = list(
+            qs.values('status').annotate(c=Count('id')).order_by('status')
+        )
+        # Sabab taqsimoti
+        by_reason = list(
+            qs.values('reason_code').annotate(c=Count('id')).order_by('-c')
+        )
+        # Refund usul taqsimoti — faqat success'lar
+        refund_qs = qs.filter(status__in=OrderReturn.SUCCESS_STATUSES)
+        by_method = list(
+            refund_qs.values('refund_method')
+            .annotate(c=Count('id'), total=Sum('refund_amount'))
+            .order_by('-c')
+        )
+
+        totals = refund_qs.aggregate(
+            total_refunded=Sum('refund_amount'),
+            count=Count('id'),
+        )
+
+        return Response({
+            'total_returns': qs.count(),
+            'success_count': totals['count'] or 0,
+            'total_refunded_amount': float(totals['total_refunded'] or 0),
+            'by_status': by_status,
+            'by_reason': by_reason,
+            'by_method': by_method,
+        })
 
 
 class AdminReturnPhotoUploadView(views.APIView):

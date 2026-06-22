@@ -399,3 +399,6 @@ export const adminUploadReturnPhoto = (id: number | string, file: File, kind: 'c
   });
 };
 
+export const adminGetReturnsStats = (params?: { date_from?: string; date_to?: string }) =>
+  apiClient.get('/orders/admin/returns/stats/', { params });
+

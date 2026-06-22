@@ -983,6 +983,14 @@ def mark_overdue_credits(user) -> dict:
                 Q(dispute_deadline__isnull=True) | Q(dispute_deadline__lt=now)
             )
             .exclude(status__in=Order.CANCELLATION_STATUSES)
+            # Phase 3.5: Tovari REFUNDED yoki REPLACED bo'lgan buyurtmalar
+            # overdue hisoblanmaydi — mijoz pulni qaytarib oldi yoki
+            # almashtirildi, kredit obligatsiyasi tugatilgan/o'tkazilgan.
+            .exclude(
+                returns__status__in=[
+                    OrderReturn.STATUS_REFUNDED, OrderReturn.STATUS_REPLACED,
+                ]
+            )
         )
 
         count = overdue_qs.count()
@@ -2056,4 +2064,88 @@ def transition_return_status(
             f"{previous_status} → {new_status}" + (f" ({note})" if note else '')
         ),
     )
+
+    # ── Phase 3.5: Telegram alert (admin'larga muhim o'zgarishlar) ──────────
+    # Tranzaksiyadan TASHQARI — alert tarmoq xatosi tranzaksiyani buzmasin.
+    # on_commit hook tranzaksiya commit bo'lganidan keyin chaqiriladi.
+    _notify_return_status_change(return_obj, previous_status, new_status, actor)
+
     return return_obj
+
+
+def _notify_return_status_change(
+    return_obj: 'OrderReturn',
+    previous_status: str,
+    new_status: str,
+    actor,
+):
+    """
+    Phase 3.5: Telegram alert helper. `on_commit` orqali — tarmoq xatosi
+    tranzaksiyani buzmasligi uchun. Faqat MUHIM o'tishlar:
+      - REQUESTED (yangi yaratish — INFO)
+      - REFUNDED / REPLACED (yakuniy SUCCESS — INFO)
+      - REJECTED (yakuniy negative — WARNING)
+    """
+    if previous_status == new_status:
+        return
+
+    notify_statuses = {
+        OrderReturn.STATUS_REQUESTED,
+        OrderReturn.STATUS_REFUNDED,
+        OrderReturn.STATUS_REPLACED,
+        OrderReturn.STATUS_REJECTED,
+    }
+    if new_status not in notify_statuses:
+        return
+
+    def _send():
+        try:
+            from core.notifications import send_admin_alert, AlertSeverity
+            severity = (
+                AlertSeverity.WARNING if new_status == OrderReturn.STATUS_REJECTED
+                else AlertSeverity.INFO
+            )
+            actor_phone = getattr(actor, 'phone', None) or 'system'
+            order_id = return_obj.order_id
+            num = return_obj.return_number
+            amount = return_obj.refund_amount or 0
+            method = return_obj.refund_method or '—'
+
+            if new_status == OrderReturn.STATUS_REQUESTED:
+                text = (
+                    f"*Yangi qaytarish:* `{num}`\n"
+                    f"Buyurtma: #{order_id}\n"
+                    f"Sabab: {return_obj.reason_code}\n"
+                    f"Admin: {actor_phone}"
+                )
+            elif new_status == OrderReturn.STATUS_REFUNDED:
+                text = (
+                    f"*Pul qaytarildi:* `{num}`\n"
+                    f"Buyurtma: #{order_id}\n"
+                    f"Summa: {amount:.0f} so'm ({method})\n"
+                    f"Admin: {actor_phone}"
+                )
+            elif new_status == OrderReturn.STATUS_REPLACED:
+                rep_id = return_obj.replacement_order_id
+                text = (
+                    f"*Almashtirildi:* `{num}`\n"
+                    f"Original: #{order_id}\n"
+                    f"Yangi: #{rep_id}\n"
+                    f"Admin: {actor_phone}"
+                )
+            else:  # REJECTED
+                text = (
+                    f"*Qaytarish rad etildi:* `{num}`\n"
+                    f"Buyurtma: #{order_id}\n"
+                    f"Sabab: {return_obj.rejection_reason or '—'}\n"
+                    f"Admin: {actor_phone}"
+                )
+            send_admin_alert(text, severity=severity)
+        except Exception:
+            # Notifikatsiya muvaffaqiyatsizligi biznes oqimini buzmasin.
+            import logging
+            logging.getLogger('orders.return').warning(
+                'Return Telegram alert failed', exc_info=True,
+            )
+
+    transaction.on_commit(_send)
