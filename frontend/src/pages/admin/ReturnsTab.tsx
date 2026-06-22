@@ -29,17 +29,20 @@ const STATUS_LABELS: Record<string, string> = {
   CANCELLED: 'Bekor qilindi',
 };
 
+// Dark-mode aware status badge ranglari. Light fon + qora matn → dark'da
+// to'q rang fon + och rang matn. `dark:` prefiksi Tailwind dark mode'da
+// avtomatik almashtiriladi.
 const STATUS_COLORS: Record<string, string> = {
-  REQUESTED: 'bg-blue-100 text-blue-700',
-  APPROVED: 'bg-purple-100 text-purple-700',
-  PICKUP_SCHEDULED: 'bg-indigo-100 text-indigo-700',
-  PICKED_UP: 'bg-cyan-100 text-cyan-700',
-  INSPECTING: 'bg-yellow-100 text-yellow-700',
-  ACCEPTED: 'bg-teal-100 text-teal-700',
-  REFUNDED: 'bg-green-100 text-green-700',
-  REPLACED: 'bg-emerald-100 text-emerald-700',
-  REJECTED: 'bg-red-100 text-red-700',
-  CANCELLED: 'bg-gray-100 text-gray-700',
+  REQUESTED:        'bg-blue-100   text-blue-800   dark:bg-blue-900/40   dark:text-blue-200',
+  APPROVED:         'bg-purple-100 text-purple-800 dark:bg-purple-900/40 dark:text-purple-200',
+  PICKUP_SCHEDULED: 'bg-indigo-100 text-indigo-800 dark:bg-indigo-900/40 dark:text-indigo-200',
+  PICKED_UP:        'bg-cyan-100   text-cyan-800   dark:bg-cyan-900/40   dark:text-cyan-200',
+  INSPECTING:       'bg-amber-100  text-amber-800  dark:bg-amber-900/40  dark:text-amber-200',
+  ACCEPTED:         'bg-teal-100   text-teal-800   dark:bg-teal-900/40   dark:text-teal-200',
+  REFUNDED:         'bg-green-100  text-green-800  dark:bg-green-900/40  dark:text-green-200',
+  REPLACED:         'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200',
+  REJECTED:         'bg-red-100    text-red-800    dark:bg-red-900/40    dark:text-red-200',
+  CANCELLED:        'bg-gray-200   text-gray-800   dark:bg-gray-700      dark:text-gray-200',
 };
 
 const STATUS_FLOW: Record<string, string[]> = {
@@ -203,7 +206,7 @@ export const ReturnsTab = () => {
             setStatusFilter(e.target.value);
             setPage(1);
           }}
-          className='rounded-lg border border-outline-variant bg-white px-3 py-1.5 text-sm'
+          className='rounded-lg border border-outline-variant bg-surface px-3 py-1.5 text-sm text-on-surface'
         >
           <option value=''>Barchasi</option>
           {Object.entries(STATUS_LABELS).map(([k, v]) => (
@@ -213,11 +216,12 @@ export const ReturnsTab = () => {
           ))}
         </select>
         {!statusFilter && (
-          <label className='ml-2 inline-flex items-center gap-1 text-sm'>
+          <label className='ml-2 inline-flex items-center gap-1 text-sm text-on-surface'>
             <input
               type='checkbox'
               checked={activeOnly}
               onChange={(e) => setActiveOnly(e.target.checked)}
+              className='accent-primary'
             />
             Faqat faollar
           </label>
@@ -228,7 +232,7 @@ export const ReturnsTab = () => {
       {isLoading ? (
         <div className='py-12 text-center text-on-surface-variant'>Yuklanmoqda…</div>
       ) : isError ? (
-        <div className='py-12 text-center text-red-600'>Xato — qayta urinib ko'ring.</div>
+        <div className='py-12 text-center text-rose-500 dark:text-rose-400'>Xato — qayta urinib ko'ring.</div>
       ) : !data?.results?.length ? (
         <div className='py-12 text-center text-on-surface-variant'>Qaytarishlar topilmadi.</div>
       ) : (
@@ -263,7 +267,7 @@ export const ReturnsTab = () => {
                   <td className='px-4 py-3'>
                     <span
                       className={`inline-block rounded-md px-2 py-0.5 text-xs font-bold ${
-                        STATUS_COLORS[r.status] || 'bg-gray-100 text-gray-700'
+                        STATUS_COLORS[r.status] || 'bg-surface-container text-on-surface-variant'
                       }`}
                     >
                       {STATUS_LABELS[r.status] || r.status}
@@ -401,7 +405,7 @@ const ReturnDetailModal = ({
         </div>
         <span
           className={`rounded-md px-3 py-1 text-sm font-bold ${
-            STATUS_COLORS[data.status] || 'bg-gray-100 text-gray-700'
+            STATUS_COLORS[data.status] || 'bg-surface-container text-on-surface-variant'
           }`}
         >
           {STATUS_LABELS[data.status] || data.status}
@@ -447,9 +451,9 @@ const ReturnDetailModal = ({
                   <td className='px-3 py-2'>{formatMoney(it.line_total)} so'm</td>
                   <td className='px-3 py-2'>
                     {it.restock ? (
-                      <span className='text-green-700'>✓ Qaytadi</span>
+                      <span className='font-semibold text-emerald-700 dark:text-emerald-300'>✓ Qaytadi</span>
                     ) : (
-                      <span className='text-red-700'>✗ Writeoff</span>
+                      <span className='font-semibold text-rose-700 dark:text-rose-300'>✗ Writeoff</span>
                     )}
                   </td>
                 </tr>
@@ -506,7 +510,7 @@ const ReturnDetailModal = ({
             <select
               value={refundMethod}
               onChange={(e) => setRefundMethod(e.target.value)}
-              className='rounded-lg border border-outline-variant bg-white px-3 py-2 text-sm'
+              className='rounded-lg border border-outline-variant bg-surface px-3 py-2 text-sm text-on-surface placeholder:text-on-surface-variant'
             >
               <option value='cash'>Naqd (kassa)</option>
               <option value='card'>Karta</option>
@@ -519,14 +523,14 @@ const ReturnDetailModal = ({
               placeholder="Summa (so'm)"
               value={refundAmount}
               onChange={(e) => setRefundAmount(e.target.value)}
-              className='rounded-lg border border-outline-variant bg-white px-3 py-2 text-sm'
+              className='rounded-lg border border-outline-variant bg-surface px-3 py-2 text-sm text-on-surface placeholder:text-on-surface-variant'
             />
             <input
               type='text'
               placeholder='Tranzaksiya ref / izoh'
               value={refundReference}
               onChange={(e) => setRefundReference(e.target.value)}
-              className='rounded-lg border border-outline-variant bg-white px-3 py-2 text-sm'
+              className='rounded-lg border border-outline-variant bg-surface px-3 py-2 text-sm text-on-surface placeholder:text-on-surface-variant'
             />
           </div>
           {/* Phase 3.3 — Kassa balansi ko'rsatish (faqat cash uchun) */}
@@ -547,7 +551,7 @@ const ReturnDetailModal = ({
             onChange={(e) => setInspectionNotes(e.target.value)}
             rows={3}
             placeholder='Inspector tomonidan…'
-            className='w-full rounded-lg border border-outline-variant bg-white px-3 py-2 text-sm'
+            className='w-full rounded-lg border border-outline-variant bg-surface px-3 py-2 text-sm text-on-surface placeholder:text-on-surface-variant'
           />
         </Section>
       )}
@@ -560,7 +564,7 @@ const ReturnDetailModal = ({
             onChange={(e) => setNote(e.target.value)}
             rows={2}
             placeholder="Izoh (ixtiyoriy, history'ga yoziladi)"
-            className='mb-3 w-full rounded-lg border border-outline-variant bg-white px-3 py-2 text-sm'
+            className='mb-3 w-full rounded-lg border border-outline-variant bg-surface px-3 py-2 text-sm text-on-surface placeholder:text-on-surface-variant'
           />
           <div className='flex flex-wrap gap-2'>
             {nextStates.map((s) => (
@@ -617,7 +621,7 @@ const ReturnDetailModal = ({
               </div>
             )}
             {data.replacement_order && (
-              <div className='mt-2 rounded-lg bg-emerald-50 px-3 py-2 text-emerald-800'>
+              <div className='mt-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-emerald-800 dark:border-emerald-800/50 dark:bg-emerald-900/30 dark:text-emerald-200'>
                 <b>↪ Almashtirish:</b> yangi Buyurtma #{data.replacement_order}{' '}
                 yaratildi (admin → Buyurtmalar bo'limida ko'rish mumkin)
               </div>
@@ -699,7 +703,7 @@ const CreateReturnModal = ({
           value={orderId}
           onChange={(e) => setOrderId(e.target.value)}
           placeholder='Masalan: 123'
-          className='w-full rounded-lg border border-outline-variant bg-white px-3 py-2'
+          className='w-full rounded-lg border border-outline-variant bg-surface px-3 py-2 text-on-surface placeholder:text-on-surface-variant'
         />
       </Section>
 
@@ -708,15 +712,15 @@ const CreateReturnModal = ({
       )}
 
       {eligibilityQuery.data && !eligibilityQuery.data.eligible && (
-        <div className='mb-3 rounded-lg border border-red-300 bg-red-50 p-3 text-sm text-red-700'>
+        <div className='mb-3 rounded-lg border border-rose-300 bg-rose-50 p-3 text-sm text-rose-800 dark:border-rose-800/60 dark:bg-rose-900/30 dark:text-rose-200'>
           <b>Qaytarish bloklangan:</b> {eligibilityQuery.data.error}
-          <div className='mt-1 text-xs text-red-600'>code: {eligibilityQuery.data.code}</div>
+          <div className='mt-1 text-xs opacity-80'>code: {eligibilityQuery.data.code}</div>
         </div>
       )}
 
       {eligibilityQuery.data?.eligible && (
         <>
-          <div className='mb-3 rounded-lg border border-green-300 bg-green-50 p-3 text-sm text-green-700'>
+          <div className='mb-3 rounded-lg border border-emerald-300 bg-emerald-50 p-3 text-sm text-emerald-800 dark:border-emerald-800/60 dark:bg-emerald-900/30 dark:text-emerald-200'>
             <b>✓ Qaytarish mumkin.</b> Window:{' '}
             {Math.floor((eligibilityQuery.data.window_left_seconds || 0) / 3600)} soat qoldi.
           </div>
@@ -748,7 +752,7 @@ const CreateReturnModal = ({
             <select
               value={reasonCode}
               onChange={(e) => setReasonCode(e.target.value)}
-              className='mb-2 w-full rounded-lg border border-outline-variant bg-white px-3 py-2 text-sm'
+              className='mb-2 w-full rounded-lg border border-outline-variant bg-surface px-3 py-2 text-sm text-on-surface placeholder:text-on-surface-variant'
             >
               {eligibilityQuery.data.reasons?.map((r) => (
                 <option key={r.code} value={r.code}>
@@ -761,7 +765,7 @@ const CreateReturnModal = ({
               onChange={(e) => setReasonText(e.target.value)}
               rows={2}
               placeholder='Batafsil sabab…'
-              className='w-full rounded-lg border border-outline-variant bg-white px-3 py-2 text-sm'
+              className='w-full rounded-lg border border-outline-variant bg-surface px-3 py-2 text-sm text-on-surface placeholder:text-on-surface-variant'
             />
           </Section>
 
@@ -771,7 +775,7 @@ const CreateReturnModal = ({
               onChange={(e) => setCustomerNote(e.target.value)}
               rows={2}
               placeholder="Mijoz nima dedi…"
-              className='w-full rounded-lg border border-outline-variant bg-white px-3 py-2 text-sm'
+              className='w-full rounded-lg border border-outline-variant bg-surface px-3 py-2 text-sm text-on-surface placeholder:text-on-surface-variant'
             />
           </Section>
         </>
@@ -822,7 +826,12 @@ const Section = ({ title, children }: { title: string; children: React.ReactNode
   </div>
 );
 
-// Phase 3.5 — KPI mini-card (statistika paneli uchun)
+// Phase 3.5 — KPI mini-card (statistika paneli uchun).
+// Dark mode-aware: token tizimi (`bg-surface-container-lowest`,
+// `text-on-surface`) + chap chetida rangli aksent chiziq (4px).
+// Bu yondashuv:
+//   - Foni har doim surface'dan keladi → matn ham doim ko'rinadi.
+//   - Tone akcent — `border-l-4` rangli chiziq + label rangi.
 const KpiCard = ({
   label,
   value,
@@ -834,19 +843,21 @@ const KpiCard = ({
   sub?: string;
   tone?: 'green' | 'blue';
 }) => {
-  const bg =
+  const accent =
     tone === 'green'
-      ? 'bg-green-50 border-green-200'
+      ? 'border-l-emerald-500'
       : tone === 'blue'
-        ? 'bg-blue-50 border-blue-200'
-        : 'bg-surface-container-lowest border-outline-variant';
+        ? 'border-l-sky-500'
+        : 'border-l-primary';
   return (
-    <div className={`rounded-xl border p-3 ${bg}`}>
+    <div
+      className={`rounded-xl border border-outline-variant border-l-4 bg-surface-container-lowest p-3 ${accent}`}
+    >
       <div className='text-xs font-semibold uppercase tracking-wide text-on-surface-variant'>
         {label}
       </div>
       <div className='mt-1 text-xl font-extrabold text-on-surface'>{value}</div>
-      {sub && <div className='text-xs text-on-surface-variant'>{sub}</div>}
+      {sub && <div className='mt-0.5 text-xs text-on-surface-variant'>{sub}</div>}
     </div>
   );
 };
@@ -858,8 +869,8 @@ const KassaBalanceHint = ({ balance, required }: { balance: number; required: nu
     <div
       className={`mt-2 flex items-center justify-between gap-3 rounded-lg border px-3 py-2 text-sm ${
         enough
-          ? 'border-green-300 bg-green-50 text-green-800'
-          : 'border-red-300 bg-red-50 text-red-800'
+          ? 'border-emerald-300 bg-emerald-50 text-emerald-800 dark:border-emerald-800/60 dark:bg-emerald-900/30 dark:text-emerald-200'
+          : 'border-rose-300 bg-rose-50 text-rose-800 dark:border-rose-800/60 dark:bg-rose-900/30 dark:text-rose-200'
       }`}
     >
       <div>
