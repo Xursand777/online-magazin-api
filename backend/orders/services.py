@@ -1807,6 +1807,107 @@ def _create_kassa_withdrawal_for_return(return_obj: 'OrderReturn', *, actor) -> 
     return withdrawal
 
 
+# ────────────────────────────────────────────────────────────────────────────
+#  Phase 3.4 — Replacement Order generatori
+#
+#  Almashtirish (replacement) — pul qaytarish o'rniga yangi tovar berish.
+#  Original tovardan boshqa rang/o'lcham/model bo'lishi mumkin (inspector
+#  qabul qiladi). YANGI Order yaratiladi:
+#    - aynan original buyurtmaning manzili va telefon raqami
+#    - aynan original item'lar, AYNAN bir xil price_snapshot (qo'shimcha
+#      to'lov yo'q — admin pul qaytarmasa va olmasa)
+#    - status=CONFIRMED (admin tasdig'ini o'tkazib) — chunki bu allaqachon
+#      tasdiqlangan qaytarishning davomi
+#    - is_credit=False (kreditda yangidan tasdiqlash kerak emas)
+#    - payment.status=PAID (mijoz pulini original buyurtmada to'lagan)
+#    - OrderReturn.replacement_order = yangi Order
+#
+#  STOK: yangi Order item'lari uchun `reserve_inventory` chaqiriladi (stok
+#  kamayadi). Agar inspector original tovarni `restock=True` belgilagan
+#  bo'lsa, _create_kassa... emas balki transition_return_status SUCCESS
+#  yo'lida stok aynan shu vaqtda qaytariladi. Natijada: original tovar stokga
+#  qaytadi va keyin yangi tovar stokdan chiqadi (transit interval — bir
+#  funksiya ichida, kuzatish vaqti minimal).
+# ────────────────────────────────────────────────────────────────────────────
+
+
+def create_replacement_order_for_return(return_obj: 'OrderReturn', *, actor) -> Order:
+    """
+    OrderReturn'dan replacement uchun yangi Order yaratadi.
+
+    INVARIANT: bu funksiya HAR DOIM @transaction.atomic ichida chaqiriladi.
+
+    Stok yetarli emasligi (ensure_stock_available raise qiladi)
+    butun tranzaksiyani rollback qiladi — original returned_qty/stok
+    yangilanishi bekor bo'ladi. Bu IDEAL: agar replacement chiqarib bo'lmasa,
+    qaytarish ham yakunlanmaydi va admin alohida usul tanlaydi.
+    """
+    original = return_obj.order
+
+    # Items'ni original OrderItem'lardan ko'chiramiz — qaytarilayotgan
+    # AYNAN miqdorlar va AYNAN narxlar.
+    items_payload = []
+    for ri in return_obj.items.select_related('order_item__product', 'order_item__variant').all():
+        oi = ri.order_item
+        items_payload.append({
+            'product': oi.product,
+            'variant': oi.variant,
+            'quantity': ri.quantity,
+            'price': ri.refund_unit_price,  # AYNAN bir xil narxda
+        })
+
+    if not items_payload:
+        raise serializers.ValidationError({
+            'error': "Replacement yaratish uchun item yo'q.",
+            'code': 'no_items',
+        })
+
+    # Replacement uchun naqd usulni belgilaymiz (chunki to'lov allaqachon
+    # original buyurtmada bo'lgan — bu faqat texnik "qiymat"). is_credit=False.
+    new_order = create_order_with_items(
+        user=original.user,
+        receiver_name=original.receiver_name,
+        receiver_phone=original.receiver_phone,
+        delivery_address=original.delivery_address,
+        payment_method=Order.PAYMENT_METHOD_CASH,
+        items=items_payload,
+        delivery_lat=original.delivery_lat,
+        delivery_lng=original.delivery_lng,
+        delivery_notes=f"Almashtirish ({return_obj.return_number}) — Buyurtma #{original.id} o'rniga",
+        allow_price_override=True,    # aynan original narxlarda
+        skip_credit_check=True,        # credit emas
+    )
+
+    # Status'ni CONFIRMED ga olib chiqamiz (PENDING'dan o'tkazib) — bu allaqachon
+    # tasdiqlangan qaytarishning davomi, admin qayta tasdiqlamasligi kerak.
+    if new_order.status == Order.STATUS_PENDING:
+        new_order.status = Order.STATUS_CONFIRMED
+        new_order.save(update_fields=['status', 'updated_at'])
+        create_order_history(
+            new_order,
+            to_status=Order.STATUS_CONFIRMED,
+            from_status=Order.STATUS_PENDING,
+            actor_type=OrderHistory.ACTOR_ADMIN,
+            actor=actor,
+            note=(
+                f"Almashtirish ({return_obj.return_number}) — "
+                f"original Buyurtma #{original.id}"
+            ),
+        )
+
+    # To'lov holatini PAID belgilaymiz (mijoz allaqachon to'lagan).
+    payment = getattr(new_order, 'payment', None)
+    if payment and payment.status == Payment.STATUS_PENDING:
+        payment.status = Payment.STATUS_PAID
+        payment.save(update_fields=['status', 'updated_at'])
+
+    # OrderReturn ga link
+    return_obj.replacement_order = new_order
+    return_obj.save(update_fields=['replacement_order', 'updated_at'])
+
+    return new_order
+
+
 @transaction.atomic
 def transition_return_status(
     *,
@@ -1924,6 +2025,15 @@ def transition_return_status(
                     and return_obj.refund_method == OrderReturn.REFUND_CASH
                     and return_obj.refund_amount > 0):
                 _create_kassa_withdrawal_for_return(return_obj, actor=actor)
+
+            # ── Phase 3.4: Replacement Order generatori ─────────────────
+            # `replacement` usuli yoki REPLACED ga to'g'ridan-to'g'ri o'tish:
+            # yangi Order yaratamiz (`create_replacement_order_for_return`).
+            # Stok yetarli emas bo'lsa — atomic rollback (qaytarish ham bekor).
+            # Idempotency: agar avval yaratilgan bo'lsa qayta yaratmaymiz.
+            if (new_status == OrderReturn.STATUS_REPLACED
+                    and return_obj.replacement_order_id is None):
+                create_replacement_order_for_return(return_obj, actor=actor)
 
         return_obj.refund_processed_at = timezone.now()
         return_obj.refund_processed_by = actor

@@ -575,6 +575,12 @@ const ReturnDetailModal = ({
                 {data.refund_processed_by_phone || 'system'}
               </div>
             )}
+            {data.replacement_order && (
+              <div className='mt-2 rounded-lg bg-emerald-50 px-3 py-2 text-emerald-800'>
+                <b>↪ Almashtirish:</b> yangi Buyurtma #{data.replacement_order}{' '}
+                yaratildi (admin → Buyurtmalar bo'limida ko'rish mumkin)
+              </div>
+            )}
           </div>
         </Section>
       )}
