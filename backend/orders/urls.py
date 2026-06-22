@@ -1,5 +1,6 @@
 from django.urls import path
 from .views import (
+    AdminCreateReturnView,
     AdminCreditPayView,
     AdminCustomerHistoryView,
     AdminDashboardView,
@@ -12,6 +13,12 @@ from .views import (
     AdminReportView,
     AdminReportOrdersView,
     AdminNasiyaSummaryView,
+    AdminReturnDetailView,
+    AdminReturnEligibilityView,
+    AdminReturnItemUpdateView,
+    AdminReturnListView,
+    AdminReturnPhotoUploadView,
+    AdminReturnTransitionView,
     CourierConfirmDeliveryView,
     CourierRouteTargetView,
     CustomerCreateDisputeView,
@@ -54,6 +61,21 @@ urlpatterns = [
     # Phase 2.6 — Admin disput boshqaruvi
     path('admin/disputes/', AdminDisputeListView.as_view(), name='admin_disputes_list'),
     path('admin/disputes/<int:pk>/', AdminDisputeDetailView.as_view(), name='admin_dispute_detail'),
+    # Phase 3.2 — Admin qaytarish (Return) boshqaruvi
+    path('admin/<int:pk>/return-eligibility/',
+         AdminReturnEligibilityView.as_view(), name='admin_return_eligibility'),
+    path('admin/<int:pk>/returns/',
+         AdminCreateReturnView.as_view(), name='admin_return_create'),
+    path('admin/returns/',
+         AdminReturnListView.as_view(), name='admin_returns_list'),
+    path('admin/returns/<int:pk>/',
+         AdminReturnDetailView.as_view(), name='admin_return_detail'),
+    path('admin/returns/<int:pk>/transition/',
+         AdminReturnTransitionView.as_view(), name='admin_return_transition'),
+    path('admin/returns/<int:pk>/items/<int:item_id>/',
+         AdminReturnItemUpdateView.as_view(), name='admin_return_item_update'),
+    path('admin/returns/<int:pk>/photos/',
+         AdminReturnPhotoUploadView.as_view(), name='admin_return_photo_upload'),
     path('quick/', QuickOrderView.as_view(), name='quick_order'),
     path('from-cart/', OrderFromCartView.as_view(), name='order_from_cart'),
 ]

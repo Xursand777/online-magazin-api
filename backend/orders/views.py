@@ -1,4 +1,4 @@
-from rest_framework import generics, views, status
+from rest_framework import generics, serializers as drf_serializers, views, status
 from rest_framework.pagination import PageNumberPagination
 from rest_framework.permissions import IsAuthenticated
 from users.permissions import (
@@ -26,19 +26,26 @@ from .serializers import (
     CancelOrderSerializer,
     CourierConfirmDeliverySerializer,
     CreateOrderDisputeSerializer,
+    CreateOrderReturnSerializer,
     OrderDisputeSerializer,
     OrderFromCartSerializer,
+    OrderReturnPhotoSerializer,
+    OrderReturnSerializer,
     OrderSerializer,
     QuickOrderSerializer,
+    TransitionReturnStatusSerializer,
+    UpdateReturnItemSerializer,
 )
 from .services import (
     check_credit_eligibility,
+    check_return_eligibility,
     courier_confirm_delivery,
     create_order_dispute,
     create_order_with_items,
     mark_overdue_credits,
     pay_credit_order,
     transition_order_status,
+    transition_return_status,
     update_order_dispute,
 )
 from .idempotency import (
@@ -1751,5 +1758,332 @@ class AdminDisputeDetailView(views.APIView):
             .get(pk=dispute.pk)
         )
         return Response(OrderDisputeSerializer(dispute, context={'request': request}).data)
+
+
+# ────────────────────────────────────────────────────────────────────────────
+#  Phase 3.2 — Qaytarish (Return) admin endpointlari
+#
+#  GET    /api/admin/orders/<id>/return-eligibility/   — eligibility tekshiruv
+#  GET    /api/admin/returns/                          — ro'yxat (filter: status, order, active)
+#  POST   /api/admin/orders/<id>/returns/              — yangi qaytarish yaratish
+#  GET    /api/admin/returns/<id>/                     — bitta qaytarish
+#  PATCH  /api/admin/returns/<id>/transition/          — status o'tkazish
+#  PATCH  /api/admin/returns/<id>/items/<item_id>/     — inspector qarorlari
+#  POST   /api/admin/returns/<id>/photos/              — rasm qo'shish
+# ────────────────────────────────────────────────────────────────────────────
+
+
+class _AdminReturnPagination(PageNumberPagination):
+    page_size = 25
+    page_size_query_param = 'page_size'
+    max_page_size = 100
+
+
+class AdminReturnEligibilityView(views.APIView):
+    """
+    GET /api/admin/orders/<int:pk>/return-eligibility/
+
+    Admin "Qaytarish boshlash" tugmasini bossa — UI avval shu endpoint'ga
+    so'rov yuboradi. AYNAN nima uchun mumkin/mumkin emasligi qaytariladi.
+    """
+    permission_classes = (IsAuthenticated, IsAdminOrAbove)
+
+    def get(self, request, pk, *args, **kwargs):
+        from .models import OrderReturn
+        order = get_object_or_404(
+            Order.objects.prefetch_related('items__product', 'items__variant', 'returns'),
+            pk=pk,
+        )
+        try:
+            result = check_return_eligibility(order)
+        except drf_serializers.ValidationError as exc:
+            # check_return_eligibility o'zining `{error, code}` formatida
+            # ValidationError raise qiladi. UI uchun ajratamiz:
+            payload = exc.detail if isinstance(exc.detail, dict) else {'error': str(exc.detail)}
+            return Response(
+                {'eligible': False, **payload},
+                status=200,  # 200 — bu rejected emas, axborot
+            )
+
+        return Response({
+            'eligible': True,
+            'window_left_seconds': result['window_left_seconds'],
+            'returnable_items': result['returnable_items'],
+            'reasons': [
+                {'code': c[0], 'label': c[1]} for c in OrderReturn.REASON_CHOICES
+            ],
+            'refund_methods': [
+                {'code': c[0], 'label': c[1]} for c in OrderReturn.REFUND_METHOD_CHOICES
+            ],
+        })
+
+
+class AdminReturnListView(generics.ListAPIView):
+    """
+    GET /api/admin/returns/
+
+    Filterlar:
+      ?status=REQUESTED              — aniq status
+      ?order=123                     — buyurtma ID
+      ?active=true                   — faqat aktiv (TERMINAL emas)
+      ?reason_code=defective         — sabab kodi bo'yicha
+    """
+    permission_classes = (IsAuthenticated, IsAdminOrAbove)
+    serializer_class   = OrderReturnSerializer
+    pagination_class   = _AdminReturnPagination
+
+    def get_queryset(self):
+        from .models import OrderReturn
+        qs = (
+            OrderReturn.objects
+            .all()
+            .prefetch_related(
+                'items__order_item__product', 'items__order_item__variant', 'photos',
+            )
+            .select_related(
+                'order', 'dispute', 'replacement_order',
+                'initiated_by', 'status_changed_by',
+                'inspector', 'refund_processed_by', 'pickup_courier',
+            )
+        )
+        params = self.request.query_params
+        if (st := params.get('status')):
+            qs = qs.filter(status=st)
+        if (order_id := params.get('order')):
+            qs = qs.filter(order_id=order_id)
+        if params.get('active') == 'true':
+            qs = qs.filter(status__in=OrderReturn.ACTIVE_STATUSES)
+        if (rc := params.get('reason_code')):
+            qs = qs.filter(reason_code=rc)
+        return qs
+
+
+class AdminCreateReturnView(views.APIView):
+    """
+    POST /api/admin/orders/<int:pk>/returns/
+
+    Yangi qaytarish ochadi. Eligibility AVVAL tekshiriladi (yagona AUTHORITATIVE
+    manba — `check_return_eligibility`). Muvaffaqiyatli yaratsa OrderReturn,
+    OrderReturnItem'lar va OrderReturnPhoto'larni atomic ravishda yaratadi.
+    """
+    permission_classes = (IsAuthenticated, IsAdminOrAbove)
+
+    @transaction.atomic
+    def post(self, request, pk, *args, **kwargs):
+        from .models import OrderReturn, OrderReturnItem, OrderReturnPhoto
+        order = get_object_or_404(Order.objects.prefetch_related('items'), pk=pk)
+
+        serializer = CreateOrderReturnSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+
+        items_input = data.get('items') or []
+        # check_return_eligibility ham raise qiladi — view'ning try qilishi
+        # kerak emas, DRF avtomat 400 qaytaradi.
+        result = check_return_eligibility(
+            order,
+            items=items_input if items_input else None,
+        )
+
+        ret = OrderReturn.objects.create(
+            order=order,
+            reason_code=data['reason_code'],
+            reason_text=data.get('reason_text', ''),
+            customer_request_note=data.get('customer_request_note', ''),
+            initiated_by=request.user,
+            initiator_role=OrderReturn.INITIATOR_ADMIN,
+            status=OrderReturn.STATUS_REQUESTED,
+            status_changed_by=request.user,
+        )
+
+        # Eligibility natijasidagi `returnable_items` allaqachon validated.
+        for ri_info in result['returnable_items']:
+            oi_id = ri_info['order_item_id']
+            qty = ri_info['returnable_qty']
+            order_item = order.items.get(pk=oi_id)
+            OrderReturnItem.objects.create(
+                return_obj=ret,
+                order_item=order_item,
+                quantity=qty,
+                refund_unit_price=order_item.price_snapshot,
+                # Defaults: NEW + restock=True. Inspector keyinroq yangilaydi.
+                condition=OrderReturnItem.CONDITION_NEW,
+                restock=True,
+            )
+
+        # Foto dalillar
+        for img in data.get('claim_images', []) or []:
+            OrderReturnPhoto.objects.create(
+                return_obj=ret, image=img, kind=OrderReturnPhoto.KIND_CLAIM,
+                uploaded_by=request.user,
+            )
+
+        ret = (
+            OrderReturn.objects
+            .prefetch_related(
+                'items__order_item__product', 'items__order_item__variant', 'photos',
+            )
+            .select_related(
+                'order', 'initiated_by', 'status_changed_by',
+            )
+            .get(pk=ret.pk)
+        )
+        return Response(
+            OrderReturnSerializer(ret, context={'request': request}).data,
+            status=201,
+        )
+
+
+class AdminReturnDetailView(views.APIView):
+    """GET /api/admin/returns/<int:pk>/ — bitta qaytarish."""
+    permission_classes = (IsAuthenticated, IsAdminOrAbove)
+
+    def get(self, request, pk, *args, **kwargs):
+        from .models import OrderReturn
+        ret = get_object_or_404(
+            OrderReturn.objects
+            .prefetch_related(
+                'items__order_item__product', 'items__order_item__variant', 'photos',
+            )
+            .select_related(
+                'order', 'dispute', 'replacement_order',
+                'initiated_by', 'status_changed_by',
+                'inspector', 'refund_processed_by', 'pickup_courier',
+            ),
+            pk=pk,
+        )
+        return Response(OrderReturnSerializer(ret, context={'request': request}).data)
+
+
+class AdminReturnTransitionView(views.APIView):
+    """
+    PATCH /api/admin/returns/<int:pk>/transition/
+
+    State machine tekshiruvi backend services'da; bu view faqat input
+    parser + refund metadata'ni yozadi.
+    """
+    permission_classes = (IsAuthenticated, IsAdminOrAbove)
+
+    @transaction.atomic
+    def patch(self, request, pk, *args, **kwargs):
+        from .models import OrderReturn, OrderReturnPhoto
+        ret = get_object_or_404(OrderReturn, pk=pk)
+
+        serializer = TransitionReturnStatusSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+
+        # Refund metadata (REFUNDED ga o'tish oldidan yoki birga yuborilishi mumkin)
+        update_fields = []
+        if (rm := data.get('refund_method')):
+            ret.refund_method = rm
+            update_fields.append('refund_method')
+        if (ra := data.get('refund_amount')) is not None:
+            ret.refund_amount = ra
+            update_fields.append('refund_amount')
+        if (rr := data.get('refund_reference')):
+            ret.refund_reference = rr
+            update_fields.append('refund_reference')
+        if update_fields:
+            ret.save(update_fields=update_fields + ['updated_at'])
+
+        # Inspeksiya rasmlari (INSPECTING ga o'tish bilan birga)
+        for img in data.get('inspection_images', []) or []:
+            OrderReturnPhoto.objects.create(
+                return_obj=ret, image=img, kind=OrderReturnPhoto.KIND_INSPECTION,
+                uploaded_by=request.user,
+            )
+
+        # Yagona chokepoint — state machine + side-effects shu yerda
+        ret = transition_return_status(
+            return_obj=ret,
+            new_status=data['new_status'],
+            actor=request.user,
+            note=data.get('note', ''),
+            inspection_notes=data.get('inspection_notes', ''),
+        )
+        ret = (
+            OrderReturn.objects
+            .prefetch_related(
+                'items__order_item__product', 'items__order_item__variant', 'photos',
+            )
+            .select_related(
+                'order', 'dispute', 'replacement_order',
+                'initiated_by', 'status_changed_by',
+                'inspector', 'refund_processed_by',
+            )
+            .get(pk=ret.pk)
+        )
+        return Response(OrderReturnSerializer(ret, context={'request': request}).data)
+
+
+class AdminReturnItemUpdateView(views.APIView):
+    """
+    PATCH /api/admin/returns/<int:pk>/items/<int:item_id>/
+
+    Inspector item qarorlarini yangilaydi (condition / restock / writeoff_reason).
+    INSPECTING yoki undan oldingi statuslarda ruxsat — ACCEPTED/REFUNDED'dan keyin
+    bloklanadi (chunki SUCCESS yo'lida bu maydonlar stok logikasini boshqaradi).
+    """
+    permission_classes = (IsAuthenticated, IsAdminOrAbove)
+
+    def patch(self, request, pk, item_id, *args, **kwargs):
+        from .models import OrderReturn, OrderReturnItem
+        ret = get_object_or_404(OrderReturn, pk=pk)
+        if ret.status not in {
+            OrderReturn.STATUS_REQUESTED, OrderReturn.STATUS_APPROVED,
+            OrderReturn.STATUS_PICKUP_SCHEDULED, OrderReturn.STATUS_PICKED_UP,
+            OrderReturn.STATUS_INSPECTING,
+        }:
+            return Response(
+                {
+                    'error': "Item qarorlarini bu statusda yangilab bo'lmaydi.",
+                    'code': 'too_late',
+                },
+                status=400,
+            )
+        item = get_object_or_404(OrderReturnItem, pk=item_id, return_obj=ret)
+
+        serializer = UpdateReturnItemSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+
+        update_fields = []
+        if 'condition' in data:
+            item.condition = data['condition']; update_fields.append('condition')
+        if 'restock' in data:
+            item.restock = data['restock']; update_fields.append('restock')
+        if 'writeoff_reason' in data:
+            item.writeoff_reason = data['writeoff_reason']
+            update_fields.append('writeoff_reason')
+        if update_fields:
+            item.save(update_fields=update_fields)
+        return Response(OrderReturnSerializer(ret, context={'request': request}).data)
+
+
+class AdminReturnPhotoUploadView(views.APIView):
+    """
+    POST /api/admin/returns/<int:pk>/photos/
+
+    Multipart: image (file) + kind (claim|inspection).
+    """
+    permission_classes = (IsAuthenticated, IsAdminOrAbove)
+
+    def post(self, request, pk, *args, **kwargs):
+        from .models import OrderReturn, OrderReturnPhoto
+        ret = get_object_or_404(OrderReturn, pk=pk)
+        image = request.FILES.get('image')
+        if not image:
+            return Response({'error': "Rasm yuborilmagan."}, status=400)
+        kind = request.data.get('kind', OrderReturnPhoto.KIND_CLAIM)
+        if kind not in (OrderReturnPhoto.KIND_CLAIM, OrderReturnPhoto.KIND_INSPECTION):
+            return Response({'error': "kind faqat claim yoki inspection."}, status=400)
+        photo = OrderReturnPhoto.objects.create(
+            return_obj=ret, image=image, kind=kind, uploaded_by=request.user,
+        )
+        return Response(
+            OrderReturnPhotoSerializer(photo, context={'request': request}).data,
+            status=201,
+        )
 
 

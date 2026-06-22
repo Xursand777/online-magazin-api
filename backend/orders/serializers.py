@@ -491,3 +491,212 @@ class CourierConfirmDeliverySerializer(serializers.Serializer):
                 {'gps': "Latitude va longitude birga yuborilishi shart."}
             )
         return attrs
+
+
+# ────────────────────────────────────────────────────────────────────────────
+#  Phase 3.2 — Qaytarish (Return / Refund) serializerlari
+# ────────────────────────────────────────────────────────────────────────────
+
+
+class OrderReturnPhotoSerializer(serializers.ModelSerializer):
+    """Qaytarishga ilova qilingan rasm (claim yoki inspection)."""
+    image = serializers.ImageField(read_only=True)
+    uploaded_by_phone = serializers.SerializerMethodField()
+
+    class Meta:
+        from .models import OrderReturnPhoto as _M
+        model = _M
+        fields = ('id', 'image', 'kind', 'uploaded_at', 'uploaded_by_phone')
+        read_only_fields = fields
+
+    def get_uploaded_by_phone(self, obj):
+        return getattr(obj.uploaded_by, 'phone', None)
+
+
+class OrderReturnItemSerializer(serializers.ModelSerializer):
+    """Qaytarilayotgan har bir buyum (qisman qaytarish uchun)."""
+    product_name = serializers.SerializerMethodField()
+    line_total   = serializers.DecimalField(
+        max_digits=14, decimal_places=2, read_only=True,
+    )
+
+    class Meta:
+        from .models import OrderReturnItem as _M
+        model = _M
+        fields = (
+            'id', 'order_item', 'quantity', 'refund_unit_price',
+            'condition', 'restock', 'writeoff_reason',
+            'product_name', 'line_total',
+        )
+        read_only_fields = ('id', 'product_name', 'line_total')
+
+    def get_product_name(self, obj):
+        oi = obj.order_item
+        return oi.product.name if oi and oi.product else 'Unknown'
+
+
+class OrderReturnSerializer(serializers.ModelSerializer):
+    """
+    Qaytarish to'liq ma'lumotlari. Admin ham ko'radi (mijoz UI kelajakda
+    cheklangan view ishlatadi — `OrderReturnPublicSerializer` keyinroq).
+    """
+    items  = OrderReturnItemSerializer(many=True, read_only=True)
+    photos = OrderReturnPhotoSerializer(many=True, read_only=True)
+
+    is_active   = serializers.BooleanField(read_only=True)
+    is_terminal = serializers.BooleanField(read_only=True)
+    is_success  = serializers.BooleanField(read_only=True)
+
+    initiated_by_phone        = serializers.SerializerMethodField()
+    status_changed_by_phone   = serializers.SerializerMethodField()
+    inspector_phone           = serializers.SerializerMethodField()
+    refund_processed_by_phone = serializers.SerializerMethodField()
+
+    order_number = serializers.SerializerMethodField()
+
+    class Meta:
+        from .models import OrderReturn as _M
+        model = _M
+        fields = (
+            'id', 'return_number',
+            'order', 'order_number',
+            'dispute',
+            'replacement_order',
+
+            'initiated_by', 'initiated_by_phone', 'initiator_role',
+            'customer_request_note',
+
+            'reason_code', 'reason_text',
+
+            'status', 'status_changed_at', 'status_changed_by', 'status_changed_by_phone',
+
+            'pickup_address', 'pickup_courier', 'pickup_at',
+
+            'inspector', 'inspector_phone', 'inspection_at', 'inspection_notes',
+
+            'refund_method', 'refund_amount', 'refund_reference',
+            'refund_processed_at', 'refund_processed_by', 'refund_processed_by_phone',
+
+            'rejection_reason',
+            'created_at', 'updated_at',
+
+            'items', 'photos',
+            'is_active', 'is_terminal', 'is_success',
+        )
+        read_only_fields = (
+            'id', 'return_number', 'order', 'order_number', 'dispute',
+            'replacement_order',
+            'initiated_by', 'initiated_by_phone', 'initiator_role',
+            'status', 'status_changed_at', 'status_changed_by', 'status_changed_by_phone',
+            'inspector', 'inspector_phone', 'inspection_at',
+            'refund_processed_at', 'refund_processed_by', 'refund_processed_by_phone',
+            'created_at', 'updated_at',
+            'items', 'photos',
+            'is_active', 'is_terminal', 'is_success',
+        )
+
+    def get_initiated_by_phone(self, obj):
+        return getattr(obj.initiated_by, 'phone', None)
+
+    def get_status_changed_by_phone(self, obj):
+        return getattr(obj.status_changed_by, 'phone', None)
+
+    def get_inspector_phone(self, obj):
+        return getattr(obj.inspector, 'phone', None)
+
+    def get_refund_processed_by_phone(self, obj):
+        return getattr(obj.refund_processed_by, 'phone', None)
+
+    def get_order_number(self, obj):
+        return obj.order_id
+
+
+class CreateOrderReturnSerializer(serializers.Serializer):
+    """
+    POST /api/admin/orders/<id>/returns/ uchun input.
+
+    `items`: [{order_item_id, quantity}] — qisman qaytarish uchun.
+              Yuborilmasa, AYTOMAT mavjud barcha qoldiq item'lar olinadi
+              (eligibility shu yo'lda ham ishlaydi).
+    `reason_code`: REASON_CHOICES dan biri.
+    `reason_text`: ixtiyoriy, batafsil.
+    `customer_request_note`: telefon orqali kelgan so'rov uchun.
+    `claim_images`: 0-5 ta dalil rasmi (multipart).
+    """
+    from .models import OrderReturn as _OR
+
+    items = serializers.ListField(
+        child=serializers.DictField(child=serializers.IntegerField()),
+        required=False,
+        allow_empty=True,
+    )
+    reason_code = serializers.ChoiceField(choices=[c[0] for c in _OR.REASON_CHOICES])
+    reason_text = serializers.CharField(required=False, allow_blank=True, max_length=2000)
+    customer_request_note = serializers.CharField(
+        required=False, allow_blank=True, max_length=1000,
+    )
+    claim_images = serializers.ListField(
+        child=serializers.ImageField(),
+        required=False, allow_empty=True, max_length=5,
+        error_messages={'max_length': "Eng ko'pi 5 ta rasm yuborishingiz mumkin."},
+    )
+
+
+class TransitionReturnStatusSerializer(serializers.Serializer):
+    """
+    PATCH /api/admin/returns/<id>/transition/ uchun input.
+
+    `new_status`     — yangi status (state machine tekshiradi)
+    `note`           — umumiy izoh (history'ga yoziladi)
+    `inspection_notes` — ACCEPTED/REJECTED da inspector izohi
+    `refund_method`  — REFUNDED ga o'tish oldidan tanlanishi mumkin
+    `refund_amount`, `refund_reference` — refund ma'lumotlari
+    `inspection_images` — INSPECTING/ACCEPTED da olingan rasmlar
+    """
+    from .models import OrderReturn as _OR
+
+    new_status = serializers.ChoiceField(choices=[c[0] for c in _OR.STATUS_CHOICES])
+    note = serializers.CharField(required=False, allow_blank=True, max_length=2000)
+    inspection_notes = serializers.CharField(
+        required=False, allow_blank=True, max_length=2000,
+    )
+
+    refund_method = serializers.ChoiceField(
+        choices=[c[0] for c in _OR.REFUND_METHOD_CHOICES],
+        required=False, allow_blank=True,
+    )
+    refund_amount = serializers.DecimalField(
+        max_digits=12, decimal_places=2, required=False, min_value=Decimal('0'),
+    )
+    refund_reference = serializers.CharField(
+        required=False, allow_blank=True, max_length=255,
+    )
+    inspection_images = serializers.ListField(
+        child=serializers.ImageField(),
+        required=False, allow_empty=True, max_length=5,
+    )
+
+
+class UpdateReturnItemSerializer(serializers.Serializer):
+    """
+    PATCH /api/admin/returns/<id>/items/<item_id>/ — inspector qaror yangilash.
+    Faqat INSPECTING yoki undan oldingi statuslarda yangilanadi.
+    """
+    from .models import OrderReturnItem as _ORI
+
+    condition = serializers.ChoiceField(
+        choices=[c[0] for c in _ORI.CONDITION_CHOICES],
+        required=False,
+    )
+    restock = serializers.BooleanField(required=False)
+    writeoff_reason = serializers.ChoiceField(
+        choices=[c[0] for c in _ORI.WRITEOFF_CHOICES],
+        required=False, allow_blank=True,
+    )
+
+    def validate(self, attrs):
+        if not attrs:
+            raise serializers.ValidationError(
+                "Yangilash uchun kamida bitta maydon yuborishingiz kerak."
+            )
+        return attrs
