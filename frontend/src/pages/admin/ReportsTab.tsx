@@ -21,6 +21,15 @@ interface ReportSummary {
   cancelled_orders: number;
   pending_orders: number;
   net_profit: number;
+  // Phase 3.5 — qaytarish (returns) maydonlari
+  returns_amount: number;
+  returns_count: number;
+  replacement_amount: number;
+  replacement_count: number;
+  recovered_cost: number;
+  net_revenue: number;
+  net_profit_after_returns: number;
+  return_rate: number;
 }
 interface ReportProduct {
   rank: number;
@@ -41,6 +50,13 @@ interface ReportProduct {
   quantity_sold: number;
   total_revenue: number;
   net_profit: number;
+  // Phase 3.5 — per-product qaytarish maydonlari
+  quantity_returned: number;
+  net_quantity_sold: number;
+  total_refunded: number;
+  net_revenue: number;
+  return_rate: number;
+  net_profit_after_returns: number;
 }
 interface ReportTimeline {
   date: string;
@@ -146,6 +162,14 @@ export const ReportsTab = () => {
     cancelled_orders: 0,
     pending_orders: 0,
     net_profit: 0,
+    returns_amount: 0,
+    returns_count: 0,
+    replacement_amount: 0,
+    replacement_count: 0,
+    recovered_cost: 0,
+    net_revenue: 0,
+    net_profit_after_returns: 0,
+    return_rate: 0,
   };
   const allProducts: ReportProduct[] = data?.products ?? [];
   const filteredProducts = useMemo(() => {
@@ -248,8 +272,8 @@ export const ReportsTab = () => {
       s1.addRow(['Yaratilgan', new Date().toLocaleString('uz-UZ')]);
       s1.addRow([]);
       ([
-        ['Jami tushum', summary.total_revenue],
-        ['Sof foyda', summary.net_profit],
+        ['Jami tushum (yalpi)', summary.total_revenue],
+        ['Yalpi foyda', summary.net_profit],
         ['Jami chegirma', summary.total_discount],
         ['Jami xarajat (kirim)', summary.total_cost],
         ["O'rtacha buyurtma", summary.avg_order_value],
@@ -257,6 +281,16 @@ export const ReportsTab = () => {
         ['Yetkazildi', summary.delivered_orders],
         ['Bekor qilindi', summary.cancelled_orders],
         ['Kutilmoqda', summary.pending_orders],
+        // Phase 3.5 — Qaytarish blok'i (faqat returns bo'lsa)
+        ['— QAYTARISHLAR —', 0],
+        ['Pul qaytarildi (cash)', summary.returns_amount],
+        ['Qaytarishlar soni', summary.returns_count],
+        ['Almashtirildi soni', summary.replacement_count],
+        ['Almashtirildi summa', summary.replacement_amount],
+        ['Stokga qaytgan tannarx', summary.recovered_cost],
+        ['Sof tushum (net)', summary.net_revenue],
+        ['Sof foyda (after returns)', summary.net_profit_after_returns],
+        ['Qaytarish darajasi %', summary.return_rate],
       ] as [string, number][]).forEach(([label, val]) => {
         const r = s1.addRow([label, val]);
         r.getCell(1).font = { bold: true };
@@ -265,26 +299,44 @@ export const ReportsTab = () => {
 
       // ── 2) Tovarlar ──
       const s2 = wb.addWorksheet('Tovarlar');
+      // Phase 3.5: Qaytdi, Sof, %, Sof tushum, Sof foyda — qo'shildi.
       s2.addRow(['#', 'Tovar nomi', 'Sifat', 'Model', 'Xotira', 'Rang', 'SKU',
-        'Narx', 'Chegirma', 'Sotilgan narx', 'Kirim', 'Sotildi (dona)', 'Tushum', 'Foyda']);
+        'Narx', 'Chegirma', 'Sotilgan narx', 'Kirim', 'Sotildi (dona)',
+        'Qaytdi', 'Sof (dona)', 'Qaytarish %',
+        'Yalpi tushum', 'Sof tushum', 'Yalpi foyda', 'Sof foyda']);
       s2.columns = [{ width: 5 }, { width: 30 }, { width: 12 }, { width: 14 }, { width: 12 },
         { width: 12 }, { width: 14 }, { width: 13 }, { width: 13 }, { width: 14 },
-        { width: 13 }, { width: 14 }, { width: 14 }, { width: 14 }];
+        { width: 13 }, { width: 13 }, { width: 10 }, { width: 12 }, { width: 12 },
+        { width: 14 }, { width: 14 }, { width: 14 }, { width: 14 }];
       styleHeader(s2.getRow(1));
       allProducts.forEach((p) => {
         const r = s2.addRow([p.rank, p.name, p.quality || '', p.model || '', p.size || '',
           p.color || '', p.sku || '', p.price, p.discount_price ?? null, p.sold_price,
-          p.cost_price, p.quantity_sold, p.total_revenue, p.net_profit]);
-        [8, 9, 10, 11, 13, 14].forEach((c) => (r.getCell(c).numFmt = MONEY_FMT));
+          p.cost_price, p.quantity_sold,
+          p.quantity_returned, p.net_quantity_sold, p.return_rate,
+          p.total_revenue, p.net_revenue, p.net_profit, p.net_profit_after_returns]);
+        // Pul ustunlari format: 8 narx, 9 chegirma, 10 sotilgan, 11 kirim, 16 yalpi
+        // tushum, 17 sof tushum, 18 yalpi foyda, 19 sof foyda.
+        [8, 9, 10, 11, 16, 17, 18, 19].forEach((c) => (r.getCell(c).numFmt = MONEY_FMT));
       });
       const pTot = allProducts.reduce(
-        (a, p) => ({ qty: a.qty + p.quantity_sold, rev: a.rev + p.total_revenue, profit: a.profit + p.net_profit }),
-        { qty: 0, rev: 0, profit: 0 },
+        (a, p) => ({
+          qty: a.qty + p.quantity_sold,
+          ret: a.ret + (p.quantity_returned || 0),
+          net_qty: a.net_qty + (p.net_quantity_sold || 0),
+          rev: a.rev + p.total_revenue,
+          net_rev: a.net_rev + (p.net_revenue || 0),
+          profit: a.profit + p.net_profit,
+          net_profit: a.net_profit + (p.net_profit_after_returns || 0),
+        }),
+        { qty: 0, ret: 0, net_qty: 0, rev: 0, net_rev: 0, profit: 0, net_profit: 0 },
       );
-      const pTotRow = s2.addRow(['', 'JAMI', '', '', '', '', '', '', '', '', '', pTot.qty, pTot.rev, pTot.profit]);
+      const pTotRow = s2.addRow(['', 'JAMI', '', '', '', '', '', '', '', '', '',
+        pTot.qty, pTot.ret, pTot.net_qty, '',
+        pTot.rev, pTot.net_rev, pTot.profit, pTot.net_profit]);
       pTotRow.font = { bold: true };
-      [13, 14].forEach((c) => (pTotRow.getCell(c).numFmt = MONEY_FMT));
-      s2.autoFilter = 'A1:N1';
+      [16, 17, 18, 19].forEach((c) => (pTotRow.getCell(c).numFmt = MONEY_FMT));
+      s2.autoFilter = 'A1:S1';
       s2.views = [{ state: 'frozen', ySplit: 1 }];
 
       // ── 3) Buyurtmalar (barcha cheklar) ──
@@ -501,6 +553,100 @@ export const ReportsTab = () => {
           </div>
         ))}
       </div>
+
+      {/* Phase 3.5 — Qaytarish (Returns) bloki. Faqat davr ichida qaytarish
+          bo'lgan bo'lsa ko'rinadi. Industry naqsh: Gross / Returns / Net /
+          Return Rate alohida panel sifatida — admin "haqiqiy ushlab qolingan
+          pul"ni ajratib ko'radi. */}
+      {(summary.returns_count > 0 || summary.replacement_count > 0) && (
+        <div className='rounded-2xl border border-outline-variant bg-surface-container-lowest p-5 shadow-sm'>
+          <div className='mb-4 flex items-center gap-2'>
+            <span className='material-symbols-outlined fill-icon text-2xl text-rose-500 dark:text-rose-400'>
+              assignment_return
+            </span>
+            <h3 className='text-lg font-extrabold text-on-surface'>
+              Qaytarishlar va sof tushum
+            </h3>
+            <span className='ml-auto text-xs text-on-surface-variant'>
+              Davr: {dateFrom || 'boshlanishi'} — {dateTo || 'oxirgi'}
+            </span>
+          </div>
+          <div className='grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5'>
+            <ReturnsKpiCard
+              label='Pul qaytarildi'
+              value={`${fmt(summary.returns_amount)} so'm`}
+              sub={`${summary.returns_count} ta tranzaksiya`}
+              tone='rose'
+              icon='currency_exchange'
+            />
+            <ReturnsKpiCard
+              label='Almashtirildi'
+              value={`${summary.replacement_count} ta`}
+              sub={`${fmt(summary.replacement_amount)} so'm qiymatda`}
+              tone='amber'
+              icon='swap_horiz'
+            />
+            <ReturnsKpiCard
+              label='Stokga qaytdi (tannarx)'
+              value={`${fmt(summary.recovered_cost)} so'm`}
+              sub='restock=true buyumlar'
+              tone='sky'
+              icon='inventory_2'
+            />
+            <ReturnsKpiCard
+              label='Sof tushum'
+              value={`${fmt(summary.net_revenue)} so'm`}
+              sub='Yalpi − qaytarilgan'
+              tone='emerald'
+              icon='savings'
+            />
+            <ReturnsKpiCard
+              label='Qaytarish darajasi'
+              value={`${summary.return_rate.toFixed(2)}%`}
+              sub={
+                summary.return_rate < 3
+                  ? "Sog'lom"
+                  : summary.return_rate < 10
+                    ? "O'rtacha"
+                    : 'Yuqori — tekshirish kerak'
+              }
+              tone={
+                summary.return_rate < 3
+                  ? 'emerald'
+                  : summary.return_rate < 10
+                    ? 'amber'
+                    : 'rose'
+              }
+              icon='percent'
+            />
+          </div>
+          {/* Sof foyda — qaytarishni hisobga olib */}
+          <div className='mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2'>
+            <div className='rounded-xl border border-outline-variant border-l-4 border-l-primary bg-surface p-3'>
+              <div className='text-xs font-semibold uppercase tracking-wide text-on-surface-variant'>
+                Yalpi foyda (gross)
+              </div>
+              <div className='mt-1 text-lg font-extrabold text-on-surface'>
+                {fmt(summary.net_profit)} so'm
+              </div>
+              <div className='mt-0.5 text-xs text-on-surface-variant'>
+                Tushum − tannarx (qaytarishsiz)
+              </div>
+            </div>
+            <div className='rounded-xl border border-outline-variant border-l-4 border-l-emerald-500 bg-surface p-3'>
+              <div className='text-xs font-semibold uppercase tracking-wide text-on-surface-variant'>
+                Sof foyda (after returns)
+              </div>
+              <div className='mt-1 text-lg font-extrabold text-on-surface'>
+                {fmt(summary.net_profit_after_returns)} so'm
+              </div>
+              <div className='mt-0.5 text-xs text-on-surface-variant'>
+                Qaytarib stokga kelgan tannarx hisobga olingan
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
       <div className='flex items-center gap-2 border-b border-outline-variant pb-3 mt-6'>
         <button
           onClick={() => setSubTab('general')}
@@ -566,7 +712,7 @@ export const ReportsTab = () => {
           </div>
         ) : subTab === 'general' ? (
           <div key="general-table-container" className='overflow-x-auto'>
-            <table key="general-table" className='w-full min-w-[1200px] border-collapse text-left text-sm'>
+            <table key="general-table" className='w-full min-w-[1400px] border-collapse text-left text-sm'>
               <thead>
                 <tr className='bg-surface-container'>
                   {[
@@ -582,6 +728,8 @@ export const ReportsTab = () => {
                     'Sotilgan',
                     'Kirim',
                     'Sotildi',
+                    'Qaytdi',     // Phase 3.5
+                    'Sof',         // Phase 3.5 — net qty
                     'Tushum',
                     'Foyda',
                   ].map((h, i) => (
@@ -642,13 +790,45 @@ export const ReportsTab = () => {
                         {p.quantity_sold}
                       </span>
                     </td>
+                    {/* Phase 3.5 — Qaytdi (rangli badge agar > 0) */}
+                    <td className='border border-outline-variant/40 px-3 py-2.5 text-center'>
+                      {p.quantity_returned > 0 ? (
+                        <span
+                          className='inline-flex flex-col items-center rounded-full bg-rose-100 px-3 py-0.5 text-sm font-bold text-rose-700 dark:bg-rose-900/40 dark:text-rose-300'
+                          title={`${p.return_rate}% qaytarildi`}
+                        >
+                          {p.quantity_returned}
+                          <span className='text-[9px] font-normal opacity-80'>
+                            {p.return_rate.toFixed(1)}%
+                          </span>
+                        </span>
+                      ) : (
+                        <span className='text-outline'>—</span>
+                      )}
+                    </td>
+                    {/* Phase 3.5 — Sof (net qty) */}
+                    <td className='border border-outline-variant/40 px-3 py-2.5 text-center'>
+                      <span className='inline-block rounded-full bg-emerald-100 px-3 py-0.5 text-sm font-bold text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300'>
+                        {p.net_quantity_sold}
+                      </span>
+                    </td>
                     <td className='border border-outline-variant/40 px-3 py-2.5 text-right font-bold'>
                       {fmt(p.total_revenue)} so'm
+                      {p.total_refunded > 0 && (
+                        <div className='text-[10px] font-normal text-rose-500 dark:text-rose-400'>
+                          −{fmt(p.total_refunded)} qaytarildi
+                        </div>
+                      )}
                     </td>
                     <td
-                      className={`border border-outline-variant/40 px-3 py-2.5 text-right font-bold ${p.net_profit >= 0 ? 'text-[#22c55e]' : 'text-error'}`}
+                      className={`border border-outline-variant/40 px-3 py-2.5 text-right font-bold ${p.net_profit_after_returns >= 0 ? 'text-[#22c55e]' : 'text-error'}`}
                     >
-                      {fmt(p.net_profit)} so'm
+                      {fmt(p.net_profit_after_returns)} so'm
+                      {p.quantity_returned > 0 && (
+                        <div className='text-[10px] font-normal text-on-surface-variant'>
+                          gross: {fmt(p.net_profit)}
+                        </div>
+                      )}
                     </td>
                   </tr>
                 ))}
@@ -659,11 +839,25 @@ export const ReportsTab = () => {
                   <td className='px-3 py-4 text-center text-primary text-base'>
                     {filteredProducts.reduce((acc, p) => acc + (p.quantity_sold || 0), 0)}
                   </td>
-                  <td className='px-3 py-4 text-right text-base'>
-                    {fmt(filteredProducts.reduce((acc, p) => acc + (p.total_revenue || 0), 0))} so'm
+                  <td className='px-3 py-4 text-center text-rose-600 text-base dark:text-rose-300'>
+                    {filteredProducts.reduce((acc, p) => acc + (p.quantity_returned || 0), 0)}
                   </td>
-                  <td className={`px-3 py-4 text-right text-base ${filteredProducts.reduce((acc, p) => acc + (p.net_profit || 0), 0) >= 0 ? 'text-[#22c55e]' : 'text-error'}`}>
-                    {fmt(filteredProducts.reduce((acc, p) => acc + (p.net_profit || 0), 0))} so'm
+                  <td className='px-3 py-4 text-center text-emerald-600 text-base dark:text-emerald-300'>
+                    {filteredProducts.reduce((acc, p) => acc + (p.net_quantity_sold || 0), 0)}
+                  </td>
+                  <td className='px-3 py-4 text-right text-base'>
+                    {fmt(
+                      filteredProducts.reduce((acc, p) => acc + (p.total_revenue || 0) - (p.total_refunded || 0), 0),
+                    )} so'm
+                  </td>
+                  <td
+                    className={`px-3 py-4 text-right text-base ${
+                      filteredProducts.reduce((acc, p) => acc + (p.net_profit_after_returns || 0), 0) >= 0
+                        ? 'text-[#22c55e]'
+                        : 'text-error'
+                    }`}
+                  >
+                    {fmt(filteredProducts.reduce((acc, p) => acc + (p.net_profit_after_returns || 0), 0))} so'm
                   </td>
                 </tr>
               </tfoot>
@@ -837,6 +1031,55 @@ export const ReportsTab = () => {
                 Hammasi yuklandi
               </p>
             )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+// Phase 3.5 — Returns KPI mini-card (icon + value + sub + chap aksent rang).
+// Dark-mode aware: token tizimi + dark: variantlari.
+const ReturnsKpiCard = ({
+  label,
+  value,
+  sub,
+  tone,
+  icon,
+}: {
+  label: string;
+  value: string;
+  sub?: string;
+  tone: 'rose' | 'amber' | 'sky' | 'emerald';
+  icon: string;
+}) => {
+  const TONES = {
+    rose:    { accent: 'border-l-rose-500',    iconBg: 'bg-rose-100 dark:bg-rose-900/40',       iconText: 'text-rose-600 dark:text-rose-300' },
+    amber:   { accent: 'border-l-amber-500',   iconBg: 'bg-amber-100 dark:bg-amber-900/40',     iconText: 'text-amber-600 dark:text-amber-300' },
+    sky:     { accent: 'border-l-sky-500',     iconBg: 'bg-sky-100 dark:bg-sky-900/40',         iconText: 'text-sky-600 dark:text-sky-300' },
+    emerald: { accent: 'border-l-emerald-500', iconBg: 'bg-emerald-100 dark:bg-emerald-900/40', iconText: 'text-emerald-600 dark:text-emerald-300' },
+  }[tone];
+  return (
+    <div
+      className={`flex items-start gap-3 rounded-xl border border-outline-variant border-l-4 bg-surface p-3 ${TONES.accent}`}
+    >
+      <div
+        className={`flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg ${TONES.iconBg}`}
+      >
+        <span className={`material-symbols-outlined text-xl ${TONES.iconText}`}>
+          {icon}
+        </span>
+      </div>
+      <div className='min-w-0 flex-1'>
+        <div className='truncate text-xs font-semibold uppercase tracking-wide text-on-surface-variant'>
+          {label}
+        </div>
+        <div className='mt-0.5 truncate text-base font-extrabold text-on-surface'>
+          {value}
+        </div>
+        {sub && (
+          <div className='mt-0.5 truncate text-[11px] text-on-surface-variant'>
+            {sub}
           </div>
         )}
       </div>

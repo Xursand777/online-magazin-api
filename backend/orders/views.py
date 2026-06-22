@@ -701,7 +701,12 @@ class AdminReportView(views.APIView):
                 pass
 
         # --- KPI Summary ---
-        delivered_qs = qs.filter(status__in=[Order.STATUS_DELIVERED, Order.STATUS_RECEIVED])
+        # Phase 3.5: Replacement Order'lar gross_revenue'dan chiqariladi —
+        # ular almashtirish uchun yaratilgan, mijozdan yangi pul kelmagan
+        # (technical artifact, accounting'da ikki marta sanab bo'lmaydi).
+        delivered_qs = qs.filter(
+            status__in=[Order.STATUS_DELIVERED, Order.STATUS_RECEIVED],
+        ).filter(replacement_of__isnull=True)
         cancelled_qs = qs.filter(status__in=[
             Order.STATUS_CANCELLED_BY_USER,
             Order.STATUS_CANCELLED_BY_ADMIN,
@@ -753,7 +758,12 @@ class AdminReportView(views.APIView):
         from django.db.models import FloatField
         from django.db.models.functions import Coalesce
 
-        # Hisoblashlarni bitta so'rovda bajarish
+        # Hisoblashlarni bitta so'rovda bajarish.
+        # Phase 3.5: returned_qty va total_refunded ham qo'shildi — har mahsulot
+        # uchun "qaytarish darajasi" (return rate per product) hisoblash uchun.
+        # OrderItem.returned_qty INVARIANT'i: SUCCESS statusda turgan
+        # OrderReturnItem.quantity yig'indisi. Mavjud qiymatdan o'qiymiz —
+        # JOIN'siz va aniq.
         items_stats = (
             OrderItem.objects
             .filter(order__in=qs)
@@ -764,7 +774,11 @@ class AdminReportView(views.APIView):
             )
             .annotate(
                 quantity_sold=Sum('quantity'),
-                total_revenue=Sum(F('price_snapshot') * F('quantity'), output_field=FloatField())
+                quantity_returned=Sum('returned_qty'),  # Phase 3.5
+                total_revenue=Sum(F('price_snapshot') * F('quantity'), output_field=FloatField()),
+                total_refunded=Sum(
+                    F('price_snapshot') * F('returned_qty'), output_field=FloatField()
+                ),  # Phase 3.5
             )
             .order_by('-quantity_sold')
         )
@@ -776,7 +790,15 @@ class AdminReportView(views.APIView):
                 continue
 
             qty_sold = item['quantity_sold'] or 0
+            qty_returned = item['quantity_returned'] or 0
             rev = item['total_revenue'] or 0.0
+            refunded = item['total_refunded'] or 0.0
+            # Sof qiymatlar — qaytarilgan tovarni chiqarib
+            net_qty = max(0, qty_sold - qty_returned)
+            net_rev = rev - refunded
+            product_return_rate = round(
+                (refunded / rev * 100) if rev > 0 else 0, 2
+            )
 
             # cost price
             v_cost = item['variant__cost_price']
@@ -792,8 +814,14 @@ class AdminReportView(views.APIView):
             p_disc = item['product__discount_price']
             disc_price = float(v_disc) if v_disc is not None else (float(p_disc) if p_disc else None)
 
+            # Gross (qaytarmasdan)
             total_cost_item = cost_price * qty_sold
-            net_profit = rev - total_cost_item
+            net_profit_item = rev - total_cost_item
+            # Net (qaytarib stokga kelganlarni hisobga olib) — soddalashtirilgan:
+            # qaytarilgan tovarning ham tannarxi qaytariladi (restock=True
+            # standart). Realistik approximation; aniq writeoff sub-status
+            # detail'da bilinadi.
+            net_profit_after_returns = net_rev - (cost_price * net_qty)
 
             products_list.append({
                 'rank': idx,
@@ -811,7 +839,14 @@ class AdminReportView(views.APIView):
                 'total_revenue': rev,
                 'total_cost': total_cost_item,
                 'sold_price': rev / qty_sold if qty_sold > 0 else 0,
-                'net_profit': net_profit,
+                'net_profit': net_profit_item,
+                # Phase 3.5
+                'quantity_returned': qty_returned,
+                'net_quantity_sold': net_qty,
+                'total_refunded': refunded,
+                'net_revenue': net_rev,
+                'return_rate': product_return_rate,
+                'net_profit_after_returns': net_profit_after_returns,
             })
 
         # --- Jami tushum (Cost & Discount) (Faqat delivered_qs uchun) ---
@@ -838,8 +873,76 @@ class AdminReportView(views.APIView):
         )
         total_discount = max(0.0, disc_agg['t_disc'] or 0.0)
 
+        # ── Phase 3.5: Qaytarish (Return) hisoboti ─────────────────────────
+        # Industry naqsh (Amazon/Shopify/Wildberries):
+        #   - returns_amount = davr ichida pul qaytarilgan summa (cash out)
+        #   - replacement_count = almashtirilganlar (pul harakatsiz)
+        #   - net_revenue = gross_revenue - returns_amount (sof tushum)
+        #   - return_rate = returns_amount / gross_revenue × 100% (sifat KPI)
+        #
+        # Sana filteri OrderReturn.created_at bo'yicha — bu cash basis
+        # (qaytarish yangi davrda bo'lsa o'sha davrning hisobotida ko'rinadi).
+        # Pul KASSADAN qachon chiqqani — admin uchun eng tushunarli ko'rinish.
+        from .models import OrderReturn
+        returns_qs = OrderReturn.objects.filter(status__in=OrderReturn.SUCCESS_STATUSES)
+        if date_from_str:
+            d = parse_date(date_from_str)
+            if d:
+                returns_qs = returns_qs.filter(created_at__date__gte=d)
+        if date_to_str:
+            d = parse_date(date_to_str)
+            if d:
+                returns_qs = returns_qs.filter(created_at__date__lte=d)
+
+        # Refund (REFUNDED — haqiqiy cash out) va Replacement (REPLACED —
+        # pul harakatsiz, informational) ALOHIDA hisoblanadi.
+        refund_agg = returns_qs.filter(status=OrderReturn.STATUS_REFUNDED).aggregate(
+            amount=Sum('refund_amount'),
+            count=Count('id'),
+        )
+        replacement_agg = returns_qs.filter(status=OrderReturn.STATUS_REPLACED).aggregate(
+            amount=Sum('refund_amount'),
+            count=Count('id'),
+        )
+        returns_amount = float(refund_agg['amount'] or 0)
+        returns_count = refund_agg['count'] or 0
+        replacement_amount = float(replacement_agg['amount'] or 0)
+        replacement_count = replacement_agg['count'] or 0
+
+        # ── Net Profit (sof foyda) — qaytarib STOKGA kelgan tovar tannarxi
+        # qaytariladi (writeoff bo'lsa qaytarilmaydi). OrderReturnItem.restock
+        # bo'yicha hisoblaymiz: faqat restock=True bo'lganlar uchun tannarx
+        # qaytariladi.
+        from .models import OrderReturnItem
+        restock_cost_agg = OrderReturnItem.objects.filter(
+            return_obj__in=returns_qs,
+            restock=True,
+        ).aggregate(
+            recovered=Sum(
+                F('quantity') * Coalesce(
+                    'order_item__variant__cost_price',
+                    'order_item__product__cost_price',
+                    Decimal('0'),
+                ),
+                output_field=FloatField(),
+            ),
+        )
+        recovered_cost = float(restock_cost_agg['recovered'] or 0)
+
+        # Sof tushum va sof foyda
+        gross_revenue = float(total_revenue)
+        net_revenue = gross_revenue - returns_amount
+        gross_profit = gross_revenue - float(total_cost)
+        # Net profit: returns qaytarilgan + tannarx restock bo'lgani recover
+        # qilingani — chuqurroq accuracy uchun.
+        net_profit = net_revenue - (float(total_cost) - recovered_cost)
+        return_rate = (
+            (returns_amount / gross_revenue * 100) if gross_revenue > 0 else 0
+        )
+
         summary = {
-            'total_revenue': float(total_revenue),
+            # Gross (yalpi — historik, qaytmaydi)
+            'total_revenue': gross_revenue,
             'total_discount': float(total_discount),
             'total_cost': float(total_cost),
             'avg_order_value': float(avg_order),
@@ -847,7 +950,16 @@ class AdminReportView(views.APIView):
             'delivered_orders': delivered_count,
             'cancelled_orders': cancelled_count,
             'pending_orders': pending_count,
-            'net_profit': float(total_revenue) - float(total_cost),
+            'net_profit': gross_profit,        # backwards compat: net_profit avval gross_profit edi
+            # Phase 3.5 — Qaytarish KPI'lari
+            'returns_amount': returns_amount,
+            'returns_count': returns_count,
+            'replacement_amount': replacement_amount,
+            'replacement_count': replacement_count,
+            'recovered_cost': recovered_cost,
+            'net_revenue': net_revenue,          # gross - returns
+            'net_profit_after_returns': net_profit,  # accuracy uchun yangi maydon
+            'return_rate': round(return_rate, 2),    # %
         }
 
         return Response({
