@@ -70,11 +70,12 @@ class VariantExpandMixin:
 
         queryset = self.filter_queryset(self.get_queryset())
 
-        # ── 1. Stock filter (Amazon/Wildberries uslubi) ─────────────────────
-        # Default: tugab qolgan mahsulotlarni ko'rsatmaymiz.
-        # Opt-out: ?include_out_of_stock=true (kerak bo'lsa, masalan, qidiruv).
-        include_oos = request.query_params.get('include_out_of_stock', '').lower() in ('1', 'true', 'yes')
-        in_stock_only = not include_oos
+        # ── 1. Stock filter ──────────────────────────────────────────────────
+        # Default: tugagan (stock=0) mahsulotlar HAM ko'rsatiladi — frontend
+        # ProductCard ularni "Tugagan" deb belgilaydi va xaridni bloklaydi
+        # (Uzum/Amazon uslubi: tugagan tovar ko'rinadi, lekin sotib bo'lmaydi).
+        # Opt-in: ?in_stock_only=true — faqat sotuvda mavjudlarini qaytaradi.
+        in_stock_only = request.query_params.get('in_stock_only', '').lower() in ('1', 'true', 'yes')
 
         # ── 2. QuerySet uchun prefetch_related, list uchun shart emas ──────────
         # Ba'zi view'lar (masalan ProductSimilarListView) get_queryset() dan
@@ -473,7 +474,7 @@ class RecentlyViewedView(views.APIView):
             # Foydalanuvchi mahsulotni 1 marta ko'rgan — 5 ta variant karta
             # bo'lib ko'rinishi xato. Bir mahsulot — bir karta (Amazon usuli).
             # Variantning ko'rsatilishi: eng birinchi (default) variant.
-            cards = expand_products_to_cards(ordered, request, in_stock_only=True)
+            cards = expand_products_to_cards(ordered, request, in_stock_only=False)
             cards = deduplicate_cards_by_product(cards)
             data = ProductCardSerializer(cards, many=True, context={'request': request}).data
         else:
@@ -516,9 +517,9 @@ class MainPageView(views.APIView):
     """
     Bosh sahifa — Amazon/Wildberries/Ozon yondashuvlari bilan:
 
-    1. **Stock filter**: tugab qolgan mahsulotlar (product.stock=0 va barcha
-       variantlari ham stock=0) butunlay yashiriladi. Foydalanuvchi sotib
-       ololmaydigan mahsulotni ko'rmaydi.
+    1. **Stock**: tugagan (stock=0) mahsulotlar ham ko'rsatiladi — frontend
+       ularni "Tugagan" deb belgilaydi va xaridni bloklaydi (Uzum/Amazon uslubi:
+       tugagan tovar ko'rinadi, lekin sotib bo'lmaydi).
 
     2. **Variant interleaving**: bir mahsulotning 5 ta varianti ketma-ket
        chiqib qolmaydi — round-robin orqali turli mahsulotlar bilan
@@ -531,10 +532,9 @@ class MainPageView(views.APIView):
     permission_classes = (AllowAny,)
 
     def get(self, request, *args, **kwargs):
-        # Sotuvda mavjud mahsulotlar uchun base queryset
+        # Faol mahsulotlar (tugagan stock=0 ham — "Tugagan" belgisi bilan ko'rinadi)
         base_qs = (
             Product.objects.filter(is_active=True)
-            .filter(in_stock_product_filter())
             .distinct()
             .prefetch_related('images', 'variants', 'variants__images')
         )
@@ -543,15 +543,9 @@ class MainPageView(views.APIView):
         new_products      = base_qs.filter(is_new=True).order_by('-created_at', '-id')[:15]
         popular_products  = base_qs.filter(is_popular=True).order_by('-updated_at', '-id')[:15]
 
-        # Tavsiyalar — alohida service, lekin bu yerda ham in_stock tekshirish
+        # Tavsiyalar — tugagan mahsulotlar ham ko'rsatiladi ("Tugagan" belgisi bilan)
         recommendation_payload = build_personalized_recommendations(request, limit=15)
-        # Tavsiya'lar ham stock filter'dan o'tsin
-        recommended_products = [
-            p for p in recommendation_payload['products']
-            if (p.stock or 0) > 0 or any(
-                v.is_active and (v.stock or 0) > 0 for v in p.variants.all()
-            )
-        ]
+        recommended_products = recommendation_payload['products']
 
         expand = _should_expand_variants(request)
         ctx = {'request': request}
@@ -562,7 +556,7 @@ class MainPageView(views.APIView):
             Expand rejimida: stock filter + round-robin interleave.
             """
             if expand:
-                cards = expand_products_to_cards(qs, request, in_stock_only=True)
+                cards = expand_products_to_cards(qs, request, in_stock_only=False)
                 cards = interleave_cards_by_product(cards)
                 return ProductCardSerializer(cards, many=True, context=ctx).data
             return ProductListSerializer(qs, many=True, context=ctx).data

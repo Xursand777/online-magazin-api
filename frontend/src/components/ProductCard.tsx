@@ -234,8 +234,8 @@ const ProductCard = ({ product, onToggleFavorite, isFavorite: propIsFavorite, la
           ) : <NoImage />}
           {isOutOfStock && (
             <div className="absolute inset-0 bg-surface/60 backdrop-blur-[1px] flex items-center justify-center z-10">
-              <span className="bg-error text-on-error px-1 py-0.5 rounded text-[8px] font-bold shadow-sm text-center leading-none">
-                Stock<br/>yo'q
+              <span className="bg-error text-on-error px-1.5 py-0.5 rounded text-[9px] font-bold shadow-sm text-center leading-none">
+                {t.product.outOfStock}
               </span>
             </div>
           )}
@@ -291,7 +291,7 @@ const ProductCard = ({ product, onToggleFavorite, isFavorite: propIsFavorite, la
           <div className="absolute inset-0 bg-surface/50 backdrop-blur-[2px] flex items-center justify-center z-10">
             <span className="bg-error text-on-error px-3 py-1.5 rounded-full text-xs font-bold shadow-md flex items-center gap-1">
               <span className="material-symbols-outlined text-[14px]">cancel</span>
-              Stock yo'q
+              {t.product.outOfStock}
             </span>
           </div>
         )}
