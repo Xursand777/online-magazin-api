@@ -21,6 +21,7 @@ from recommendations.services import record_product_event
 
 from .models import Order, OrderDispute, OrderHistory
 from .serializers import (
+    AdminDefectItemSerializer,
     AdminOrderStatusUpdateSerializer,
     AdminUpdateDisputeSerializer,
     CancelOrderSerializer,
@@ -2479,5 +2480,83 @@ class AdminReturnPhotoUploadView(views.APIView):
             OrderReturnPhotoSerializer(photo, context={'request': request}).data,
             status=201,
         )
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  DEFEKTLAR — sotuvga yaroqsiz (writeoff) buyumlar boshqaruvi
+# ═══════════════════════════════════════════════════════════════════════════
+#
+#  Manba: OrderReturnItem (restock=False, qaytarish SUCCESS holatda).
+#  Bu buyumlar tekshiruvda defekt/buzilgan deb topilgan → stokka QAYTMAGAN →
+#  saytga/mobil katalogga qayta CHIQMAYDI. Bu yerda admin ularni kuzatadi.
+# ═══════════════════════════════════════════════════════════════════════════
+
+class AdminDefectListView(generics.ListAPIView):
+    """
+    GET /api/orders/admin/defects/ — defekt / writeoff buyumlar ro'yxati.
+
+    Filtrlar:
+      ?condition=defective|used_damaged|...   — holat bo'yicha
+      ?writeoff_reason=defect|lost|customer_fault
+      ?search=<mahsulot nomi>
+    """
+    serializer_class = AdminDefectItemSerializer
+    permission_classes = (IsAuthenticated, IsAdminOrAbove)
+
+    def get_queryset(self):
+        from .models import OrderReturn, OrderReturnItem
+        qs = (
+            OrderReturnItem.objects
+            .filter(
+                restock=False,
+                return_obj__status__in=OrderReturn.SUCCESS_STATUSES,
+            )
+            .select_related(
+                'order_item', 'order_item__product', 'order_item__variant',
+                'return_obj',
+            )
+            .prefetch_related('order_item__product__images')
+            .order_by('-return_obj__refund_processed_at', '-id')
+        )
+        condition = self.request.query_params.get('condition')
+        if condition:
+            qs = qs.filter(condition=condition)
+        writeoff = self.request.query_params.get('writeoff_reason')
+        if writeoff:
+            qs = qs.filter(writeoff_reason=writeoff)
+        search = (self.request.query_params.get('search') or '').strip()
+        if search:
+            qs = qs.filter(order_item__product__name__icontains=search)
+        return qs
+
+
+class AdminDefectStatsView(views.APIView):
+    """GET /api/orders/admin/defects/stats/ — defekt statistikasi (KPI kartalar)."""
+    permission_classes = (IsAuthenticated, IsAdminOrAbove)
+
+    def get(self, request, *args, **kwargs):
+        from .models import OrderReturn, OrderReturnItem
+        from django.db.models import Sum, Count, F, DecimalField, ExpressionWrapper
+
+        qs = OrderReturnItem.objects.filter(
+            restock=False,
+            return_obj__status__in=OrderReturn.SUCCESS_STATUSES,
+        )
+        total_items = qs.aggregate(n=Sum('quantity'))['n'] or 0
+        total_loss = qs.aggregate(
+            v=Sum(ExpressionWrapper(
+                F('refund_unit_price') * F('quantity'),
+                output_field=DecimalField(max_digits=16, decimal_places=2),
+            ))
+        )['v'] or 0
+        by_condition = list(
+            qs.values('condition').annotate(n=Count('id')).order_by('-n')
+        )
+        return Response({
+            'total_records': qs.count(),
+            'total_items': int(total_items),
+            'total_loss': str(total_loss),
+            'by_condition': by_condition,
+        })
 
 

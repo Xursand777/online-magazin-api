@@ -37,6 +37,7 @@ import { StaffTab } from './admin/StaffTab';
 import { MastersTab } from './admin/MastersTab';
 import { AuditLogTab } from './admin/AuditLogTab';
 import { ReturnsTab } from './admin/ReturnsTab';
+import { DefectsTab } from './admin/DefectsTab';
 import { SozlamalarTab } from './admin/SozlamalarTab';
 import { CompatibilityTab } from './admin/CompatibilityTab';
 import { DashboardTab } from './admin/DashboardTab';
@@ -45,7 +46,7 @@ import { BannersTab } from './admin/BannersTab';
 import { CategoriesTab } from './admin/CategoriesTab';
 import { _notNull } from './admin/shared';
 
-type AdminTab = 'dashboard' | 'products' | 'banners' | 'categories' | 'orders' | 'users' | 'feedback' | 'reports' | 'stock' | 'pos' | 'kassa' | 'nasiya' | 'sozlamalar' | 'compatibility' | 'staff' | 'masters' | 'audit' | 'returns';
+type AdminTab = 'dashboard' | 'products' | 'banners' | 'categories' | 'orders' | 'users' | 'feedback' | 'reports' | 'stock' | 'pos' | 'kassa' | 'nasiya' | 'sozlamalar' | 'compatibility' | 'staff' | 'masters' | 'audit' | 'returns' | 'defects';
 
 // Har bir tab qaysi rollar uchun ko'rinadi.
 // ⭐ ADMIN roli FAQAT quyidagi 7 tabni ko'radi (qolganlari super-admin uchun):
@@ -57,6 +58,7 @@ const TAB_ROLES: Partial<Record<AdminTab, StaffRole[]>> = {
   categories:    ['admin'],            // Kategoriyalar
   orders:        ['admin', 'seller', 'courier'],  // Buyurtmalar (sotuvchi/kuryer ham)
   returns:       ['admin'],            // Qaytarishlar — admin va super
+  defects:       ['admin'],            // Defektlar — admin va super
   kassa:         ['admin'],            // Kassa
   reports:       ['admin'],            // Hisobotlar
   banners:       ['admin'],            // Bannerlar
@@ -111,7 +113,7 @@ const AdminPanel = () => {
 const _ALL_TABS: AdminTab[] = [
   'dashboard', 'pos', 'orders', 'users', 'feedback',
   'products', 'categories', 'banners', 'compatibility',
-  'kassa', 'nasiya', 'reports', 'stock', 'returns', 'sozlamalar', 'staff', 'masters', 'audit',
+  'kassa', 'nasiya', 'reports', 'stock', 'returns', 'defects', 'sozlamalar', 'staff', 'masters', 'audit',
 ];
 
 // ─── Real-time buyurtmalar polling ───────────────────────────────────────────
@@ -371,6 +373,7 @@ const AdminDashboard = () => {
         // Buyurtmalar — yangi buyurtmalar son badge (real-time polling)
         _tab('orders',   'Buyurtmalar',      'local_shipping', newOrdersCount),
         _tab('returns',  'Qaytarishlar',     'assignment_return'),
+        _tab('defects',  'Defektlar',        'dangerous'),
         _tab('users',    'Foydalanuvchilar', 'people'),
         _tab('feedback', 'Fikrlar',          'forum'),
       ].filter(_notNull),
@@ -570,6 +573,7 @@ const AdminDashboard = () => {
           {activeTab === 'masters' && <MastersTab />}
           {activeTab === 'audit' && <AuditLogTab />}
           {activeTab === 'returns' && <ReturnsTab />}
+          {activeTab === 'defects' && <DefectsTab />}
         </main>
       </div>
     </div>

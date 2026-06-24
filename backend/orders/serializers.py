@@ -587,6 +587,77 @@ class OrderReturnItemSerializer(serializers.ModelSerializer):
         return oi.product.name if oi and oi.product else 'Unknown'
 
 
+class AdminDefectItemSerializer(serializers.Serializer):
+    """
+    Defekt / writeoff buyum — admin "Defektlar" bo'limi uchun.
+
+    Manba: OrderReturnItem (restock=False, qaytarish SUCCESS holatda) — ya'ni
+    sotuvga yaroqsiz deb topilgan va stokka QAYTMAGAN buyum. Bu buyumlar
+    saytga/mobil katalogga qayta CHIQMAYDI (stok oshmagan, defekt sifatida
+    ajratilgan). To'liq nom, model, sifat, rang bilan ko'rsatiladi.
+    """
+    id = serializers.IntegerField(read_only=True)
+    product_name = serializers.SerializerMethodField()
+    color   = serializers.SerializerMethodField()
+    quality = serializers.SerializerMethodField()
+    model   = serializers.SerializerMethodField()
+    size    = serializers.SerializerMethodField()
+    image   = serializers.SerializerMethodField()
+    quantity = serializers.IntegerField(read_only=True)
+    condition = serializers.CharField(read_only=True)
+    condition_display = serializers.CharField(source='get_condition_display', read_only=True)
+    writeoff_reason = serializers.CharField(read_only=True)
+    writeoff_reason_display = serializers.CharField(source='get_writeoff_reason_display', read_only=True)
+    refund_unit_price = serializers.DecimalField(max_digits=14, decimal_places=2, read_only=True)
+    line_total = serializers.DecimalField(max_digits=14, decimal_places=2, read_only=True)
+    return_number = serializers.CharField(source='return_obj.return_number', read_only=True)
+    return_id = serializers.IntegerField(source='return_obj_id', read_only=True)
+    order_id = serializers.IntegerField(source='return_obj.order_id', read_only=True)
+    created_at = serializers.DateTimeField(source='return_obj.refund_processed_at', read_only=True)
+
+    def _variant(self, obj):
+        oi = obj.order_item
+        return oi.variant if oi else None
+
+    def get_product_name(self, obj):
+        oi = obj.order_item
+        return oi.product.name if oi and oi.product else 'Unknown'
+
+    def get_color(self, obj):
+        v = self._variant(obj)
+        return v.color if v else None
+
+    def get_quality(self, obj):
+        v = self._variant(obj)
+        return v.quality if v else None
+
+    def get_model(self, obj):
+        v = self._variant(obj)
+        return v.model if v else None
+
+    def get_size(self, obj):
+        v = self._variant(obj)
+        return v.size if v else None
+
+    def get_image(self, obj):
+        request = self.context.get('request')
+        v = self._variant(obj)
+        oi = obj.order_item
+        img = getattr(v, 'image', None) if v else None
+        if not img and oi and oi.product:
+            first = oi.product.images.first()
+            img = first.image if first else None
+        if not img:
+            return None
+        try:
+            url = img.url
+        except Exception:
+            return None
+        if request and url and not str(url).startswith('http'):
+            return request.build_absolute_uri(url)
+        return url
+
+
 class OrderReturnSerializer(serializers.ModelSerializer):
     """
     Qaytarish to'liq ma'lumotlari. Admin ham ko'radi (mijoz UI kelajakda

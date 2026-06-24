@@ -45,10 +45,11 @@ const STATUS_COLORS: Record<string, string> = {
   CANCELLED:        'bg-gray-200   text-gray-800   dark:bg-gray-700      dark:text-gray-200',
 };
 
+// Mijoz tovarni O'ZI do'konga olib keladi — kuryer (PICKUP_SCHEDULED) YO'Q.
+// Oqim: So'rov → Tasdiqlandi → Tovar olindi (do'konda) → Tekshirilmoqda → Qabul → Pul/Almashtirish.
 const STATUS_FLOW: Record<string, string[]> = {
   REQUESTED: ['APPROVED', 'REJECTED', 'CANCELLED'],
-  APPROVED: ['PICKUP_SCHEDULED', 'PICKED_UP', 'CANCELLED'],
-  PICKUP_SCHEDULED: ['PICKED_UP', 'CANCELLED'],
+  APPROVED: ['PICKED_UP', 'CANCELLED'],
   PICKED_UP: ['INSPECTING', 'CANCELLED'],
   INSPECTING: ['ACCEPTED', 'REJECTED', 'CANCELLED'],
   ACCEPTED: ['REFUNDED', 'REPLACED'],

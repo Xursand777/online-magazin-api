@@ -2,6 +2,8 @@ from django.urls import path
 from .views import (
     AdminCreateReturnView,
     AdminCreditPayView,
+    AdminDefectListView,
+    AdminDefectStatsView,
     CustomerCreateReturnView,
     CustomerMyReturnsView,
     CustomerReturnEligibilityView,
@@ -74,6 +76,11 @@ urlpatterns = [
          AdminReturnListView.as_view(), name='admin_returns_list'),
     path('admin/returns/stats/',
          AdminReturnsStatsView.as_view(), name='admin_returns_stats'),
+    # ── Defektlar (sotuvga yaroqsiz writeoff buyumlar) ──
+    path('admin/defects/',
+         AdminDefectListView.as_view(), name='admin_defects_list'),
+    path('admin/defects/stats/',
+         AdminDefectStatsView.as_view(), name='admin_defects_stats'),
     path('admin/returns/<int:pk>/',
          AdminReturnDetailView.as_view(), name='admin_return_detail'),
     path('admin/returns/<int:pk>/transition/',

@@ -1558,11 +1558,14 @@ STATUS_TRANSITIONS_RETURN = {
         OrderReturn.STATUS_CANCELLED,
     },
     OrderReturn.STATUS_APPROVED: {
-        OrderReturn.STATUS_PICKUP_SCHEDULED,
-        # POS holatda — mijoz tovarni o'zi olib kelsa, pickup skip qilinadi.
+        # Mijoz tovarni O'ZI do'konga olib keladi (kuryer YO'Q) → to'g'ridan
+        # "Tovar olindi" (do'konda qabul qilindi). PICKUP_SCHEDULED ishlatilmaydi.
         OrderReturn.STATUS_PICKED_UP,
         OrderReturn.STATUS_CANCELLED,
     },
+    # STATUS_PICKUP_SCHEDULED — endi ishlatilmaydi (kuryer bilan olib ketish yo'q).
+    # Const va label backward-compat uchun saqlanadi, lekin yangi qaytarishlar
+    # bu statusga o'tmaydi (transition yo'q).
     OrderReturn.STATUS_PICKUP_SCHEDULED: {
         OrderReturn.STATUS_PICKED_UP,
         OrderReturn.STATUS_CANCELLED,
