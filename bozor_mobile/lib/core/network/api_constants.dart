@@ -1,9 +1,10 @@
 import 'package:flutter/foundation.dart';
 
 class ApiConstants {
-  // ─── Production (Render) ─────────────────────────────────────────────────
-  // Render Dashboard → Services → sizning service → URL
-  static const String _renderUrl = 'https://online-magazin-api.onrender.com';
+  // ─── Production (Hetzner + Cloudflare) ───────────────────────────────────
+  // Doimiy domen — server qayerga ko'chsa ham bu o'zgarmaydi.
+  // Cloudflare (CDN+DDoS+SSL) → Hetzner backend.
+  static const String _prodUrl = 'https://api.700mobile.uz';
 
   // ─── Local development ────────────────────────────────────────────────────
   // adb reverse tcp:8000 tcp:8000 → emulator'da 127.0.0.1 ishlaydi
@@ -12,29 +13,27 @@ class ApiConstants {
   static const String _defaultLanBaseUrl = 'http://192.168.100.120:8000';
 
   /// Asosiy base URL:
-  ///  - Release (apk/appbundle) → Render production URL
-  ///  - Debug (emulator/device) → local URL
+  ///  - Release (apk/appbundle) → production (api.700mobile.uz)
+  ///  - Debug (emulator/device) → production (internetdagi serverga to'g'ridan)
   ///  - --dart-define=API_BASE_URL=... → berilgan URL (eng yuqori prioritet)
   static String get baseUrl {
     // 1. --dart-define override (build vaqtida berilsa)
     const envOverride = String.fromEnvironment('API_BASE_URL');
     if (envOverride.isNotEmpty) return envOverride;
 
-    // 2. Release mode → production Render
-    if (kReleaseMode) return _renderUrl;
+    // 2. Release mode → production
+    if (kReleaseMode) return _prodUrl;
 
-    // 3. Debug mode
-    // Foydalanuvchi hozirda vaqtinchalik server (Render) ga ulanganini aytgani uchun,
-    // Debug rejimida ham to'g'ridan-to'g'ri internetdagi serverga ulaymiz.
-    return _renderUrl;
+    // 3. Debug mode → production (to'g'ridan-to'g'ri internetdagi serverga)
+    return _prodUrl;
   }
 
   static List<String> get localBaseUrls {
     const envOverride = String.fromEnvironment('API_BASE_URL');
     if (envOverride.isNotEmpty) return [envOverride];
-    if (kReleaseMode) return [_renderUrl];
+    if (kReleaseMode) return [_prodUrl];
     // Debug: avval local, muvaffaqiyatsiz bo'lsa production'ga fallback
-    return [_adbReverseBaseUrl, _defaultLanBaseUrl, _renderUrl];
+    return [_adbReverseBaseUrl, _defaultLanBaseUrl, _prodUrl];
   }
 
   // ─── Auth ─────────────────────────────────────────────────────────────────

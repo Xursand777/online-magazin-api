@@ -234,9 +234,16 @@ export const ProductEditor = ({
       .filter((p) => p > 0);
     if (validPrices.length === 0) return;
     const minPrice = Math.min(...validPrices);
+    // Chegirma faqat HAQIQIY bo'lganda hisobga olinadi: kiritilgan (>0) VA
+    // o'sha variantning o'z narxidan KICHIK. Aks holda bu chegirma emas —
+    // umuman kiritilmagan yoki xato — shuning uchun e'tiborga olinmaydi.
     const validDiscounts = variants
-      .map((v) => Number(stripNumberFormatting(v.discount_price)))
-      .filter((p) => p > 0);
+      .map((v) => ({
+        price: Number(stripNumberFormatting(v.price)),
+        disc: Number(stripNumberFormatting(v.discount_price)),
+      }))
+      .filter((x) => x.disc > 0 && x.disc < x.price)
+      .map((x) => x.disc);
     const minDiscount = validDiscounts.length > 0 ? Math.min(...validDiscounts) : 0;
     const validCosts = variants
       .map((v) => Number(stripNumberFormatting(v.cost_price)))
@@ -246,11 +253,10 @@ export const ProductEditor = ({
       ...prev,
       price: formatPriceInput(String(minPrice)),
       price_usd: usdRate > 0 ? (minPrice / usdRate).toFixed(2) : prev.price_usd,
-      discount_price: minDiscount > 0 ? formatPriceInput(String(minDiscount)) : prev.discount_price,
+      // Haqiqiy chegirma yo'q bo'lsa — maydon BO'SH qoladi (avtomatik to'ldirilmaydi).
+      discount_price: minDiscount > 0 ? formatPriceInput(String(minDiscount)) : '',
       discount_price_usd:
-        minDiscount > 0 && usdRate > 0
-          ? (minDiscount / usdRate).toFixed(2)
-          : prev.discount_price_usd,
+        minDiscount > 0 && usdRate > 0 ? (minDiscount / usdRate).toFixed(2) : '',
       cost_price: minCost > 0 ? formatPriceInput(String(minCost)) : prev.cost_price,
       // Tannarx kursdan mustaqil — cost_price_usd kursdan QAYTA hisoblanmaydi.
       cost_price_usd: prev.cost_price_usd,

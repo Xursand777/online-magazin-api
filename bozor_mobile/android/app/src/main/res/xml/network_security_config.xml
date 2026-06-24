@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Tarmoq xavfsizligi konfiguratsiyasi.
+
+  • base-config: cleartextTrafficPermitted=false
+    → Production (api.700mobile.uz) FAQAT HTTPS orqali. Shifrlanmagan HTTP bloklangan.
+  • domain-config: faqat lokal manzillarga (debug test) cleartext ruxsat:
+    - 127.0.0.1   → adb reverse (emulator)
+    - 10.0.2.2    → Android emulator host
+    - 192.168.*   → haqiqiy telefonda LAN test (computer WiFi IP)
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false" />
+
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="true">127.0.0.1</domain>
+        <domain includeSubdomains="true">10.0.2.2</domain>
+        <domain includeSubdomains="true">192.168.100.120</domain>
+    </domain-config>
+</network-security-config>

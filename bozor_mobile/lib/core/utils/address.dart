@@ -226,7 +226,7 @@ Future<NominatimAddress?> reverseGeocode(
       connectTimeout: timeout,
       receiveTimeout: timeout,
       headers: {
-        'User-Agent': 'BozorMobile/1.0 (https://online-magazin-api.vercel.app)',
+        'User-Agent': 'BozorMobile/1.0 (https://700mobile.uz)',
       },
     ));
     final response = await dio.get(
