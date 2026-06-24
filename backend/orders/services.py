@@ -1600,6 +1600,37 @@ RETURNABLE_ORDER_STATUSES = frozenset({
 })
 
 
+def default_return_item_disposition(reason_code: str) -> tuple:
+    """
+    Qaytarish SABABIGA qarab buyumning DEFAULT holati (inspector keyin
+    AdminReturnItemUpdateView orqali o'zgartira oladi).
+
+    Defekt sabablar (defective / damaged_in_transit / quality_issue):
+        → condition=defective, restock=False, writeoff=defect
+        Ya'ni: sotuvga YAROQSIZ → stokka qaytmaydi → "Defektlar" bo'limiga
+        tushadi → saytga/mobil katalogga qayta CHIQMAYDI.
+
+    Boshqa sabablar (changed_mind / size_mismatch / wrong_item / ...):
+        → condition=new, restock=True
+        Ya'ni: ishlatilmagan, soz → stokka qaytadi → sotuvda qoladi.
+
+    Returns: (condition, restock, writeoff_reason)
+    """
+    from .models import OrderReturn, OrderReturnItem
+    defect_reasons = {
+        OrderReturn.REASON_DEFECTIVE,
+        OrderReturn.REASON_DAMAGED_IN_TRANSIT,
+        OrderReturn.REASON_QUALITY_ISSUE,
+    }
+    if reason_code in defect_reasons:
+        return (
+            OrderReturnItem.CONDITION_DEFECTIVE,
+            False,
+            OrderReturnItem.WRITEOFF_DEFECT,
+        )
+    return (OrderReturnItem.CONDITION_NEW, True, OrderReturnItem.WRITEOFF_NONE)
+
+
 def check_return_eligibility(order: Order, items: list | None = None) -> dict:
     """
     Buyurtma (yoki uning bir qancha item'lari) qaytarish uchun mosligini tekshiradi.

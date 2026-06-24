@@ -19,7 +19,6 @@ import { toast } from '../../utils/toast';
 const STATUS_LABELS: Record<string, string> = {
   REQUESTED: "So'rov yuborildi",
   APPROVED: 'Tasdiqlandi',
-  PICKUP_SCHEDULED: 'Kuryer biriktirildi',
   PICKED_UP: 'Tovar olindi',
   INSPECTING: 'Tekshirilmoqda',
   ACCEPTED: 'Qabul qilindi',
@@ -35,7 +34,6 @@ const STATUS_LABELS: Record<string, string> = {
 const STATUS_COLORS: Record<string, string> = {
   REQUESTED:        'bg-blue-100   text-blue-800   dark:bg-blue-900/40   dark:text-blue-200',
   APPROVED:         'bg-purple-100 text-purple-800 dark:bg-purple-900/40 dark:text-purple-200',
-  PICKUP_SCHEDULED: 'bg-indigo-100 text-indigo-800 dark:bg-indigo-900/40 dark:text-indigo-200',
   PICKED_UP:        'bg-cyan-100   text-cyan-800   dark:bg-cyan-900/40   dark:text-cyan-200',
   INSPECTING:       'bg-amber-100  text-amber-800  dark:bg-amber-900/40  dark:text-amber-200',
   ACCEPTED:         'bg-teal-100   text-teal-800   dark:bg-teal-900/40   dark:text-teal-200',

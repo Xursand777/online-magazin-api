@@ -40,6 +40,7 @@ from .serializers import (
 from .services import (
     check_credit_eligibility,
     check_return_eligibility,
+    default_return_item_disposition,
     courier_confirm_delivery,
     create_order_dispute,
     create_order_with_items,
@@ -2017,6 +2018,7 @@ class CustomerCreateReturnView(views.APIView):
             status_changed_by=request.user,
         )
 
+        _cond, _restock, _writeoff = default_return_item_disposition(ret.reason_code)
         for ri_info in result['returnable_items']:
             order_item = order.items.get(pk=ri_info['order_item_id'])
             OrderReturnItem.objects.create(
@@ -2024,8 +2026,10 @@ class CustomerCreateReturnView(views.APIView):
                 order_item=order_item,
                 quantity=ri_info['returnable_qty'],
                 refund_unit_price=order_item.price_snapshot,
-                condition=OrderReturnItem.CONDITION_NEW,
-                restock=True,
+                # Sababga qarab: defekt → restock=False (defektsga), aks holda stokka.
+                condition=_cond,
+                restock=_restock,
+                writeoff_reason=_writeoff,
             )
 
         for img in data.get('claim_images', []) or []:
@@ -2209,6 +2213,9 @@ class AdminCreateReturnView(views.APIView):
         )
 
         # Eligibility natijasidagi `returnable_items` allaqachon validated.
+        # Sababga qarab default: defekt → restock=False (defektsga), aks holda stokka.
+        # Inspector keyinroq AdminReturnItemUpdateView orqali o'zgartira oladi.
+        _cond, _restock, _writeoff = default_return_item_disposition(ret.reason_code)
         for ri_info in result['returnable_items']:
             oi_id = ri_info['order_item_id']
             qty = ri_info['returnable_qty']
@@ -2218,9 +2225,9 @@ class AdminCreateReturnView(views.APIView):
                 order_item=order_item,
                 quantity=qty,
                 refund_unit_price=order_item.price_snapshot,
-                # Defaults: NEW + restock=True. Inspector keyinroq yangilaydi.
-                condition=OrderReturnItem.CONDITION_NEW,
-                restock=True,
+                condition=_cond,
+                restock=_restock,
+                writeoff_reason=_writeoff,
             )
 
         # Foto dalillar
