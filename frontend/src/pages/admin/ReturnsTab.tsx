@@ -1,7 +1,7 @@
 // admin/ReturnsTab.tsx — Phase 3.2 — Qaytarish (Return) boshqaruvi.
 // AYNAN web admin: ro'yxat (filter), detail (timeline + items + photos + actions),
 // yangi qaytarish yaratish (buyurtma ID orqali — eligibility tekshiruvi bilan).
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   adminGetReturns,
@@ -657,6 +657,8 @@ const CreateReturnModal = ({
   const [reasonCode, setReasonCode] = useState('defective');
   const [reasonText, setReasonText] = useState('');
   const [customerNote, setCustomerNote] = useState('');
+  // Qisman qaytarish: qaysi mahsulot(lar) + miqdor. order_item_id -> qty.
+  const [selected, setSelected] = useState<Record<number, number>>({});
 
   const eligibilityQuery = useQuery({
     queryKey: ['return-eligibility', orderId],
@@ -677,12 +679,28 @@ const CreateReturnModal = ({
     retry: false,
   });
 
+  // Eligibility kelganda — default barcha qaytariladigan mahsulotlar tanlangan.
+  // Admin keraksizlarini olib tashlaydi yoki miqdorni o'zgartiradi (qisman qaytarish).
+  useEffect(() => {
+    const ri = eligibilityQuery.data?.returnable_items;
+    if (ri && ri.length) {
+      const init: Record<number, number> = {};
+      ri.forEach((it) => { init[it.order_item_id] = it.returnable_qty; });
+      setSelected(init);
+    }
+  }, [eligibilityQuery.data]);
+
   const createMut = useMutation({
     mutationFn: () =>
       adminCreateReturn(orderId, {
         reason_code: reasonCode,
         reason_text: reasonText,
         customer_request_note: customerNote,
+        // Faqat tanlangan mahsulotlar (qisman qaytarish)
+        items: Object.entries(selected).map(([id, qty]) => ({
+          order_item_id: Number(id),
+          quantity: qty,
+        })),
       }),
     onSuccess: () => {
       toast.success('Qaytarish yaratildi');
@@ -729,22 +747,60 @@ const CreateReturnModal = ({
               <table className='w-full'>
                 <thead className='bg-surface-container-low text-left'>
                   <tr>
+                    <th className='px-3 py-2 w-10'></th>
                     <th className='px-3 py-2'>Mahsulot</th>
-                    <th className='px-3 py-2'>Soni</th>
+                    <th className='px-3 py-2'>Mavjud</th>
+                    <th className='px-3 py-2'>Qaytariladigan</th>
                     <th className='px-3 py-2'>Narx</th>
                   </tr>
                 </thead>
                 <tbody className='divide-y divide-outline-variant'>
-                  {eligibilityQuery.data.returnable_items?.map((it) => (
-                    <tr key={it.order_item_id}>
+                  {eligibilityQuery.data.returnable_items?.map((it) => {
+                    const isSel = it.order_item_id in selected;
+                    const qty = selected[it.order_item_id] ?? it.returnable_qty;
+                    return (
+                    <tr key={it.order_item_id} className={isSel ? '' : 'opacity-45'}>
+                      <td className='px-3 py-2'>
+                        <input
+                          type='checkbox'
+                          checked={isSel}
+                          onChange={(e) =>
+                            setSelected((s) => {
+                              const n = { ...s };
+                              if (e.target.checked) n[it.order_item_id] = it.returnable_qty;
+                              else delete n[it.order_item_id];
+                              return n;
+                            })
+                          }
+                          className='h-4 w-4 accent-primary cursor-pointer'
+                        />
+                      </td>
                       <td className='px-3 py-2 font-semibold'>{it.product_name}</td>
                       <td className='px-3 py-2'>{it.returnable_qty}</td>
+                      <td className='px-3 py-2'>
+                        <input
+                          type='number'
+                          min={1}
+                          max={it.returnable_qty}
+                          value={qty}
+                          disabled={!isSel}
+                          onChange={(e) => {
+                            const v = Math.max(1, Math.min(it.returnable_qty, Number(e.target.value) || 1));
+                            setSelected((s) => ({ ...s, [it.order_item_id]: v }));
+                          }}
+                          className='w-16 rounded border border-outline-variant bg-surface px-2 py-1 text-sm disabled:opacity-40'
+                        />
+                      </td>
                       <td className='px-3 py-2'>{formatMoney(it.price)} so'm</td>
                     </tr>
-                  ))}
+                  );})}
                 </tbody>
               </table>
             </div>
+            <p className='mt-2 text-xs text-on-surface-variant'>
+              Faqat qaytariladigan mahsulotlarni belgilang va miqdorini kiriting.
+              Bitta buyurtmadan ba'zi mahsulotlarni qaytarish mumkin (qisman qaytarish).
+            </p>
           </Section>
 
           <Section title='Sabab'>
@@ -789,10 +845,16 @@ const CreateReturnModal = ({
         </button>
         <button
           onClick={() => createMut.mutate()}
-          disabled={!eligibilityQuery.data?.eligible || createMut.isPending}
+          disabled={
+            !eligibilityQuery.data?.eligible ||
+            createMut.isPending ||
+            Object.keys(selected).length === 0
+          }
           className='rounded-lg bg-primary px-4 py-2 text-sm font-bold text-white disabled:opacity-50'
         >
-          {createMut.isPending ? 'Yaratilmoqda…' : 'Yaratish'}
+          {createMut.isPending
+            ? 'Yaratilmoqda…'
+            : `Yaratish (${Object.keys(selected).length} ta mahsulot)`}
         </button>
       </div>
     </Modal>
