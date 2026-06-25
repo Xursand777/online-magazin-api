@@ -388,6 +388,8 @@ class _ProductUnitCard extends StatelessWidget {
                   child: Text(
                     unit.name,
                     softWrap: true,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
                     style: theme.textTheme.titleSmall?.copyWith(
                       fontWeight: FontWeight.w800,
                       height: 1.25,

@@ -836,12 +836,13 @@ const AdminPOS = () => {
                           type="button"
                           onClick={() => addToCart(item)}
                           disabled={out}
-                          className={`text-left rounded-xl border p-3.5 transition-all hover:border-primary hover:bg-primary/5 active:scale-95 ${out ? 'opacity-40 cursor-not-allowed border-error' : 'border-outline-variant cursor-pointer'}`}
+                          className={`flex flex-col text-left rounded-xl border p-3.5 transition-all hover:border-primary hover:bg-primary/5 active:scale-95 h-full ${out ? 'opacity-40 cursor-not-allowed border-error' : 'border-outline-variant cursor-pointer'}`}
                         >
-                          {/* To'liq mahsulot nomi — clamp YO'Q, hammasi ko'rinadi */}
-                          <p className="font-bold leading-snug text-on-surface text-base break-words">
-                            {item.name}
-                          </p>
+                          <div className="flex-1">
+                            {/* To'liq mahsulot nomi — clamp YO'Q, hammasi ko'rinadi */}
+                            <p className="font-bold leading-snug text-on-surface text-base break-words line-clamp-2">
+                              {item.name}
+                            </p>
                           {attrs.length > 0 && (
                             <div className="mt-2 flex flex-wrap gap-1.5">
                               {attrs.map((a, i) => (
@@ -854,7 +855,9 @@ const AdminPOS = () => {
                               ))}
                             </div>
                           )}
-                          <div className="mt-3 flex items-end justify-between gap-2">
+                          </div>
+                          
+                          <div className="mt-3 flex items-end justify-between pt-3 border-t border-outline-variant/30 shrink-0">
                             <span className="font-bold text-primary text-lg">{fmt(item.price)}</span>
                             <span className={`text-xs font-semibold px-2 py-0.5 rounded-md ${item.stock < 5 ? 'bg-error-container/50 text-error' : 'bg-surface-container text-on-surface-variant'}`}>
                               {item.stock} ta

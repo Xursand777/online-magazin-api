@@ -356,20 +356,26 @@ export const categoryLabel = (category: AdminCategory) =>
 //
 // Algoritm: rekursiv BFS — har bir tugundan birinchi string'ni topib qaytaradi.
 // Maksimal 5 daraja chuqurligi (cheksiz halqalarni oldini olish).
-const _findFirstString = (val: unknown, depth = 0): string | null => {
+const _findFirstStringWithKey = (val: unknown, depth = 0, currentKey = ''): string | null => {
   if (depth > 5) return null;
   if (val == null) return null;
-  if (typeof val === 'string') return val.trim() || null;
+  if (typeof val === 'string') {
+    const s = val.trim();
+    if (!s) return null;
+    return currentKey ? `${currentKey}: ${s}` : s;
+  }
   if (Array.isArray(val)) {
     for (const item of val) {
-      const s = _findFirstString(item, depth + 1);
+      const s = _findFirstStringWithKey(item, depth + 1, currentKey);
       if (s) return s;
     }
     return null;
   }
   if (typeof val === 'object') {
-    for (const v of Object.values(val as Record<string, unknown>)) {
-      const s = _findFirstString(v, depth + 1);
+    for (const [k, v] of Object.entries(val as Record<string, unknown>)) {
+      // Avoid prefixing with array indices
+      const nextKey = /^\d+$/.test(k) ? currentKey : (currentKey ? `${currentKey}.${k}` : k);
+      const s = _findFirstStringWithKey(v, depth + 1, nextKey);
       if (s) return s;
     }
   }
@@ -383,7 +389,7 @@ export const extractErrorMessage = (error: unknown) => {
   };
   const responseData = err?.response?.data;
   if (responseData) {
-    const found = _findFirstString(responseData);
+    const found = _findFirstStringWithKey(responseData);
     if (found) return found;
   }
   if (err?.message && typeof err.message === 'string') return err.message;
