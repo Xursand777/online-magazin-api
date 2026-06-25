@@ -758,10 +758,19 @@ class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
         .toList();
     if (validPrices.isEmpty) return;
     final minPrice = validPrices.reduce(min);
-    final minDisc = _variants
-        .map((v) => parse(v.discountCtrl.text))
-        .where((p) => p > 0)
-        .fold<double>(double.infinity, (a, b) => a < b ? a : b);
+    // Chegirma faqat HAQIQIY bo'lganda: kiritilgan (>0) VA o'sha variant
+    // narxidan KICHIK. Aks holda bu chegirma emas (kiritilmagan yoki xato) —
+    // e'tiborga olinmaydi (web ProductEditor bilan bir xil).
+    final validDiscounts = _variants
+        .map((v) => (
+              price: parse(v.priceCtrl.text),
+              disc: parse(v.discountCtrl.text),
+            ))
+        .where((x) => x.disc > 0 && x.disc < x.price)
+        .map((x) => x.disc)
+        .toList();
+    final minDisc =
+        validDiscounts.isEmpty ? double.infinity : validDiscounts.reduce(min);
     final minCost = _variants
         .map((v) => parse(v.costCtrl.text))
         .where((p) => p > 0)
@@ -776,7 +785,7 @@ class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
         final newPriceUsd = usd == '0.00' ? '' : usd;
         if (_priceUsd.text != newPriceUsd) _priceUsd.text = newPriceUsd;
       }
-      // Chegirma — variantlarning birortasida bor bo'lsa
+      // Chegirma — faqat HAQIQIY chegirma (narxdan kichik) bo'lsa to'ldiriladi.
       if (minDisc.isFinite && minDisc > 0) {
         final s = _formatUzsDigits(minDisc.toStringAsFixed(0));
         if (_discountPrice.text != s) _discountPrice.text = s;
@@ -785,6 +794,10 @@ class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
           final s2 = usd == '0.00' ? '' : usd;
           if (_discountPriceUsd.text != s2) _discountPriceUsd.text = s2;
         }
+      } else {
+        // Haqiqiy chegirma yo'q — maydon BO'SH qoladi (avtomatik to'ldirilmaydi).
+        if (_discountPrice.text.isNotEmpty) _discountPrice.text = '';
+        if (_discountPriceUsd.text.isNotEmpty) _discountPriceUsd.text = '';
       }
       // Tannarx — variantlarning birortasida bor bo'lsa.
       // USD tannarx kursdan MUSTAQIL — avtomatik yangilanmaydi (web qoidasi).

@@ -161,6 +161,36 @@ class _ImageStack extends StatelessWidget {
           ),
         ),
 
+        // Stock=0 → "Tugagan" overlay (sotuvga yaroqsiz; xarid CartActionButton'da
+        // bloklangan). Mahsulot katalogda ko'rinadi, lekin sotib bo'lmaydi (Uzum uslubi).
+        if (product.stock != null && product.stock == 0)
+          Positioned.fill(
+            child: Container(
+              color: theme.colorScheme.surface.withValues(alpha: 0.45),
+              alignment: Alignment.center,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.error,
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.do_not_disturb_outlined,
+                        color: theme.colorScheme.onError, size: 14),
+                    const SizedBox(width: 4),
+                    Text('Tugagan',
+                        style: theme.textTheme.labelSmall?.copyWith(
+                          color: theme.colorScheme.onError,
+                          fontWeight: FontWeight.bold,
+                        )),
+                  ],
+                ),
+              ),
+            ),
+          ),
+
         // Chegirma badge
         if (product.discountPercent != null)
           Positioned(
