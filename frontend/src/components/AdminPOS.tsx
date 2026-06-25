@@ -822,11 +822,13 @@ const AdminPOS = () => {
                       {hasNextPage && " (skroll qiling — yana bor)"}
                     </p>
                   )}
-                  <div className="grid grid-cols-2 gap-2.5 lg:grid-cols-3 xl:grid-cols-4">
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
                     {expandedItems.map((item) => {
                       const out = item.stock < 1;
-                      // Variantning xususiyatlari kichik chip sifatida ko'rinadi
-                      // (sifat, model, hajm, rang). Bo'sh atributlar tushib qoladi.
+                      // Variant atributlari katta o'qiladigan chip'lar bilan ko'rsatiladi
+                      // (sifat, model, hajm, rang). Rasm — POS'da chiqarilmaydi (ortiqcha
+                      // shovqin: matn aniqligi muhimroq, mahsulotni nomi+atributi orqali
+                      // aniqlash kerak).
                       const attrs = [item.quality, item.model, item.size, item.color].filter(Boolean);
                       return (
                         <button
@@ -834,49 +836,35 @@ const AdminPOS = () => {
                           type="button"
                           onClick={() => addToCart(item)}
                           disabled={out}
-                          className={`text-left rounded-xl border p-2.5 transition-all hover:border-primary hover:bg-primary/5 active:scale-95 ${out ? 'opacity-40 cursor-not-allowed border-error' : 'border-outline-variant cursor-pointer'}`}
+                          className={`text-left rounded-xl border p-3.5 transition-all hover:border-primary hover:bg-primary/5 active:scale-95 ${out ? 'opacity-40 cursor-not-allowed border-error' : 'border-outline-variant cursor-pointer'}`}
                         >
-                          <div className="flex gap-2.5">
-                            {/* Rasm thumbnail */}
-                            <div className="h-14 w-14 shrink-0 overflow-hidden rounded-lg bg-surface-container border border-outline-variant flex items-center justify-center">
-                              {item.image ? (
-                                <img
-                                  src={item.image}
-                                  alt=""
-                                  loading="lazy"
-                                  className="h-full w-full object-cover"
-                                />
-                              ) : (
-                                <span className="material-symbols-outlined text-[26px] text-on-surface-variant opacity-50">
-                                  inventory_2
+                          {/* To'liq mahsulot nomi — clamp YO'Q, hammasi ko'rinadi */}
+                          <p className="font-bold leading-snug text-on-surface text-base break-words">
+                            {item.name}
+                          </p>
+                          {attrs.length > 0 && (
+                            <div className="mt-2 flex flex-wrap gap-1.5">
+                              {attrs.map((a, i) => (
+                                <span
+                                  key={i}
+                                  className="rounded-md bg-surface-container px-2 py-0.5 text-xs font-semibold text-on-surface"
+                                >
+                                  {a}
                                 </span>
-                              )}
+                              ))}
                             </div>
-                            {/* Matn + atributlar */}
-                            <div className="min-w-0 flex-1 flex flex-col">
-                              <p className="font-bold leading-tight text-on-surface line-clamp-2 text-[13px]">
-                                {item.name}
-                              </p>
-                              {attrs.length > 0 && (
-                                <div className="mt-1 flex flex-wrap gap-1">
-                                  {attrs.map((a, i) => (
-                                    <span
-                                      key={i}
-                                      className="rounded bg-surface-container px-1.5 py-px text-[10px] font-medium text-on-surface-variant"
-                                    >
-                                      {a}
-                                    </span>
-                                  ))}
-                                </div>
-                              )}
-                            </div>
-                          </div>
-                          <div className="mt-2 flex items-end justify-between">
-                            <span className="font-bold text-primary text-sm">{fmt(item.price)}</span>
-                            <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${item.stock < 5 ? 'bg-error-container/50 text-error' : 'bg-surface-container text-on-surface-variant'}`}>
+                          )}
+                          <div className="mt-3 flex items-end justify-between gap-2">
+                            <span className="font-bold text-primary text-lg">{fmt(item.price)}</span>
+                            <span className={`text-xs font-semibold px-2 py-0.5 rounded-md ${item.stock < 5 ? 'bg-error-container/50 text-error' : 'bg-surface-container text-on-surface-variant'}`}>
                               {item.stock} ta
                             </span>
                           </div>
+                          {item.sku && (
+                            <p className="mt-1.5 text-[10px] font-mono text-on-surface-variant opacity-70">
+                              SKU: {item.sku}
+                            </p>
+                          )}
                         </button>
                       );
                     })}
@@ -930,23 +918,13 @@ const AdminPOS = () => {
                       className={`rounded-lg border p-2.5 ${itemBelowCost ? 'border-error bg-error-container/20' : 'border-outline-variant'}`}
                     >
                       <div className="flex items-start gap-2">
-                        {/* Savatda ham rasm thumbnail — admin qaysi mahsulotni qo'shganini darrov ko'radi */}
-                        <div className="h-11 w-11 shrink-0 overflow-hidden rounded-md bg-surface-container border border-outline-variant flex items-center justify-center">
-                          {item.image ? (
-                            <img src={item.image} alt="" loading="lazy" className="h-full w-full object-cover" />
-                          ) : (
-                            <span className="material-symbols-outlined text-[18px] text-on-surface-variant opacity-50">
-                              inventory_2
-                            </span>
-                          )}
-                        </div>
                         <div className="flex-1 min-w-0">
-                          {/* To'liq nom: Mahsulot • Sifat • Model • Hajm • Rang */}
-                          <p className="text-sm font-semibold text-on-surface line-clamp-2 leading-tight">
+                          {/* To'liq nom: Mahsulot • Sifat • Model • Hajm • Rang — clamp YO'Q */}
+                          <p className="text-base font-bold text-on-surface leading-snug break-words">
                             {buildPosName(item)}
                           </p>
                           {item.sku && (
-                            <p className="mt-0.5 text-[10px] font-mono text-on-surface-variant">
+                            <p className="mt-1 text-[11px] font-mono text-on-surface-variant opacity-70">
                               SKU: {item.sku}
                             </p>
                           )}

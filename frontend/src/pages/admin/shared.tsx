@@ -348,17 +348,45 @@ export const QUALITY_PRESETS = ['Original', 'Premium', 'OEM', 'Copy A', 'Copy B'
 export const categoryLabel = (category: AdminCategory) =>
   category.parent_name ? `${category.parent_name} / ${category.name}` : category.name;
 
-export const extractErrorMessage = (error: unknown) => {
-  const responseData = (error as { response?: { data?: unknown } })?.response?.data;
-  if (!responseData) return 'Xatolik yuz berdi.';
-  if (typeof responseData === 'string') return responseData;
-  if (Array.isArray(responseData)) return responseData.join(', ');
-  if (typeof responseData === 'object') {
-    for (const value of Object.values(responseData as Record<string, unknown>)) {
-      if (typeof value === 'string') return value;
-      if (Array.isArray(value) && value.length > 0 && typeof value[0] === 'string') return value[0];
+// DRF xato strukturalari odatda ichma-ich keladi, masalan:
+//   { "variants_data": { "0": { "discount_price": ["Chegirma narxi..."] } } }
+// Bunday holatda admin "Xatolik yuz berdi" generik xabar o'rniga ASL xato
+// matnini ko'rishi kerak — debugni tezlashtiradi va foydalanuvchiga aniq
+// nima noto'g'ri ekanligini ko'rsatadi.
+//
+// Algoritm: rekursiv BFS — har bir tugundan birinchi string'ni topib qaytaradi.
+// Maksimal 5 daraja chuqurligi (cheksiz halqalarni oldini olish).
+const _findFirstString = (val: unknown, depth = 0): string | null => {
+  if (depth > 5) return null;
+  if (val == null) return null;
+  if (typeof val === 'string') return val.trim() || null;
+  if (Array.isArray(val)) {
+    for (const item of val) {
+      const s = _findFirstString(item, depth + 1);
+      if (s) return s;
+    }
+    return null;
+  }
+  if (typeof val === 'object') {
+    for (const v of Object.values(val as Record<string, unknown>)) {
+      const s = _findFirstString(v, depth + 1);
+      if (s) return s;
     }
   }
+  return null;
+};
+
+export const extractErrorMessage = (error: unknown) => {
+  const err = error as {
+    response?: { data?: unknown; status?: number };
+    message?: string;
+  };
+  const responseData = err?.response?.data;
+  if (responseData) {
+    const found = _findFirstString(responseData);
+    if (found) return found;
+  }
+  if (err?.message && typeof err.message === 'string') return err.message;
   return 'Xatolik yuz berdi.';
 };
 

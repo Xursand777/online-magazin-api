@@ -50,3 +50,5 @@ backend/media/products/gallery/cart-test*.gif
 backend/media/products/gallery/cart-test.gif
 logs/
 *.log
+.vercel
+.env*

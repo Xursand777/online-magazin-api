@@ -270,6 +270,27 @@ export const ProductEditor = ({
     !hasVariants && sellBelowCost(form.price, form.discount_price, form.cost_price);
   const hasBelowCost = productBelowCost || belowCostVariants.length > 0;
 
+  // ── Chegirma ≥ narx tekshiruvi (backend bilan bir xil qoida) ─────────────
+  // Backend `_normalize_variant_payload` ham, `AdminProductSerializer.validate`
+  // ham `discount >= price` bo'lsa 400 qaytaradi. Bunday holda admin Saqlash
+  // bossa server xato qaytaradi, generik "Xatolik yuz berdi" ko'rinardi.
+  // Endi forma darrov darrov ko'rsatadi — admin tushuntirish kutmay tuzatadi.
+  const discountGePriceVariants = useMemo(() => {
+    return variants.filter((v) => {
+      const p = Number(stripNumberFormatting(v.price || '0'));
+      const d = Number(stripNumberFormatting(v.discount_price || '0'));
+      return p > 0 && d > 0 && d >= p;
+    });
+  }, [variants]);
+  const productDiscountGePrice =
+    !hasVariants &&
+    (() => {
+      const p = Number(stripNumberFormatting(form.price || '0'));
+      const d = Number(stripNumberFormatting(form.discount_price || '0'));
+      return p > 0 && d > 0 && d >= p;
+    })();
+  const hasDiscountGePrice = productDiscountGePrice || discountGePriceVariants.length > 0;
+
   useEffect(() => {
     if (!hasVariants) return;
     const validPrices = variants
@@ -549,6 +570,15 @@ export const ProductEditor = ({
     if (hasBelowCost) {
       saveAndNewRef.current = false;
       setFormError('Sotuv narxi tannarxdan past — narxni tuzating (zararga sotuv).');
+      return;
+    }
+    // Chegirma ≥ narx bo'lsa backend 400 qaytaradi — oldindan bloklaymiz.
+    if (hasDiscountGePrice) {
+      saveAndNewRef.current = false;
+      const detail = discountGePriceVariants.length > 0
+        ? `${discountGePriceVariants.length} ta variantda chegirma narxi asosiy narxdan KICHIK bo'lishi kerak.`
+        : 'Chegirma narxi asosiy narxdan KICHIK bo\'lishi kerak.';
+      setFormError(detail + " Chegirmani tuzating yoki bo'sh qoldiring.");
       return;
     }
     const payload = new FormData();
@@ -1088,6 +1118,18 @@ export const ProductEditor = ({
             </span>
           </div>
         )}
+        {/* Chegirma ≥ narx — backend ham rad qiladi (400). Saqlash bloklanadi. */}
+        {hasDiscountGePrice && (
+          <div className='flex items-start gap-2 rounded-lg border border-error/40 bg-error-container/30 p-3 text-body-sm font-semibold text-error'>
+            <span className='material-symbols-outlined text-[18px]'>error</span>
+            <span>
+              {discountGePriceVariants.length > 0
+                ? `${discountGePriceVariants.length} ta variantda chegirma narxi asosiy narxdan KICHIK bo'lishi kerak.`
+                : "Chegirma narxi asosiy narxdan KICHIK bo'lishi kerak."}
+              {' '}Chegirmani tuzating yoki bo'sh qoldiring.
+            </span>
+          </div>
+        )}
         <div className='flex flex-col gap-3 border-t border-outline-variant pt-4 sm:flex-row sm:items-center sm:justify-between'>
           <div className='text-body-sm text-on-surface-variant'>
             {mode === 'edit'
@@ -1105,7 +1147,7 @@ export const ProductEditor = ({
             {mode !== 'edit' && (
               <button
                 type='submit'
-                disabled={saveMutation.isPending || hasBelowCost}
+                disabled={saveMutation.isPending || hasBelowCost || hasDiscountGePrice}
                 onClick={() => { saveAndNewRef.current = true; }}
                 className='flex items-center gap-2 rounded-lg border border-primary/50 bg-primary/10 px-4 py-2 font-label-md text-primary hover:bg-primary/20 disabled:cursor-not-allowed disabled:opacity-50'
               >
@@ -1115,7 +1157,7 @@ export const ProductEditor = ({
             )}
             <button
               type='submit'
-              disabled={saveMutation.isPending || hasBelowCost}
+              disabled={saveMutation.isPending || hasBelowCost || hasDiscountGePrice}
               onClick={() => { saveAndNewRef.current = false; }}
               className='flex items-center gap-2 rounded-lg bg-primary px-6 py-2 font-label-md text-on-primary hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50'
             >
@@ -1385,52 +1427,102 @@ const ColorGroupVariantEditor = ({
                         }`}
                         title={below ? 'Sotuv narxi tannarxdan past!' : undefined}
                       >
-                        {/* ROW 1 — INPUT GRID (responsive: 12 ustun) */}
-                        <div className='grid grid-cols-12 gap-2'>
-                          {/* Sifat — 2 ustun */}
-                          <div className='col-span-6 sm:col-span-4 lg:col-span-2'>
-                            <label className='mb-1 block text-[10px] font-bold uppercase text-on-surface-variant'>
+                        {/* ROW 1 — TEXT FIELDS: Sifat | Model | Hajm | (Stock + Actions)
+                            Maqsad: text uchun KENG joy berish (kichik input'lar emas).
+                            Har bir text maydoni 3 ustunni egallaydi → admin uzun
+                            sifat/model nomlarini bemalol kiritadi. */}
+                        <div className='grid grid-cols-12 gap-3 mb-3'>
+                          <div className='col-span-12 sm:col-span-6 lg:col-span-3'>
+                            <label className='mb-1.5 block text-[11px] font-bold uppercase tracking-wide text-on-surface-variant'>
                               Sifat
                             </label>
                             <input
                               value={variant.quality}
                               onChange={(e) => onVariantChange(idx, 'quality', e.target.value)}
-                              className='w-full rounded border border-outline-variant bg-surface-bright px-2 py-1.5 text-xs outline-none focus:border-primary'
-                              placeholder='Original...'
+                              className='w-full rounded-lg border border-outline-variant bg-surface-bright px-3 py-2 text-sm font-medium outline-none focus:border-primary'
+                              placeholder='Original, OEM, Copy A...'
                             />
                           </div>
-                          {/* Model + Hajm — 2 ustun, ichida 2 input */}
-                          <div className='col-span-6 sm:col-span-4 lg:col-span-2'>
-                            <label className='mb-1 block text-[10px] font-bold uppercase text-on-surface-variant'>
-                              Model / Hajm
+                          <div className='col-span-6 sm:col-span-3 lg:col-span-3'>
+                            <label className='mb-1.5 block text-[11px] font-bold uppercase tracking-wide text-on-surface-variant'>
+                              Model
                             </label>
-                            <div className='flex gap-1'>
+                            <input
+                              value={variant.model}
+                              onChange={(e) => onVariantChange(idx, 'model', e.target.value)}
+                              className='w-full rounded-lg border border-outline-variant bg-surface-bright px-3 py-2 text-sm font-medium outline-none focus:border-primary'
+                              placeholder='Pro, Ultra, Max...'
+                            />
+                          </div>
+                          <div className='col-span-6 sm:col-span-3 lg:col-span-3'>
+                            <label className='mb-1.5 block text-[11px] font-bold uppercase tracking-wide text-on-surface-variant'>
+                              Hajm
+                            </label>
+                            <input
+                              value={variant.size}
+                              onChange={(e) => onVariantChange(idx, 'size', e.target.value)}
+                              className='w-full rounded-lg border border-outline-variant bg-surface-bright px-3 py-2 text-sm font-medium outline-none focus:border-primary'
+                              placeholder='128GB, 256/8...'
+                            />
+                          </div>
+                          {/* Stock + Faol + Delete — yig'iq blok (lg+ da o'ng tomonda) */}
+                          <div className='col-span-12 lg:col-span-3 flex items-end gap-2'>
+                            <div className='flex-1 min-w-0'>
+                              <label className='mb-1.5 block text-[11px] font-bold uppercase tracking-wide text-on-surface-variant'>
+                                Stock
+                              </label>
                               <input
-                                value={variant.model}
-                                onChange={(e) => onVariantChange(idx, 'model', e.target.value)}
-                                className='min-w-0 flex-1 rounded border border-outline-variant bg-surface-bright px-2 py-1.5 text-xs outline-none focus:border-primary'
-                                placeholder='Pro'
-                              />
-                              <input
-                                value={variant.size}
-                                onChange={(e) => onVariantChange(idx, 'size', e.target.value)}
-                                className='min-w-0 flex-1 rounded border border-outline-variant bg-surface-bright px-2 py-1.5 text-xs outline-none focus:border-primary'
-                                placeholder='128GB'
+                                value={variant.stock}
+                                onChange={(e) => onVariantChange(idx, 'stock', e.target.value)}
+                                className='w-full rounded-lg border border-outline-variant bg-surface-bright px-3 py-2 text-sm font-bold outline-none focus:border-primary'
+                                placeholder='0'
                               />
                             </div>
+                            <button
+                              type='button'
+                              onClick={() =>
+                                onVariantChange(idx, 'is_active', String(!variant.is_active))
+                              }
+                              className={`shrink-0 flex h-[40px] w-[40px] items-center justify-center rounded-lg transition-colors ${
+                                variant.is_active
+                                  ? 'bg-primary/15 text-primary hover:bg-primary/25'
+                                  : 'bg-surface-container text-on-surface-variant hover:bg-outline-variant'
+                              }`}
+                              title={
+                                variant.is_active
+                                  ? 'Faol — bosing o\'chirish uchun'
+                                  : 'Faol emas — bosing yoqish uchun'
+                              }
+                            >
+                              <span className='material-symbols-outlined text-[20px]'>
+                                {variant.is_active ? 'check_circle' : 'radio_button_unchecked'}
+                              </span>
+                            </button>
+                            <button
+                              type='button'
+                              onClick={() => onRemoveVariant(idx)}
+                              className='shrink-0 flex h-[40px] w-[40px] items-center justify-center rounded-lg bg-error-container/30 text-error transition-all hover:bg-error hover:text-on-error'
+                              title="Variantni o'chirish"
+                            >
+                              <span className='material-symbols-outlined text-[20px]'>delete</span>
+                            </button>
                           </div>
-                          {/* Narx — 2 ustun (so'm + $) */}
-                          <div className='col-span-6 sm:col-span-4 lg:col-span-2'>
-                            <label className='mb-1 block text-[10px] font-bold uppercase text-primary'>
-                              Narx (so'm)
+                        </div>
+
+                        {/* ROW 2 — NARX/CHEGIRMA/KIRIM + SKU
+                            Har bir narx bloki 3 ustun: keng so'm input + ixcham $ input. */}
+                        <div className='grid grid-cols-12 gap-3 mb-3'>
+                          <div className='col-span-12 sm:col-span-6 lg:col-span-3'>
+                            <label className='mb-1.5 block text-[11px] font-bold uppercase tracking-wide text-primary'>
+                              Narx (so'm / $)
                             </label>
-                            <div className='flex gap-1'>
+                            <div className='flex gap-1.5'>
                               <input
                                 value={variant.price}
                                 onChange={(e) =>
                                   onVariantPriceChange(idx, 'price', e.target.value, false)
                                 }
-                                className='min-w-0 flex-1 rounded border border-outline-variant bg-surface-bright px-2 py-1.5 text-xs font-bold text-primary outline-none focus:border-primary'
+                                className='min-w-0 flex-1 rounded-lg border border-outline-variant bg-surface-bright px-3 py-2 text-sm font-bold text-primary outline-none focus:border-primary'
                                 placeholder="so'm"
                               />
                               <input
@@ -1438,23 +1530,22 @@ const ColorGroupVariantEditor = ({
                                 onChange={(e) =>
                                   onVariantPriceChange(idx, 'price', e.target.value, true)
                                 }
-                                className='w-14 rounded border border-outline-variant bg-surface-bright px-2 py-1.5 text-xs font-bold text-[#10b981] outline-none focus:border-primary'
+                                className='w-20 rounded-lg border border-outline-variant bg-surface-bright px-2 py-2 text-sm font-bold text-[#10b981] outline-none focus:border-primary'
                                 placeholder='$'
                               />
                             </div>
                           </div>
-                          {/* Chegirma — 2 ustun */}
-                          <div className='col-span-6 sm:col-span-4 lg:col-span-2'>
-                            <label className='mb-1 block text-[10px] font-bold uppercase text-tertiary'>
-                              Chegirma
+                          <div className='col-span-12 sm:col-span-6 lg:col-span-3'>
+                            <label className='mb-1.5 block text-[11px] font-bold uppercase tracking-wide text-tertiary'>
+                              Chegirma (so'm / $)
                             </label>
-                            <div className='flex gap-1'>
+                            <div className='flex gap-1.5'>
                               <input
                                 value={variant.discount_price}
                                 onChange={(e) =>
                                   onVariantPriceChange(idx, 'discount_price', e.target.value, false)
                                 }
-                                className='min-w-0 flex-1 rounded border border-outline-variant bg-surface-bright px-2 py-1.5 text-xs text-tertiary outline-none focus:border-primary'
+                                className='min-w-0 flex-1 rounded-lg border border-outline-variant bg-surface-bright px-3 py-2 text-sm font-medium text-tertiary outline-none focus:border-primary'
                                 placeholder="so'm"
                               />
                               <input
@@ -1462,23 +1553,22 @@ const ColorGroupVariantEditor = ({
                                 onChange={(e) =>
                                   onVariantPriceChange(idx, 'discount_price', e.target.value, true)
                                 }
-                                className='w-14 rounded border border-outline-variant bg-surface-bright px-2 py-1.5 text-xs text-[#f59e0b] outline-none focus:border-primary'
+                                className='w-20 rounded-lg border border-outline-variant bg-surface-bright px-2 py-2 text-sm font-medium text-[#f59e0b] outline-none focus:border-primary'
                                 placeholder='$'
                               />
                             </div>
                           </div>
-                          {/* Kirim — 2 ustun */}
-                          <div className='col-span-6 sm:col-span-4 lg:col-span-2'>
-                            <label className='mb-1 block text-[10px] font-bold uppercase text-on-surface-variant'>
-                              Kirim
+                          <div className='col-span-12 sm:col-span-6 lg:col-span-3'>
+                            <label className='mb-1.5 block text-[11px] font-bold uppercase tracking-wide text-on-surface-variant'>
+                              Kirim (so'm / $)
                             </label>
-                            <div className='flex gap-1'>
+                            <div className='flex gap-1.5'>
                               <input
                                 value={variant.cost_price}
                                 onChange={(e) =>
                                   onVariantPriceChange(idx, 'cost_price', e.target.value, false)
                                 }
-                                className='min-w-0 flex-1 rounded border border-outline-variant bg-surface-bright px-2 py-1.5 text-xs outline-none focus:border-primary'
+                                className='min-w-0 flex-1 rounded-lg border border-outline-variant bg-surface-bright px-3 py-2 text-sm font-medium outline-none focus:border-primary'
                                 placeholder="so'm"
                               />
                               <input
@@ -1486,75 +1576,33 @@ const ColorGroupVariantEditor = ({
                                 onChange={(e) =>
                                   onVariantPriceChange(idx, 'cost_price', e.target.value, true)
                                 }
-                                className='w-14 rounded border border-outline-variant bg-surface-bright px-2 py-1.5 text-xs outline-none focus:border-primary'
+                                className='w-20 rounded-lg border border-outline-variant bg-surface-bright px-2 py-2 text-sm font-medium outline-none focus:border-primary'
                                 placeholder='$'
                               />
                             </div>
                           </div>
-                          {/* Stock | SKU | Faol | Del — yig'iq qator */}
-                          <div className='col-span-12 lg:col-span-2 flex items-end gap-2'>
-                            {/* Stock */}
-                            <div className='w-16 shrink-0'>
-                              <label className='mb-1 block text-[10px] font-bold uppercase text-on-surface-variant'>
-                                Stock
-                              </label>
+                          <div className='col-span-12 sm:col-span-6 lg:col-span-3'>
+                            <label className='mb-1.5 block text-[11px] font-bold uppercase tracking-wide text-on-surface-variant'>
+                              SKU
+                            </label>
+                            <div className='flex items-stretch gap-1.5'>
                               <input
-                                value={variant.stock}
-                                onChange={(e) => onVariantChange(idx, 'stock', e.target.value)}
-                                className='w-full rounded border border-outline-variant bg-surface-bright px-2 py-1.5 text-xs outline-none focus:border-primary'
-                                placeholder='0'
+                                value={variant.sku}
+                                onChange={(e) => onVariantChange(idx, 'sku', e.target.value)}
+                                className='min-w-0 flex-1 rounded-lg border border-outline-variant bg-surface-bright px-3 py-2 text-sm font-mono outline-none focus:border-primary'
+                                placeholder='SKU...'
                               />
+                              <button
+                                type='button'
+                                onClick={() => onGenerateSku(idx)}
+                                className='shrink-0 flex items-center justify-center w-[40px] rounded-lg bg-primary/10 text-primary hover:bg-primary/20'
+                                title='Avtomatik SKU yaratish'
+                              >
+                                <span className='material-symbols-outlined text-[18px]'>
+                                  magic_button
+                                </span>
+                              </button>
                             </div>
-                            {/* SKU */}
-                            <div className='min-w-0 flex-1'>
-                              <label className='mb-1 block text-[10px] font-bold uppercase text-on-surface-variant'>
-                                SKU
-                              </label>
-                              <div className='flex items-center gap-1'>
-                                <input
-                                  value={variant.sku}
-                                  onChange={(e) => onVariantChange(idx, 'sku', e.target.value)}
-                                  className='min-w-0 flex-1 rounded border border-outline-variant bg-surface-bright px-2 py-1.5 text-[10px] font-mono outline-none focus:border-primary'
-                                  placeholder='SKU'
-                                />
-                                <button
-                                  type='button'
-                                  onClick={() => onGenerateSku(idx)}
-                                  className='shrink-0 rounded p-1 text-primary hover:bg-primary-container/20'
-                                  title='Auto SKU'
-                                >
-                                  <span className='material-symbols-outlined text-[14px]'>
-                                    magic_button
-                                  </span>
-                                </button>
-                              </div>
-                            </div>
-                            {/* Faol toggle */}
-                            <button
-                              type='button'
-                              onClick={() =>
-                                onVariantChange(idx, 'is_active', String(!variant.is_active))
-                              }
-                              className={`shrink-0 flex h-[34px] w-[34px] items-center justify-center rounded transition-colors ${
-                                variant.is_active
-                                  ? 'bg-primary/15 text-primary hover:bg-primary/25'
-                                  : 'bg-surface-container text-on-surface-variant hover:bg-outline-variant'
-                              }`}
-                              title={variant.is_active ? 'Faol — bosing o\'chirish uchun' : 'Faol emas'}
-                            >
-                              <span className='material-symbols-outlined text-[18px]'>
-                                {variant.is_active ? 'check_circle' : 'radio_button_unchecked'}
-                              </span>
-                            </button>
-                            {/* Delete */}
-                            <button
-                              type='button'
-                              onClick={() => onRemoveVariant(idx)}
-                              className='shrink-0 flex h-[34px] w-[34px] items-center justify-center rounded bg-error-container/30 text-error transition-all hover:bg-error hover:text-on-error'
-                              title="O'chirish"
-                            >
-                              <span className='material-symbols-outlined text-[18px]'>delete</span>
-                            </button>
                           </div>
                         </div>
 

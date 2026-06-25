@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -380,46 +379,19 @@ class _ProductUnitCard extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Mahsulot rasmi + nom — qisqa va aniq
+            // To'liq mahsulot nomi — rasm yo'q (POSda ortiqcha shovqin).
+            // Nom to'liq ko'rinishi uchun maxLines berilmagan (cheksiz qator).
             Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Thumbnail (variantning yoki mahsulotning rasmi)
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(8),
-                  child: Container(
-                    width: 46,
-                    height: 46,
-                    color: theme.colorScheme.surfaceContainer,
-                    child: unit.image != null && unit.image!.isNotEmpty
-                        ? CachedNetworkImage(
-                            imageUrl: unit.image!,
-                            fit: BoxFit.cover,
-                            placeholder: (_, __) => const SizedBox.shrink(),
-                            errorWidget: (_, __, ___) => Icon(
-                              Icons.inventory_2_outlined,
-                              size: 22,
-                              color: theme.colorScheme.onSurfaceVariant
-                                  .withValues(alpha: 0.5),
-                            ),
-                          )
-                        : Icon(
-                            Icons.inventory_2_outlined,
-                            size: 22,
-                            color: theme.colorScheme.onSurfaceVariant
-                                .withValues(alpha: 0.5),
-                          ),
-                  ),
-                ),
-                const SizedBox(width: 10),
                 Expanded(
                   child: Text(
                     unit.name,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: theme.textTheme.bodyMedium?.copyWith(
-                      fontWeight: FontWeight.w700,
-                      height: 1.15,
+                    softWrap: true,
+                    style: theme.textTheme.titleSmall?.copyWith(
+                      fontWeight: FontWeight.w800,
+                      height: 1.25,
+                      fontSize: 15,
                     ),
                   ),
                 ),
@@ -427,7 +399,7 @@ class _ProductUnitCard extends StatelessWidget {
                   Container(
                     margin: const EdgeInsets.only(left: 4),
                     padding:
-                        const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                        const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                     decoration: const BoxDecoration(
                       color: Color(0xFF0A7C55),
                       shape: BoxShape.rectangle,
@@ -436,33 +408,34 @@ class _ProductUnitCard extends StatelessWidget {
                     child: Text('$inCart',
                         style: const TextStyle(
                           color: Colors.white,
-                          fontSize: 11,
+                          fontSize: 12,
                           fontWeight: FontWeight.w800,
                         )),
                   ),
               ],
             ),
-            // Variant atributlari chip'lari (sifat / model / hajm / rang)
+            // Variant atributlari KATTA, chiroyli chip'lar bilan
             if (unit.variantText.isNotEmpty) ...[
-              const SizedBox(height: 6),
+              const SizedBox(height: 8),
               Wrap(
-                spacing: 4,
-                runSpacing: 4,
+                spacing: 6,
+                runSpacing: 6,
                 children: [
                   for (final attr in [unit.quality, unit.model, unit.size, unit.color]
                       .where((e) => e.trim().isNotEmpty))
                     Container(
                       padding: const EdgeInsets.symmetric(
-                          horizontal: 6, vertical: 1.5),
+                          horizontal: 9, vertical: 3),
                       decoration: BoxDecoration(
                         color: theme.colorScheme.surfaceContainer,
-                        borderRadius: BorderRadius.circular(4),
+                        borderRadius: BorderRadius.circular(6),
                       ),
                       child: Text(
                         attr,
-                        style: theme.textTheme.labelSmall?.copyWith(
-                          fontSize: 10,
-                          color: theme.colorScheme.onSurfaceVariant,
+                        style: theme.textTheme.labelMedium?.copyWith(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: theme.colorScheme.onSurface,
                         ),
                       ),
                     ),
@@ -472,8 +445,9 @@ class _ProductUnitCard extends StatelessWidget {
             const Spacer(),
             Text(
               "${formatSom(unit.price)} so'm",
-              style: theme.textTheme.titleSmall?.copyWith(
+              style: theme.textTheme.titleMedium?.copyWith(
                 fontWeight: FontWeight.w900,
+                fontSize: 16,
                 color: const Color(0xFF0A7C55),
               ),
             ),
@@ -630,57 +604,34 @@ class _CartItemRow extends StatelessWidget {
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Thumbnail — admin qaysi mahsulotni qo'shganini darrov ko'radi
-              ClipRRect(
-                borderRadius: BorderRadius.circular(6),
-                child: Container(
-                  width: 38,
-                  height: 38,
-                  color: theme.colorScheme.surfaceContainer,
-                  child: item.image != null && item.image!.isNotEmpty
-                      ? CachedNetworkImage(
-                          imageUrl: item.image!,
-                          fit: BoxFit.cover,
-                          placeholder: (_, __) => const SizedBox.shrink(),
-                          errorWidget: (_, __, ___) => Icon(
-                            Icons.inventory_2_outlined,
-                            size: 18,
-                            color: theme.colorScheme.onSurfaceVariant
-                                .withValues(alpha: 0.5),
-                          ),
-                        )
-                      : Icon(
-                          Icons.inventory_2_outlined,
-                          size: 18,
-                          color: theme.colorScheme.onSurfaceVariant
-                              .withValues(alpha: 0.5),
-                        ),
-                ),
-              ),
-              const SizedBox(width: 8),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // To'liq nom — Mahsulot • Sifat • Model • Hajm • Rang
+                    // To'liq nom: Mahsulot • Sifat • Model • Hajm • Rang.
+                    // Rasm yo'q (POS'da matn aniqligi muhimroq); softWrap bilan
+                    // hammasi ko'rinadi (uzun nomlar kesilmaydi).
                     Text(item.fullName,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: theme.textTheme.bodyMedium?.copyWith(
-                          fontWeight: FontWeight.w700,
-                          height: 1.2,
+                        softWrap: true,
+                        style: theme.textTheme.titleSmall?.copyWith(
+                          fontWeight: FontWeight.w800,
+                          height: 1.3,
+                          fontSize: 15,
                         )),
                     if (item.sku.isNotEmpty)
-                      Text('SKU: ${item.sku}',
-                          style: theme.textTheme.labelSmall?.copyWith(
-                            fontSize: 10,
-                            fontFamily: 'monospace',
-                            color: theme.colorScheme.onSurfaceVariant,
-                          )),
+                      Padding(
+                        padding: const EdgeInsets.only(top: 4),
+                        child: Text('SKU: ${item.sku}',
+                            style: theme.textTheme.labelSmall?.copyWith(
+                              fontSize: 11,
+                              fontFamily: 'monospace',
+                              color: theme.colorScheme.onSurfaceVariant,
+                            )),
+                      ),
                   ],
                 ),
               ),
-              const SizedBox(width: 6),
+              const SizedBox(width: 8),
               // qty stepper
               _QtyButton(
                 icon: Icons.remove,
