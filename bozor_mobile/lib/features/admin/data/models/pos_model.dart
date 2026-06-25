@@ -7,6 +7,7 @@ class PosProduct {
   final double? discountPrice;
   final double costPrice;
   final int stock;
+  final String? mainImage;
   final List<PosVariant> variants;
 
   const PosProduct({
@@ -16,10 +17,22 @@ class PosProduct {
     required this.discountPrice,
     required this.costPrice,
     required this.stock,
+    required this.mainImage,
     required this.variants,
   });
 
   factory PosProduct.fromJson(Map<String, dynamic> json) {
+    // Mahsulot rasm fallback'i: main_image bo'lmasa — images[0]
+    String? mainImg = json['main_image'] as String?;
+    if (mainImg == null || mainImg.isEmpty) {
+      final imgs = json['images'] as List?;
+      if (imgs != null && imgs.isNotEmpty) {
+        final first = imgs[0];
+        if (first is Map && first['image'] is String) {
+          mainImg = first['image'] as String;
+        }
+      }
+    }
     return PosProduct(
       id: _int(json['id']),
       name: json['name'] as String? ?? '',
@@ -27,6 +40,7 @@ class PosProduct {
       discountPrice: _doubleOrNull(json['discount_price']),
       costPrice: _double(json['cost_price']),
       stock: _int(json['stock']),
+      mainImage: mainImg,
       variants: ((json['variants'] as List?) ?? [])
           .map((e) => PosVariant.fromJson(e as Map<String, dynamic>))
           .toList(),
@@ -34,6 +48,9 @@ class PosProduct {
   }
 
   /// Mahsulot + variantlarni POS savatchasi uchun "tanlash birliklari"ga aylantiradi.
+  /// Variantlar uchun "color-grouped image fallback" (Wildberries-stil) ham qo'llanadi:
+  /// admin har sifatga rasm yuklamasa, bir xil rangdagi boshqa variantning rasmi
+  /// olinadi — foydalanuvchi to'g'ri rangdagi tovarni ko'radi.
   List<PosCartItem> toCartUnits() {
     if (variants.isEmpty) {
       return [
@@ -46,6 +63,7 @@ class PosProduct {
           model: '',
           size: '',
           color: '',
+          image: mainImage,
           price: discountPrice ?? price,
           costPrice: costPrice,
           quantity: 1,
@@ -54,23 +72,35 @@ class PosProduct {
         ),
       ];
     }
-    return variants
-        .map((v) => PosCartItem(
-              cartId: 'v-${v.id}',
-              productId: id,
-              variantId: v.id,
-              name: name,
-              quality: v.quality,
-              model: v.model,
-              size: v.size,
-              color: v.color,
-              price: v.discountPrice ?? v.price ?? discountPrice ?? price,
-              costPrice: v.costPrice ?? costPrice,
-              quantity: 1,
-              stock: v.stock,
-              sku: v.sku,
-            ))
-        .toList();
+    // Bir xil rang uchun birinchi mavjud rasmni yodda saqlaymiz (fallback)
+    final colorToImage = <String, String>{};
+    for (final v in variants) {
+      final c = v.color.trim().toLowerCase();
+      if (c.isEmpty) continue;
+      final img = v.imageUrl;
+      if (img != null && img.isNotEmpty && !colorToImage.containsKey(c)) {
+        colorToImage[c] = img;
+      }
+    }
+    return variants.map((v) {
+      final colorImg = colorToImage[v.color.trim().toLowerCase()];
+      return PosCartItem(
+        cartId: 'v-${v.id}',
+        productId: id,
+        variantId: v.id,
+        name: name,
+        quality: v.quality,
+        model: v.model,
+        size: v.size,
+        color: v.color,
+        image: v.imageUrl ?? colorImg ?? mainImage,
+        price: v.discountPrice ?? v.price ?? discountPrice ?? price,
+        costPrice: v.costPrice ?? costPrice,
+        quantity: 1,
+        stock: v.stock,
+        sku: v.sku,
+      );
+    }).toList();
   }
 }
 
@@ -85,6 +115,7 @@ class PosVariant {
   final double? discountPrice;
   final double? costPrice;
   final int stock;
+  final String? imageUrl;
 
   const PosVariant({
     required this.id,
@@ -97,9 +128,18 @@ class PosVariant {
     required this.discountPrice,
     required this.costPrice,
     required this.stock,
+    required this.imageUrl,
   });
 
   factory PosVariant.fromJson(Map<String, dynamic> json) {
+    // Variantning birinchi rasmi — gallery > image_url
+    String? img;
+    final imgs = json['images'] as List?;
+    if (imgs != null && imgs.isNotEmpty) {
+      final first = imgs[0];
+      if (first is Map && first['url'] is String) img = first['url'] as String;
+    }
+    img ??= json['image_url'] as String?;
     return PosVariant(
       id: _int(json['id']),
       color: json['color'] as String? ?? '',
@@ -111,6 +151,7 @@ class PosVariant {
       discountPrice: _doubleOrNull(json['discount_price']),
       costPrice: _doubleOrNull(json['cost_price']),
       stock: _int(json['stock']),
+      imageUrl: img,
     );
   }
 }
@@ -124,6 +165,7 @@ class PosCartItem {
   final String model;
   final String size;
   final String color;
+  final String? image;
   final double price; // mahsulotda KO'RSATILGAN narx (chegirma bazasi)
   final double soldPrice; // kelishuv (sotiladigan) narx — admin tahrirlaydi
   final double costPrice; // tannarx — narx bundan past bo'la olmaydi
@@ -140,6 +182,7 @@ class PosCartItem {
     required this.model,
     required this.size,
     required this.color,
+    this.image,
     required this.price,
     double? soldPrice,
     required this.costPrice,
@@ -148,8 +191,20 @@ class PosCartItem {
     required this.sku,
   }) : soldPrice = soldPrice ?? price;
 
-  String get variantText =>
-      [color, size, model].where((e) => e.trim().isNotEmpty).join(' · ');
+  /// Variant atributlari — sifat • model • hajm • rang (backend tartibi bilan).
+  /// Saytdagi `_build_variant_card_name` bilan AYNAN bir xil.
+  String get variantText => [quality, model, size, color]
+      .where((e) => e.trim().isNotEmpty)
+      .join(' · ');
+
+  /// To'liq nom: Mahsulot • Sifat • Model • Hajm • Rang.
+  /// Variantsiz mahsulotda — faqat mahsulot nomi.
+  String get fullName {
+    final attrs = [quality, model, size, color]
+        .where((e) => e.trim().isNotEmpty)
+        .toList();
+    return attrs.isEmpty ? name : '$name • ${attrs.join(' • ')}';
+  }
 
   double get lineTotal => soldPrice * quantity;
   double get normalLineTotal => price * quantity;
@@ -171,6 +226,7 @@ class PosCartItem {
         model: model,
         size: size,
         color: color,
+        image: image,
         price: price,
         soldPrice: soldPrice ?? this.soldPrice,
         costPrice: costPrice,

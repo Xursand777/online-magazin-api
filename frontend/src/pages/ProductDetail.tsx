@@ -291,9 +291,13 @@ const ProductDetail = () => {
     variants.find((v) => v.id === selectedVariantId) || variants[0] || null;
 
   // 2. Tanlangan atributlar — currentVariant'dan derive qilamiz.
-  const selectedColor   = currentVariant?.color || '';
-  const selectedQuality = currentVariant?.quality || '';
-  const selectedSize    = currentVariant?.size || currentVariant?.model || '';
+  // selectedSize "size yoki model" — UI pill'lari uchun (eski kontrakt).
+  // Sarlavhada ikkalasi alohida ko'rsatiladi (modelOnly + sizeOnly).
+  const selectedColor    = currentVariant?.color || '';
+  const selectedQuality  = currentVariant?.quality || '';
+  const selectedSize     = currentVariant?.size || currentVariant?.model || '';
+  const selectedModelOnly = currentVariant?.model || '';
+  const selectedSizeOnly  = currentVariant?.size || '';
 
   // 3. Pill ro'yxatlari — barcha variantlar bo'yicha (cascade emas).
   //    Foydalanuvchi har qanday colorni ko'rishi kerak, hatto boshqa qualityda ham.
@@ -411,16 +415,21 @@ const ProductDetail = () => {
 
   const displayTitle = useMemo(() => {
     if (!product) return '';
-    const parts = [];
+    // Backend `_build_variant_card_name` tartibi: model • quality • size • color
+    // — POS va sayt o'rtasida adashtirmaslik uchun aynan shu ketma-ketlik.
+    // model va size'ni alohida ko'rsatamiz (selectedSize'da model fallback'i bor —
+    // pill UI uchun, lekin sarlavhada ikki marta paydo bo'lmasligi kerak).
+    const parts: string[] = [];
+    if (selectedModelOnly) parts.push(selectedModelOnly);
     if (selectedQuality) parts.push(selectedQuality);
-    if (selectedSize) parts.push(selectedSize);
+    if (selectedSizeOnly) parts.push(selectedSizeOnly);
     if (selectedColor) parts.push(selectedColor);
 
     if (parts.length > 0) {
       return `${product.name} • ${parts.join(' • ')}`;
     }
     return product.name;
-  }, [product, selectedQuality, selectedSize, selectedColor]);
+  }, [product, selectedModelOnly, selectedQuality, selectedSizeOnly, selectedColor]);
 
   useEffect(() => {
     if (displayTitle) {

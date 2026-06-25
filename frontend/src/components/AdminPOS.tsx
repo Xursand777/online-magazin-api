@@ -27,6 +27,7 @@ interface POSItem {
   model: string;
   size: string;
   color: string;
+  image: string | null;  // variantning birinchi rasmi (yoki mahsulot asosiy rasmi)
   price: number;       // mahsulotda KO'RSATILGAN narx (chegirma bazasi)
   soldPrice: number;   // kelishuv (sotiladigan) narx — admin tahrirlaydi
   costPrice: number;   // tannarx — sotuv narxi bundan past bo'la olmaydi
@@ -34,6 +35,20 @@ interface POSItem {
   stock: number;
   sku: string;
 }
+
+/**
+ * POS uchun variantli mahsulot "to'liq nomi":  Mahsulot • Sifat • Model • Hajm • Rang
+ * Bo'sh atributlar tushib qoladi (placeholder yo'q).
+ * Backend `_build_variant_card_name` bilan AYNAN bir xil tartib — POS va sayt
+ * o'rtasida adashtirmaslik uchun.
+ */
+const buildPosName = (item: POSItem): string => {
+  const parts: string[] = [item.name];
+  for (const v of [item.quality, item.model, item.size, item.color]) {
+    if (v && v.trim()) parts.push(v.trim());
+  }
+  return parts.join(' • ');
+};
 
 interface HistoryOrderItem {
   name: string;
@@ -434,8 +449,27 @@ const AdminPOS = () => {
   const expandedItems = useMemo(() => {
     const items: POSItem[] = [];
     products.forEach((p: any) => {
+      // Mahsulotning asosiy rasmi — variantda rasm bo'lmasa fallback sifatida
+      const productMainImg: string | null =
+        p.main_image || (Array.isArray(p.images) ? p.images[0]?.image || null : null);
+
       if (p.variants?.length > 0) {
+        // Color-grouped fallback xaritasi: bir xil rangdagi variantning rasmini
+        // qayta ishlatamiz (admin har sifatga rasm yuklamagan bo'lsa ham
+        // foydalanuvchi to'g'ri rangdagi mahsulotni ko'rishi uchun).
+        const colorToImage = new Map<string, string>();
+        for (const v of p.variants as any[]) {
+          const color = (v.color || '').trim().toLowerCase();
+          if (!color) continue;
+          const firstImg =
+            (Array.isArray(v.images) && v.images[0]?.url) || v.image_url || null;
+          if (firstImg && !colorToImage.has(color)) colorToImage.set(color, firstImg);
+        }
+
         p.variants.forEach((v: any) => {
+          const ownImg =
+            (Array.isArray(v.images) && v.images[0]?.url) || v.image_url || null;
+          const colorImg = colorToImage.get((v.color || '').trim().toLowerCase()) || null;
           items.push({
             cartId: `v-${v.id}`,
             productId: p.id,
@@ -445,6 +479,7 @@ const AdminPOS = () => {
             model: v.model || '',
             size: v.size || '',
             color: v.color || '',
+            image: ownImg || colorImg || productMainImg,
             price: Number(v.discount_price || v.price || p.discount_price || p.price),
             soldPrice: Number(v.discount_price || v.price || p.discount_price || p.price),
             costPrice: Number(v.cost_price || p.cost_price),
@@ -459,6 +494,7 @@ const AdminPOS = () => {
           productId: p.id,
           name: p.name,
           quality: '', model: '', size: '', color: '',
+          image: productMainImg,
           price: Number(p.discount_price || p.price),
           soldPrice: Number(p.discount_price || p.price),
           costPrice: Number(p.cost_price),
@@ -787,28 +823,63 @@ const AdminPOS = () => {
                     </p>
                   )}
                   <div className="grid grid-cols-2 gap-2.5 lg:grid-cols-3 xl:grid-cols-4">
-                    {expandedItems.map((item) => (
-                      <button
-                        key={item.cartId}
-                        type="button"
-                        onClick={() => addToCart(item)}
-                        disabled={item.stock < 1}
-                        className={`text-left rounded-xl border p-3 transition-all hover:border-primary hover:bg-primary/5 active:scale-95 ${item.stock < 1 ? 'opacity-40 cursor-not-allowed border-error' : 'border-outline-variant cursor-pointer'}`}
-                      >
-                        <p className="font-bold leading-tight text-on-surface line-clamp-2 text-sm mb-1">{item.name}</p>
-                        {(item.color || item.size || item.model) && (
-                          <p className="text-xs text-on-surface-variant line-clamp-1 mb-2">
-                            {[item.color, item.size, item.model].filter(Boolean).join(' · ')}
-                          </p>
-                        )}
-                        <div className="flex items-end justify-between">
-                          <span className="font-bold text-primary text-sm">{fmt(item.price)}</span>
-                          <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${item.stock < 5 ? 'bg-error-container/50 text-error' : 'bg-surface-container text-on-surface-variant'}`}>
-                            {item.stock} ta
-                          </span>
-                        </div>
-                      </button>
-                    ))}
+                    {expandedItems.map((item) => {
+                      const out = item.stock < 1;
+                      // Variantning xususiyatlari kichik chip sifatida ko'rinadi
+                      // (sifat, model, hajm, rang). Bo'sh atributlar tushib qoladi.
+                      const attrs = [item.quality, item.model, item.size, item.color].filter(Boolean);
+                      return (
+                        <button
+                          key={item.cartId}
+                          type="button"
+                          onClick={() => addToCart(item)}
+                          disabled={out}
+                          className={`text-left rounded-xl border p-2.5 transition-all hover:border-primary hover:bg-primary/5 active:scale-95 ${out ? 'opacity-40 cursor-not-allowed border-error' : 'border-outline-variant cursor-pointer'}`}
+                        >
+                          <div className="flex gap-2.5">
+                            {/* Rasm thumbnail */}
+                            <div className="h-14 w-14 shrink-0 overflow-hidden rounded-lg bg-surface-container border border-outline-variant flex items-center justify-center">
+                              {item.image ? (
+                                <img
+                                  src={item.image}
+                                  alt=""
+                                  loading="lazy"
+                                  className="h-full w-full object-cover"
+                                />
+                              ) : (
+                                <span className="material-symbols-outlined text-[26px] text-on-surface-variant opacity-50">
+                                  inventory_2
+                                </span>
+                              )}
+                            </div>
+                            {/* Matn + atributlar */}
+                            <div className="min-w-0 flex-1 flex flex-col">
+                              <p className="font-bold leading-tight text-on-surface line-clamp-2 text-[13px]">
+                                {item.name}
+                              </p>
+                              {attrs.length > 0 && (
+                                <div className="mt-1 flex flex-wrap gap-1">
+                                  {attrs.map((a, i) => (
+                                    <span
+                                      key={i}
+                                      className="rounded bg-surface-container px-1.5 py-px text-[10px] font-medium text-on-surface-variant"
+                                    >
+                                      {a}
+                                    </span>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                          <div className="mt-2 flex items-end justify-between">
+                            <span className="font-bold text-primary text-sm">{fmt(item.price)}</span>
+                            <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${item.stock < 5 ? 'bg-error-container/50 text-error' : 'bg-surface-container text-on-surface-variant'}`}>
+                              {item.stock} ta
+                            </span>
+                          </div>
+                        </button>
+                      );
+                    })}
                   </div>
                   {isFetchingNextPage && (
                     <div className="flex items-center justify-center py-4 text-on-surface-variant">
@@ -859,11 +930,24 @@ const AdminPOS = () => {
                       className={`rounded-lg border p-2.5 ${itemBelowCost ? 'border-error bg-error-container/20' : 'border-outline-variant'}`}
                     >
                       <div className="flex items-start gap-2">
+                        {/* Savatda ham rasm thumbnail — admin qaysi mahsulotni qo'shganini darrov ko'radi */}
+                        <div className="h-11 w-11 shrink-0 overflow-hidden rounded-md bg-surface-container border border-outline-variant flex items-center justify-center">
+                          {item.image ? (
+                            <img src={item.image} alt="" loading="lazy" className="h-full w-full object-cover" />
+                          ) : (
+                            <span className="material-symbols-outlined text-[18px] text-on-surface-variant opacity-50">
+                              inventory_2
+                            </span>
+                          )}
+                        </div>
                         <div className="flex-1 min-w-0">
-                          <p className="text-sm font-semibold text-on-surface line-clamp-1">{item.name}</p>
-                          {(item.color || item.size || item.model) && (
-                            <p className="text-xs text-on-surface-variant">
-                              {[item.color, item.size, item.model].filter(Boolean).join(' · ')}
+                          {/* To'liq nom: Mahsulot • Sifat • Model • Hajm • Rang */}
+                          <p className="text-sm font-semibold text-on-surface line-clamp-2 leading-tight">
+                            {buildPosName(item)}
+                          </p>
+                          {item.sku && (
+                            <p className="mt-0.5 text-[10px] font-mono text-on-surface-variant">
+                              SKU: {item.sku}
                             </p>
                           )}
                         </div>

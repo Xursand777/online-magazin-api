@@ -145,12 +145,15 @@ class ProductVariant {
   /// Variantning amaldagi narxi (variant narxi yo'q bo'lsa null).
   double? get effectivePrice => discountPrice ?? price;
 
-  /// Variant atributlari to'liq nomi (Vetnam • 128/8 • Olive).
+  /// Variant atributlari to'liq nomi: "Pro • Original • 128/8 • Olive".
+  /// Tartib backend `_build_variant_card_name` bilan AYNAN bir xil:
+  ///   model • quality • size • color
+  /// (Sayt va POS bir xil tartibni ishlatadi — adashtirmaslik uchun.)
   String get attributesLabel {
     final parts = <String>[];
     if (model != null && model!.trim().isNotEmpty) parts.add(model!.trim());
-    if (size != null && size!.trim().isNotEmpty) parts.add(size!.trim());
     if (quality != null && quality!.trim().isNotEmpty) parts.add(quality!.trim());
+    if (size != null && size!.trim().isNotEmpty) parts.add(size!.trim());
     if (color != null && color!.trim().isNotEmpty) parts.add(color!.trim());
     return parts.join(' • ');
   }

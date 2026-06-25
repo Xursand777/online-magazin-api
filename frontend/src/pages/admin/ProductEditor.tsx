@@ -9,12 +9,55 @@ import { useState, useEffect, useMemo, useRef, type FormEvent, type KeyboardEven
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { adminCreateProduct, adminUpdateProduct, adminGetExchangeRate } from '../../api/endpoints';
 import { toast } from '../../utils/toast';
+import { compressImage, compressImages } from '../../utils/imageCompress';
 import {
   COLOR_PRESETS, QUALITY_PRESETS, categoryLabel, emptyProductForm, emptyVariant,
   extractErrorMessage, formatPriceInput, generateVariantSku, hasVariantContent,
   mapProductToForm, mapVariantsForEditor, stripNumberFormatting,
 } from './shared';
 import type { AdminProduct, AdminCategory, ProductFormState, VariantFormState } from './shared';
+
+// Variant uchun maksimal rasm soni — UX'ga ko'ra. 6 yetarli: birinchi = asosiy,
+// qolganlari ekspander/karusel uchun. Yetib qolsa server hech qachon kesmaydi
+// (har biri alohida yuklanadi), bu — UX yo'l-yo'rig'i. Foydalanuvchi bir
+// vaqtning o'zida ko'p rasmni boshqarsa interfeys to'lib ketadi.
+const MAX_VARIANT_IMAGES = 6;
+
+// Variant rasm strip uchun bir element. `kind` mavjud yoki yangi rasm
+// ekanligini va manbai (legacy single thumbnail yoki gallery) ekanligini
+// belgilaydi — bu olib tashlash uchun zarur.
+type VariantImageEntry =
+  | { kind: 'existing-main'; url: string }
+  | { kind: 'existing-gallery'; id: number; url: string }
+  | { kind: 'new-main'; url: string }
+  | { kind: 'new-gallery'; index: number; url: string };
+
+const buildVariantImageList = (
+  variant: VariantFormState,
+  variantImageFiles: Record<string, File | null>,
+  variantImagePreviews: Record<string, string>,
+  variantGalleryPreviews: Record<string, string[]>,
+): VariantImageEntry[] => {
+  const out: VariantImageEntry[] = [];
+  // 1) Mavjud "main" rasm (variant.image_url) — agar remove_image bo'lmasa
+  if (variant.image_url && !variant.remove_image) {
+    out.push({ kind: 'existing-main', url: variant.image_url });
+  }
+  // 2) Mavjud gallery rasmlari (deleteImageIds dan tashqari hammasi)
+  variant.existingImages.forEach((img) => {
+    out.push({ kind: 'existing-gallery', id: img.id, url: img.url });
+  });
+  // 3) Yangi yuklangan "main" (variant.image o'rnini bosadigan)
+  if (variantImageFiles[variant.client_id]) {
+    const u = variantImagePreviews[variant.client_id];
+    if (u) out.push({ kind: 'new-main', url: u });
+  }
+  // 4) Yangi yuklangan qo'shimcha rasmlar (gallery)
+  (variantGalleryPreviews[variant.client_id] || []).forEach((url, idx) => {
+    out.push({ kind: 'new-gallery', url, index: idx });
+  });
+  return out;
+};
 
 // ── #N6: Qoralama (draft) avtosave ───────────────────────────────────────────
 // Yangi mahsulot kiritayotganda forma localStorage'ga avtomat saqlanadi. Admin
@@ -347,16 +390,19 @@ export const ProductEditor = ({
     );
   };
 
-  const handleVariantImageChange = (variant: VariantFormState, file: File | null) => {
-    setVariantImageFiles((c) => ({ ...c, [variant.client_id]: file }));
+  const handleVariantImageChange = async (variant: VariantFormState, file: File | null) => {
+    // Brauzerda siqamiz (max 1600px, WebP). Bu tarmoqni va server CPU'ni tejaydi.
+    // null — admin rasmni olib tashlamoqchi (legacy "remove" tugmasi orqali).
+    const finalFile = file ? await compressImage(file) : null;
+    setVariantImageFiles((c) => ({ ...c, [variant.client_id]: finalFile }));
     setVariantImagePreviews((c) => {
       if (c[variant.client_id]) URL.revokeObjectURL(c[variant.client_id]);
       const n = { ...c };
-      if (file) n[variant.client_id] = URL.createObjectURL(file);
+      if (finalFile) n[variant.client_id] = URL.createObjectURL(finalFile);
       else delete n[variant.client_id];
       return n;
     });
-    if (file)
+    if (finalFile)
       setVariants((c) =>
         c.map((item) =>
           item.client_id === variant.client_id ? { ...item, remove_image: false } : item,
@@ -364,11 +410,13 @@ export const ProductEditor = ({
       );
   };
 
-  const handleVariantGalleryAdd = (clientId: string, files: File[]) => {
-    setVariantGalleryFiles((c) => ({ ...c, [clientId]: [...(c[clientId] || []), ...files] }));
+  const handleVariantGalleryAdd = async (clientId: string, files: File[]) => {
+    // Parallel siqish — har bir fayl alohida ishlanadi, hammasini birga kutamiz.
+    const compressed = await compressImages(files);
+    setVariantGalleryFiles((c) => ({ ...c, [clientId]: [...(c[clientId] || []), ...compressed] }));
     setVariantGalleryPreviews((c) => ({
       ...c,
-      [clientId]: [...(c[clientId] || []), ...files.map((f) => URL.createObjectURL(f))],
+      [clientId]: [...(c[clientId] || []), ...compressed.map((f) => URL.createObjectURL(f))],
     }));
   };
 
@@ -841,9 +889,15 @@ export const ProductEditor = ({
             <input
               type='file'
               accept='image/*'
-              onChange={(e) => {
-                setImageFile(e.target.files?.[0] || null);
-                if (e.target.files?.[0]) setRemoveImage(false);
+              onChange={async (e) => {
+                const raw = e.target.files?.[0] || null;
+                if (!raw) { setImageFile(null); return; }
+                // Yuklashdan oldin brauzerda siqamiz (max 1600px, WebP ~88%).
+                // Server hali ham yakuniy Pillow WebP qiladi (yagona avtoritar manba),
+                // bu — tarmoqni va server CPU'ni tejaydi.
+                const compressed = await compressImage(raw);
+                setImageFile(compressed);
+                setRemoveImage(false);
               }}
               className='w-full cursor-pointer rounded-lg border border-outline-variant bg-surface-bright px-3 py-2 file:mr-4 file:rounded-md file:border-0 file:bg-primary file:px-3 file:py-1 file:text-sm file:text-on-primary'
             />
@@ -935,7 +989,7 @@ export const ProductEditor = ({
             <div>
               <h4 className='font-h3 text-lg text-on-surface'>Variantlar</h4>
               <p className='mt-1 text-body-sm text-on-surface-variant'>
-                Rang guruhlari bo'yicha — har rang uchun alohida sifat/narx jadval.
+                Rang guruhlari bo'yicha — har sifat/hajm uchun alohida narx, stok va rasm.
               </p>
             </div>
             <div className='flex flex-wrap gap-2'>
@@ -995,10 +1049,13 @@ export const ProductEditor = ({
               onGalleryRemoveNew={handleVariantGalleryRemoveNew}
               onGalleryDeleteExisting={handleVariantGalleryDeleteExisting}
               onAddVariantToGroup={(baseVariant) => {
+                // Yangi qator faqat rang/narx/kirim qiymatlarini "rang-darajasidagi"
+                // sukut bo'yicha meros qilib oladi. image_url MEROS QILINMAYDI —
+                // har sifat uchun alohida rasm yuklash yangi UX qoidasi
+                // (eski "rang-darajasidagi swatch" konsepti olib tashlandi).
                 const newVar = emptyVariant(baseVariant.group_id);
                 newVar.color = baseVariant.color;
                 newVar.color_hex = baseVariant.color_hex;
-                newVar.image_url = baseVariant.image_url;
                 newVar.price = baseVariant.price;
                 newVar.price_usd = baseVariant.price_usd;
                 newVar.cost_price = baseVariant.cost_price;
@@ -1076,6 +1133,26 @@ export const ProductEditor = ({
   );
 };
 
+// ─── ColorGroupVariantEditor ─────────────────────────────────────────────────
+//
+// Variantlar rang bo'yicha guruhlanadi (Qora / Oq / Ko'k …). Har guruh ichida
+// — bir nechta variant qatori (sifat × model × o'lcham kombinatsiyalari).
+//
+// HAR BIR VARIANT QATORI alohida karta — 2 qator chiroyli layout:
+//   1-qator: Sifat | Model/Hajm | Narx (so'm/$) | Chegirma | Kirim | Stock | SKU | Faol | Del
+//   2-qator: Rasm strip — 1..N kichik thumbnail (birinchisi "asosiy" sifatida belgilanadi).
+//
+// Bu yondashuv "rang-darajasidagi" eski rasm modelini "variant-darajasiga"
+// ko'chiradi: foydalanuvchi (mijoz) saytda har sifat uchun aniq rasmni
+// ko'radi (128GB ko'k, 256GB ko'k boshqa rakurslar, …).
+//
+// Backend: variant_image_<i> = variant.image (asosiy thumbnail),
+//          variant_images_<i>_<j> = ProductVariantImage gallery.
+// Server avtomatik fallback qiladi: gallery birinchi rasmni ko'rsatadi, agar
+// gallery bo'sh bo'lsa — variant.image, undan keyin esa "bir xil rangdagi
+// boshqa variant" rasmiga tushadi (Wildberries-stil color-grouping).
+// ─────────────────────────────────────────────────────────────────────────────
+
 const ColorGroupVariantEditor = ({
   variants,
   variantImageFiles,
@@ -1110,7 +1187,7 @@ const ColorGroupVariantEditor = ({
   onGalleryDeleteExisting: (clientId: string, imageId: number) => void;
   onAddVariantToGroup: (baseVariant: VariantFormState) => void;
 }) => {
-  // Group variants by color (or client_id if no color)
+  // Rang bo'yicha guruhlash (group_id — bir xil ranga ega variantlar uchun bir xil)
   const groups = useMemo(() => {
     const g = new Map<string, VariantFormState[]>();
     variants.forEach((v) => {
@@ -1131,6 +1208,44 @@ const ColorGroupVariantEditor = ({
       return n;
     });
 
+  // Variant uchun rasmlar tanlangan paytda — birinchi yangi fayl "asosiy"
+  // bo'ladi (variant.image o'rnini bosadi), qolganlari gallery'ga ketadi.
+  // Agar variantda allaqachon asosiy rasm bor — hammasi gallery'ga ketadi.
+  const handleVariantImagesPick = async (variant: VariantFormState, files: File[]) => {
+    if (files.length === 0) return;
+    const hasMain =
+      (variant.image_url && !variant.remove_image) || !!variantImageFiles[variant.client_id];
+    if (hasMain) {
+      await onGalleryAdd(variant.client_id, files);
+    } else {
+      await onVariantImageChange(variant, files[0]);
+      if (files.length > 1) await onGalleryAdd(variant.client_id, files.slice(1));
+    }
+  };
+
+  // Variant rasm strip'idan bitta rasmni olib tashlash — kind'ga qarab to'g'ri
+  // handler chaqiriladi (eski-yangi, asosiy-gallery farqi shu yerda hal bo'ladi).
+  const handleVariantImageRemove = (
+    variant: VariantFormState,
+    img: VariantImageEntry,
+  ) => {
+    const idx = variants.indexOf(variant);
+    switch (img.kind) {
+      case 'existing-main':
+        onVariantChange(idx, 'remove_image', 'true');
+        break;
+      case 'existing-gallery':
+        onGalleryDeleteExisting(variant.client_id, img.id);
+        break;
+      case 'new-main':
+        onVariantImageChange(variant, null);
+        break;
+      case 'new-gallery':
+        onGalleryRemoveNew(variant.client_id, img.index);
+        break;
+    }
+  };
+
   return (
     <div className='space-y-6'>
       {groups.map((group, groupIndex) => {
@@ -1144,6 +1259,7 @@ const ColorGroupVariantEditor = ({
             key={baseVariant.client_id}
             className='overflow-hidden rounded-xl border border-outline-variant bg-surface-bright shadow-sm'
           >
+            {/* GROUP HEADER — rang nomi + statistika + accordion toggle */}
             <div
               className='flex items-center gap-3 px-4 py-3 cursor-pointer select-none bg-surface-container-lowest'
               onClick={() => toggleItem(baseVariant.client_id)}
@@ -1167,10 +1283,10 @@ const ColorGroupVariantEditor = ({
             </div>
 
             {isOpen && (
-              <div className='border-t border-outline-variant p-5'>
-                {/* 1. Color Group Settings */}
-                <div className='grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3 mb-6'>
-                  <div className='lg:col-span-2'>
+              <div className='border-t border-outline-variant p-5 space-y-5'>
+                {/* 1. Rang sozlamalari — faqat nom + HEX (rasm endi har variantda) */}
+                <div className='grid grid-cols-1 gap-4 md:grid-cols-2'>
+                  <div>
                     <label className='mb-2 block text-[11px] font-bold uppercase text-on-surface-variant'>
                       Rang nomi
                     </label>
@@ -1208,258 +1324,203 @@ const ColorGroupVariantEditor = ({
                     </div>
                   </div>
                   <div>
-                    <div className='flex gap-4'>
-                      <div className='flex-1'>
-                        <label className='mb-2 block text-[11px] font-bold uppercase text-on-surface-variant'>
-                          Rang kodi (HEX)
-                        </label>
-                        <div className='flex items-center gap-2 rounded-lg border border-outline-variant bg-surface-container-lowest overflow-hidden'>
-                          <input
-                            type='color'
-                            value={baseVariant.color_hex || '#000000'}
-                            onChange={(e) => {
-                              const val = e.target.value;
-                              group.forEach((v) =>
-                                onVariantChange(variants.indexOf(v), 'color_hex', val),
-                              );
-                            }}
-                            className='h-[38px] w-12 cursor-pointer border-0 bg-transparent p-1'
-                          />
-                          <input
-                            value={baseVariant.color_hex}
-                            onChange={(e) => {
-                              const val = e.target.value;
-                              group.forEach((v) =>
-                                onVariantChange(variants.indexOf(v), 'color_hex', val),
-                              );
-                            }}
-                            className='min-w-0 flex-1 bg-transparent px-2 text-sm font-mono outline-none'
-                            placeholder='#111827'
-                          />
-                        </div>
-                      </div>
-                    </div>
-                    <div className='mt-4'>
-                      <label className='mb-2 block text-[11px] font-bold uppercase text-on-surface-variant'>
-                        Rang (swatch) rasmi
-                      </label>
+                    <label className='mb-2 block text-[11px] font-bold uppercase text-on-surface-variant'>
+                      Rang kodi (HEX)
+                    </label>
+                    <div className='flex items-center gap-2 rounded-lg border border-outline-variant bg-surface-container-lowest overflow-hidden'>
                       <input
-                        type='file'
-                        accept='image/*'
+                        type='color'
+                        value={baseVariant.color_hex || '#000000'}
                         onChange={(e) => {
-                          const file = e.target.files?.[0] || null;
-                          group.forEach((v) => onVariantImageChange(v, file));
+                          const val = e.target.value;
+                          group.forEach((v) =>
+                            onVariantChange(variants.indexOf(v), 'color_hex', val),
+                          );
                         }}
-                        className='w-full cursor-pointer rounded-lg border border-outline-variant bg-surface-container-lowest px-2 py-1.5 text-xs file:mr-2 file:rounded file:border-0 file:bg-primary file:px-2 file:py-1 file:text-xs file:text-on-primary'
+                        className='h-[38px] w-12 cursor-pointer border-0 bg-transparent p-1'
                       />
-                      {variantImagePreviews[baseVariant.client_id] && (
-                        <img src={variantImagePreviews[baseVariant.client_id]} alt='' className='mt-2 h-16 w-16 rounded-lg object-cover' />
-                      )}
-                      {baseVariant.image_url && !variantImageFiles[baseVariant.client_id] && (
-                        <div className='mt-2 flex items-center gap-2'>
-                          <img src={baseVariant.image_url} alt='' className='h-16 w-16 rounded-lg object-cover' />
-                          <label className='flex items-center gap-1 text-xs text-error'>
-                            <input type='checkbox' checked={baseVariant.remove_image} onChange={e => {
-                               const val = String(e.target.checked);
-                               group.forEach(v => onVariantChange(variants.indexOf(v), 'remove_image', val));
-                            }} className='rounded' />
-                            Rasmni o'chirish
-                          </label>
-                        </div>
-                      )}
+                      <input
+                        value={baseVariant.color_hex}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          group.forEach((v) =>
+                            onVariantChange(variants.indexOf(v), 'color_hex', val),
+                          );
+                        }}
+                        className='min-w-0 flex-1 bg-transparent px-2 text-sm font-mono outline-none'
+                        placeholder='#111827'
+                      />
                     </div>
-
-                    {/* Gallery images */}
-                    <div className='mt-4'>
-                      <label className='mb-2 block text-[11px] font-bold uppercase text-on-surface-variant'>
-                        Galereya rasmlari
-                      </label>
-                      <div className='flex flex-wrap gap-2 mb-2'>
-                        {baseVariant.existingImages.map((img) => (
-                          <div key={img.id} className='relative group/img'>
-                            <img src={img.url} alt='' className='h-20 w-20 rounded-lg object-cover border border-outline-variant' />
-                            <button
-                              type='button'
-                              onClick={() => onGalleryDeleteExisting(baseVariant.client_id, img.id)}
-                              className='absolute -top-1.5 -right-1.5 hidden group-hover/img:flex h-5 w-5 items-center justify-center rounded-full bg-error text-on-error text-[11px] shadow'
-                            >
-                              <span className='material-symbols-outlined text-[13px]'>close</span>
-                            </button>
-                          </div>
-                        ))}
-                        {(variantGalleryPreviews[baseVariant.client_id] || []).map((url, j) => (
-                          <div key={`new-${j}`} className='relative group/img'>
-                            <img src={url} alt='' className='h-20 w-20 rounded-lg object-cover border-2 border-primary/50' />
-                            <button
-                              type='button'
-                              onClick={() => onGalleryRemoveNew(baseVariant.client_id, j)}
-                              className='absolute -top-1.5 -right-1.5 hidden group-hover/img:flex h-5 w-5 items-center justify-center rounded-full bg-error text-on-error text-[11px] shadow'
-                            >
-                              <span className='material-symbols-outlined text-[13px]'>close</span>
-                            </button>
-                          </div>
-                        ))}
-                        <label className='flex h-20 w-20 cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed border-outline-variant bg-surface-container-lowest text-on-surface-variant hover:border-primary hover:text-primary transition-colors'>
-                          <span className='material-symbols-outlined text-2xl'>add_photo_alternate</span>
-                          <span className='text-[10px] mt-0.5'>Qo'shish</span>
-                          <input
-                            type='file'
-                            accept='image/*'
-                            multiple
-                            className='hidden'
-                            onChange={(e) => {
-                              const files = Array.from(e.target.files || []);
-                              if (files.length) onGalleryAdd(baseVariant.client_id, files);
-                              e.target.value = '';
-                            }}
-                          />
-                        </label>
-                      </div>
-                    </div>
+                    <p className='mt-2 text-[11px] text-on-surface-variant'>
+                      💡 Saytda foydalanuvchi rang tugmasini shu HEX kodi bilan ko'radi.
+                      Rasm — har bir variant qatorida alohida yuklanadi.
+                    </p>
                   </div>
                 </div>
 
-                {/* 2. Variations Table */}
-                <div className='overflow-x-auto rounded-xl border border-outline-variant bg-surface-container-lowest'>
-                  <table className='w-full text-left text-sm whitespace-nowrap'>
-                    <thead className='bg-surface-container text-[10px] font-bold uppercase text-on-surface-variant'>
-                      <tr>
-                        <th className='px-3 py-2'>Sifat</th>
-                        <th className='px-3 py-2'>Model/Hajm</th>
-                        <th className='px-3 py-2 text-primary'>Narx (so'm)</th>
-                        <th className='px-3 py-2 text-tertiary'>Chegirma</th>
-                        <th className='px-3 py-2'>Kirim</th>
-                        <th className='px-3 py-2'>Stock</th>
-                        <th className='px-3 py-2'>SKU</th>
-                        <th className='px-2 py-2 text-center'>Faol</th>
-                        <th className='px-2 py-2'></th>
-                      </tr>
-                    </thead>
-                    <tbody className='divide-y divide-outline-variant'>
-                      {group.map((variant) => {
-                        const idx = variants.indexOf(variant);
-                        // #N8: bu variant tannarxdan past sotilyaptimi
-                        const below = sellBelowCost(variant.price, variant.discount_price, variant.cost_price);
-                        return (
-                          <tr
-                            key={variant.client_id}
-                            className={below ? 'bg-error-container/25' : 'hover:bg-surface-container/30'}
-                            title={below ? 'Sotuv narxi tannarxdan past!' : undefined}
-                          >
-                            <td className='p-2'>
+                {/* 2. Variant qatorlari — har biri 2 qatorli card */}
+                <div className='space-y-3'>
+                  {group.map((variant) => {
+                    const idx = variants.indexOf(variant);
+                    const below = sellBelowCost(
+                      variant.price,
+                      variant.discount_price,
+                      variant.cost_price,
+                    );
+                    const images = buildVariantImageList(
+                      variant,
+                      variantImageFiles,
+                      variantImagePreviews,
+                      variantGalleryPreviews,
+                    );
+                    const canAddMore = images.length < MAX_VARIANT_IMAGES;
+
+                    return (
+                      <div
+                        key={variant.client_id}
+                        className={`rounded-xl border p-3 transition-colors ${
+                          below
+                            ? 'border-error bg-error-container/15'
+                            : 'border-outline-variant bg-surface-container-lowest hover:border-outline'
+                        }`}
+                        title={below ? 'Sotuv narxi tannarxdan past!' : undefined}
+                      >
+                        {/* ROW 1 — INPUT GRID (responsive: 12 ustun) */}
+                        <div className='grid grid-cols-12 gap-2'>
+                          {/* Sifat — 2 ustun */}
+                          <div className='col-span-6 sm:col-span-4 lg:col-span-2'>
+                            <label className='mb-1 block text-[10px] font-bold uppercase text-on-surface-variant'>
+                              Sifat
+                            </label>
+                            <input
+                              value={variant.quality}
+                              onChange={(e) => onVariantChange(idx, 'quality', e.target.value)}
+                              className='w-full rounded border border-outline-variant bg-surface-bright px-2 py-1.5 text-xs outline-none focus:border-primary'
+                              placeholder='Original...'
+                            />
+                          </div>
+                          {/* Model + Hajm — 2 ustun, ichida 2 input */}
+                          <div className='col-span-6 sm:col-span-4 lg:col-span-2'>
+                            <label className='mb-1 block text-[10px] font-bold uppercase text-on-surface-variant'>
+                              Model / Hajm
+                            </label>
+                            <div className='flex gap-1'>
                               <input
-                                value={variant.quality}
-                                onChange={(e) => onVariantChange(idx, 'quality', e.target.value)}
-                                className='w-full min-w-[120px] rounded border border-outline-variant bg-surface-bright px-2 py-1.5 text-xs outline-none focus:border-primary'
-                                placeholder='Original...'
+                                value={variant.model}
+                                onChange={(e) => onVariantChange(idx, 'model', e.target.value)}
+                                className='min-w-0 flex-1 rounded border border-outline-variant bg-surface-bright px-2 py-1.5 text-xs outline-none focus:border-primary'
+                                placeholder='Pro'
                               />
-                            </td>
-                            <td className='p-2'>
-                              <div className='flex gap-1'>
-                                <input
-                                  value={variant.model}
-                                  onChange={(e) => onVariantChange(idx, 'model', e.target.value)}
-                                  className='w-16 rounded border border-outline-variant bg-surface-bright px-2 py-1.5 text-xs outline-none focus:border-primary'
-                                  placeholder='Pro...'
-                                />
-                                <input
-                                  value={variant.size}
-                                  onChange={(e) => onVariantChange(idx, 'size', e.target.value)}
-                                  className='w-16 rounded border border-outline-variant bg-surface-bright px-2 py-1.5 text-xs outline-none focus:border-primary'
-                                  placeholder='128GB...'
-                                />
-                              </div>
-                            </td>
-                            <td className='p-2'>
-                              <div className='flex gap-1'>
-                                <input
-                                  value={variant.price}
-                                  onChange={(e) =>
-                                    onVariantPriceChange(idx, 'price', e.target.value, false)
-                                  }
-                                  className='w-24 rounded border border-outline-variant bg-surface-bright px-2 py-1.5 text-xs font-bold text-primary outline-none focus:border-primary'
-                                  placeholder="so'm"
-                                />
-                                <input
-                                  value={variant.price_usd}
-                                  onChange={(e) =>
-                                    onVariantPriceChange(idx, 'price', e.target.value, true)
-                                  }
-                                  className='w-12 rounded border border-outline-variant bg-surface-bright px-2 py-1.5 text-xs font-bold text-[#10b981] outline-none focus:border-primary'
-                                  placeholder='$'
-                                />
-                              </div>
-                            </td>
-                            <td className='p-2'>
-                              <div className='flex gap-1'>
-                                <input
-                                  value={variant.discount_price}
-                                  onChange={(e) =>
-                                    onVariantPriceChange(
-                                      idx,
-                                      'discount_price',
-                                      e.target.value,
-                                      false,
-                                    )
-                                  }
-                                  className='w-24 rounded border border-outline-variant bg-surface-bright px-2 py-1.5 text-xs text-tertiary outline-none focus:border-primary'
-                                  placeholder="so'm"
-                                />
-                                <input
-                                  value={variant.discount_price_usd}
-                                  onChange={(e) =>
-                                    onVariantPriceChange(
-                                      idx,
-                                      'discount_price',
-                                      e.target.value,
-                                      true,
-                                    )
-                                  }
-                                  className='w-12 rounded border border-outline-variant bg-surface-bright px-2 py-1.5 text-xs text-[#f59e0b] outline-none focus:border-primary'
-                                  placeholder='$'
-                                />
-                              </div>
-                            </td>
-                            <td className='p-2'>
-                              <div className='flex gap-1'>
-                                <input
-                                  value={variant.cost_price}
-                                  onChange={(e) =>
-                                    onVariantPriceChange(idx, 'cost_price', e.target.value, false)
-                                  }
-                                  className='w-24 rounded border border-outline-variant bg-surface-bright px-2 py-1.5 text-xs outline-none focus:border-primary'
-                                  placeholder="so'm"
-                                />
-                                <input
-                                  value={variant.cost_price_usd}
-                                  onChange={(e) =>
-                                    onVariantPriceChange(idx, 'cost_price', e.target.value, true)
-                                  }
-                                  className='w-12 rounded border border-outline-variant bg-surface-bright px-2 py-1.5 text-xs outline-none focus:border-primary'
-                                  placeholder='$'
-                                />
-                              </div>
-                            </td>
-                            <td className='p-2'>
+                              <input
+                                value={variant.size}
+                                onChange={(e) => onVariantChange(idx, 'size', e.target.value)}
+                                className='min-w-0 flex-1 rounded border border-outline-variant bg-surface-bright px-2 py-1.5 text-xs outline-none focus:border-primary'
+                                placeholder='128GB'
+                              />
+                            </div>
+                          </div>
+                          {/* Narx — 2 ustun (so'm + $) */}
+                          <div className='col-span-6 sm:col-span-4 lg:col-span-2'>
+                            <label className='mb-1 block text-[10px] font-bold uppercase text-primary'>
+                              Narx (so'm)
+                            </label>
+                            <div className='flex gap-1'>
+                              <input
+                                value={variant.price}
+                                onChange={(e) =>
+                                  onVariantPriceChange(idx, 'price', e.target.value, false)
+                                }
+                                className='min-w-0 flex-1 rounded border border-outline-variant bg-surface-bright px-2 py-1.5 text-xs font-bold text-primary outline-none focus:border-primary'
+                                placeholder="so'm"
+                              />
+                              <input
+                                value={variant.price_usd}
+                                onChange={(e) =>
+                                  onVariantPriceChange(idx, 'price', e.target.value, true)
+                                }
+                                className='w-14 rounded border border-outline-variant bg-surface-bright px-2 py-1.5 text-xs font-bold text-[#10b981] outline-none focus:border-primary'
+                                placeholder='$'
+                              />
+                            </div>
+                          </div>
+                          {/* Chegirma — 2 ustun */}
+                          <div className='col-span-6 sm:col-span-4 lg:col-span-2'>
+                            <label className='mb-1 block text-[10px] font-bold uppercase text-tertiary'>
+                              Chegirma
+                            </label>
+                            <div className='flex gap-1'>
+                              <input
+                                value={variant.discount_price}
+                                onChange={(e) =>
+                                  onVariantPriceChange(idx, 'discount_price', e.target.value, false)
+                                }
+                                className='min-w-0 flex-1 rounded border border-outline-variant bg-surface-bright px-2 py-1.5 text-xs text-tertiary outline-none focus:border-primary'
+                                placeholder="so'm"
+                              />
+                              <input
+                                value={variant.discount_price_usd}
+                                onChange={(e) =>
+                                  onVariantPriceChange(idx, 'discount_price', e.target.value, true)
+                                }
+                                className='w-14 rounded border border-outline-variant bg-surface-bright px-2 py-1.5 text-xs text-[#f59e0b] outline-none focus:border-primary'
+                                placeholder='$'
+                              />
+                            </div>
+                          </div>
+                          {/* Kirim — 2 ustun */}
+                          <div className='col-span-6 sm:col-span-4 lg:col-span-2'>
+                            <label className='mb-1 block text-[10px] font-bold uppercase text-on-surface-variant'>
+                              Kirim
+                            </label>
+                            <div className='flex gap-1'>
+                              <input
+                                value={variant.cost_price}
+                                onChange={(e) =>
+                                  onVariantPriceChange(idx, 'cost_price', e.target.value, false)
+                                }
+                                className='min-w-0 flex-1 rounded border border-outline-variant bg-surface-bright px-2 py-1.5 text-xs outline-none focus:border-primary'
+                                placeholder="so'm"
+                              />
+                              <input
+                                value={variant.cost_price_usd}
+                                onChange={(e) =>
+                                  onVariantPriceChange(idx, 'cost_price', e.target.value, true)
+                                }
+                                className='w-14 rounded border border-outline-variant bg-surface-bright px-2 py-1.5 text-xs outline-none focus:border-primary'
+                                placeholder='$'
+                              />
+                            </div>
+                          </div>
+                          {/* Stock | SKU | Faol | Del — yig'iq qator */}
+                          <div className='col-span-12 lg:col-span-2 flex items-end gap-2'>
+                            {/* Stock */}
+                            <div className='w-16 shrink-0'>
+                              <label className='mb-1 block text-[10px] font-bold uppercase text-on-surface-variant'>
+                                Stock
+                              </label>
                               <input
                                 value={variant.stock}
                                 onChange={(e) => onVariantChange(idx, 'stock', e.target.value)}
-                                className='w-14 rounded border border-outline-variant bg-surface-bright px-2 py-1.5 text-xs outline-none focus:border-primary'
+                                className='w-full rounded border border-outline-variant bg-surface-bright px-2 py-1.5 text-xs outline-none focus:border-primary'
                                 placeholder='0'
                               />
-                            </td>
-                            <td className='p-2'>
+                            </div>
+                            {/* SKU */}
+                            <div className='min-w-0 flex-1'>
+                              <label className='mb-1 block text-[10px] font-bold uppercase text-on-surface-variant'>
+                                SKU
+                              </label>
                               <div className='flex items-center gap-1'>
                                 <input
                                   value={variant.sku}
                                   onChange={(e) => onVariantChange(idx, 'sku', e.target.value)}
-                                  className='w-24 rounded border border-outline-variant bg-surface-bright px-2 py-1.5 text-[10px] font-mono outline-none focus:border-primary'
-                                  placeholder='SKU...'
+                                  className='min-w-0 flex-1 rounded border border-outline-variant bg-surface-bright px-2 py-1.5 text-[10px] font-mono outline-none focus:border-primary'
+                                  placeholder='SKU'
                                 />
                                 <button
                                   type='button'
                                   onClick={() => onGenerateSku(idx)}
-                                  className='flex-shrink-0 rounded p-1 text-primary hover:bg-primary-container/20'
+                                  className='shrink-0 rounded p-1 text-primary hover:bg-primary-container/20'
                                   title='Auto SKU'
                                 >
                                   <span className='material-symbols-outlined text-[14px]'>
@@ -1467,36 +1528,133 @@ const ColorGroupVariantEditor = ({
                                   </span>
                                 </button>
                               </div>
-                            </td>
-                            <td className='p-2 text-center'>
-                              <input
-                                type='checkbox'
-                                checked={variant.is_active}
-                                onChange={(e) =>
-                                  onVariantChange(idx, 'is_active', String(e.target.checked))
-                                }
-                                className='h-4 w-4 rounded text-primary focus:ring-primary'
-                              />
-                            </td>
-                            <td className='p-2 text-center'>
-                              <button
-                                type='button'
-                                onClick={() => onRemoveVariant(idx)}
-                                className='flex h-6 w-6 items-center justify-center rounded bg-error-container/30 text-error transition-all hover:bg-error hover:text-on-error'
-                                title="O'chirish"
-                              >
-                                <span className='material-symbols-outlined text-[16px]'>
-                                  delete
+                            </div>
+                            {/* Faol toggle */}
+                            <button
+                              type='button'
+                              onClick={() =>
+                                onVariantChange(idx, 'is_active', String(!variant.is_active))
+                              }
+                              className={`shrink-0 flex h-[34px] w-[34px] items-center justify-center rounded transition-colors ${
+                                variant.is_active
+                                  ? 'bg-primary/15 text-primary hover:bg-primary/25'
+                                  : 'bg-surface-container text-on-surface-variant hover:bg-outline-variant'
+                              }`}
+                              title={variant.is_active ? 'Faol — bosing o\'chirish uchun' : 'Faol emas'}
+                            >
+                              <span className='material-symbols-outlined text-[18px]'>
+                                {variant.is_active ? 'check_circle' : 'radio_button_unchecked'}
+                              </span>
+                            </button>
+                            {/* Delete */}
+                            <button
+                              type='button'
+                              onClick={() => onRemoveVariant(idx)}
+                              className='shrink-0 flex h-[34px] w-[34px] items-center justify-center rounded bg-error-container/30 text-error transition-all hover:bg-error hover:text-on-error'
+                              title="O'chirish"
+                            >
+                              <span className='material-symbols-outlined text-[18px]'>delete</span>
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* ROW 2 — IMAGE STRIP (per-variant) */}
+                        <div className='mt-3 rounded-lg border border-dashed border-outline-variant/60 bg-surface/40 p-2.5'>
+                          <div className='mb-2 flex items-center justify-between'>
+                            <div className='flex items-center gap-1.5'>
+                              <span className='material-symbols-outlined text-[16px] text-on-surface-variant'>
+                                image
+                              </span>
+                              <span className='text-[11px] font-bold uppercase text-on-surface-variant'>
+                                Rasmlar
+                              </span>
+                              <span className='text-[11px] text-on-surface-variant'>
+                                {images.length}/{MAX_VARIANT_IMAGES}
+                              </span>
+                              {images.length > 0 && (
+                                <span className='ml-1 rounded bg-primary/10 px-1.5 py-0.5 text-[9px] font-bold text-primary'>
+                                  1-rasm = asosiy
                                 </span>
-                              </button>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
+                              )}
+                            </div>
+                            {images.length === 0 && (
+                              <span className='text-[10px] text-error/80'>
+                                ⚠ Rasm yo'q — saytda boshqa variantning rasmi ko'rinadi
+                              </span>
+                            )}
+                          </div>
+                          <div className='flex flex-wrap gap-2'>
+                            {images.map((img, i) => {
+                              const isMain = i === 0;
+                              const key =
+                                img.kind === 'existing-gallery'
+                                  ? `eg-${img.id}`
+                                  : img.kind === 'new-gallery'
+                                    ? `ng-${img.index}`
+                                    : `${img.kind}-${i}`;
+                              return (
+                                <div key={key} className='relative group/img'>
+                                  <img
+                                    src={img.url}
+                                    alt=''
+                                    className={`h-16 w-16 rounded-lg object-cover ring-1 transition-all ${
+                                      isMain
+                                        ? 'ring-2 ring-primary shadow-md'
+                                        : 'ring-outline-variant'
+                                    } ${
+                                      img.kind.startsWith('new-')
+                                        ? 'border-2 border-primary/50'
+                                        : ''
+                                    }`}
+                                  />
+                                  {isMain && (
+                                    <span className='absolute -bottom-1.5 left-1/2 -translate-x-1/2 rounded bg-primary px-1 py-px text-[8px] font-bold text-on-primary whitespace-nowrap shadow'>
+                                      ASOSIY
+                                    </span>
+                                  )}
+                                  <button
+                                    type='button'
+                                    onClick={() => handleVariantImageRemove(variant, img)}
+                                    className='absolute -top-1.5 -right-1.5 hidden group-hover/img:flex h-5 w-5 items-center justify-center rounded-full bg-error text-on-error text-[11px] shadow'
+                                    title="Olib tashlash"
+                                  >
+                                    <span className='material-symbols-outlined text-[13px]'>
+                                      close
+                                    </span>
+                                  </button>
+                                </div>
+                              );
+                            })}
+                            {canAddMore && (
+                              <label className='flex h-16 w-16 cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed border-outline-variant bg-surface text-on-surface-variant hover:border-primary hover:bg-primary/5 hover:text-primary transition-colors'>
+                                <span className='material-symbols-outlined text-xl'>
+                                  add_photo_alternate
+                                </span>
+                                <span className='text-[9px] mt-0.5 font-medium'>Yuklash</span>
+                                <input
+                                  type='file'
+                                  accept='image/*'
+                                  multiple
+                                  className='hidden'
+                                  onChange={(e) => {
+                                    const files = Array.from(e.target.files || []);
+                                    const remaining = MAX_VARIANT_IMAGES - images.length;
+                                    const slice = files.slice(0, remaining);
+                                    if (slice.length) handleVariantImagesPick(variant, slice);
+                                    e.target.value = '';
+                                  }}
+                                />
+                              </label>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
-                <div className='mt-3 flex'>
+
+                {/* 3. Add new spec row to this color */}
+                <div className='flex'>
                   <button
                     type='button'
                     onClick={() => onAddVariantToGroup(baseVariant)}

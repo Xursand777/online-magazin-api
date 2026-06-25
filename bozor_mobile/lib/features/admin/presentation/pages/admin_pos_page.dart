@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -379,8 +380,38 @@ class _ProductUnitCard extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            // Mahsulot rasmi + nom — qisqa va aniq
             Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                // Thumbnail (variantning yoki mahsulotning rasmi)
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(8),
+                  child: Container(
+                    width: 46,
+                    height: 46,
+                    color: theme.colorScheme.surfaceContainer,
+                    child: unit.image != null && unit.image!.isNotEmpty
+                        ? CachedNetworkImage(
+                            imageUrl: unit.image!,
+                            fit: BoxFit.cover,
+                            placeholder: (_, __) => const SizedBox.shrink(),
+                            errorWidget: (_, __, ___) => Icon(
+                              Icons.inventory_2_outlined,
+                              size: 22,
+                              color: theme.colorScheme.onSurfaceVariant
+                                  .withValues(alpha: 0.5),
+                            ),
+                          )
+                        : Icon(
+                            Icons.inventory_2_outlined,
+                            size: 22,
+                            color: theme.colorScheme.onSurfaceVariant
+                                .withValues(alpha: 0.5),
+                          ),
+                  ),
+                ),
+                const SizedBox(width: 10),
                 Expanded(
                   child: Text(
                     unit.name,
@@ -411,15 +442,31 @@ class _ProductUnitCard extends StatelessWidget {
                   ),
               ],
             ),
+            // Variant atributlari chip'lari (sifat / model / hajm / rang)
             if (unit.variantText.isNotEmpty) ...[
-              const SizedBox(height: 4),
-              Text(
-                unit.variantText,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: theme.textTheme.labelSmall?.copyWith(
-                  color: theme.colorScheme.onSurfaceVariant,
-                ),
+              const SizedBox(height: 6),
+              Wrap(
+                spacing: 4,
+                runSpacing: 4,
+                children: [
+                  for (final attr in [unit.quality, unit.model, unit.size, unit.color]
+                      .where((e) => e.trim().isNotEmpty))
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 6, vertical: 1.5),
+                      decoration: BoxDecoration(
+                        color: theme.colorScheme.surfaceContainer,
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: Text(
+                        attr,
+                        style: theme.textTheme.labelSmall?.copyWith(
+                          fontSize: 10,
+                          color: theme.colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ),
+                ],
               ),
             ],
             const Spacer(),
@@ -581,24 +628,59 @@ class _CartItemRow extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              // Thumbnail — admin qaysi mahsulotni qo'shganini darrov ko'radi
+              ClipRRect(
+                borderRadius: BorderRadius.circular(6),
+                child: Container(
+                  width: 38,
+                  height: 38,
+                  color: theme.colorScheme.surfaceContainer,
+                  child: item.image != null && item.image!.isNotEmpty
+                      ? CachedNetworkImage(
+                          imageUrl: item.image!,
+                          fit: BoxFit.cover,
+                          placeholder: (_, __) => const SizedBox.shrink(),
+                          errorWidget: (_, __, ___) => Icon(
+                            Icons.inventory_2_outlined,
+                            size: 18,
+                            color: theme.colorScheme.onSurfaceVariant
+                                .withValues(alpha: 0.5),
+                          ),
+                        )
+                      : Icon(
+                          Icons.inventory_2_outlined,
+                          size: 18,
+                          color: theme.colorScheme.onSurfaceVariant
+                              .withValues(alpha: 0.5),
+                        ),
+                ),
+              ),
+              const SizedBox(width: 8),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(item.name,
-                        maxLines: 1,
+                    // To'liq nom — Mahsulot • Sifat • Model • Hajm • Rang
+                    Text(item.fullName,
+                        maxLines: 2,
                         overflow: TextOverflow.ellipsis,
-                        style: theme.textTheme.bodyMedium
-                            ?.copyWith(fontWeight: FontWeight.w700)),
-                    if (item.variantText.isNotEmpty)
-                      Text(item.variantText,
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          fontWeight: FontWeight.w700,
+                          height: 1.2,
+                        )),
+                    if (item.sku.isNotEmpty)
+                      Text('SKU: ${item.sku}',
                           style: theme.textTheme.labelSmall?.copyWith(
+                            fontSize: 10,
+                            fontFamily: 'monospace',
                             color: theme.colorScheme.onSurfaceVariant,
                           )),
                   ],
                 ),
               ),
+              const SizedBox(width: 6),
               // qty stepper
               _QtyButton(
                 icon: Icons.remove,
