@@ -140,8 +140,17 @@ class AdminDrawer extends StatelessWidget {
                         active: current == item.route,
                         brand: _brand,
                         onTap: () {
+                          final navigateTo =
+                              current != item.route ? item.route : null;
                           Navigator.pop(context); // drawer'ni yopish
-                          if (current != item.route) context.go(item.route);
+                          // Navigatsiyani drawer yopilgandan KEYIN (keyingi frame)
+                          // bajaramiz — aks holda pop + go bir vaqtda Navigator'ni
+                          // qulflaydi ('!_debugLocked' assertion xatosi).
+                          if (navigateTo != null) {
+                            WidgetsBinding.instance.addPostFrameCallback((_) {
+                              context.go(navigateTo);
+                            });
+                          }
                         },
                       ),
                   ],

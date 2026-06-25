@@ -212,7 +212,6 @@ class ReturnLabels {
   static const Map<String, String> status = {
     'REQUESTED': "So'rov yuborildi",
     'APPROVED': 'Tasdiqlandi',
-    'PICKUP_SCHEDULED': 'Kuryer biriktirildi',
     'PICKED_UP': 'Tovar olindi',
     'INSPECTING': 'Tekshirilmoqda',
     'ACCEPTED': 'Qabul qilindi',
