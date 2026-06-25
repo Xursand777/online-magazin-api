@@ -135,6 +135,9 @@ class ApiConstants {
       '/api/orders/admin/$orderId/returns/';
   static const String adminReturnsList = '/api/orders/admin/returns/';
   static const String adminReturnsStats = '/api/orders/admin/returns/stats/';
+  // Defektlar (sotuvga yaroqsiz writeoff buyumlar)
+  static const String adminDefects = '/api/orders/admin/defects/';
+  static const String adminDefectsStats = '/api/orders/admin/defects/stats/';
   static String adminReturnDetail(int id) => '/api/orders/admin/returns/$id/';
   static String adminReturnTransition(int id) =>
       '/api/orders/admin/returns/$id/transition/';

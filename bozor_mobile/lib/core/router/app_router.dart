@@ -48,6 +48,7 @@ import '../../core/models/product_model.dart';
 import '../widgets/main_screen.dart';
 import '../../features/profile/presentation/pages/my_orders_page.dart';
 import '../../features/returns/presentation/pages/admin_returns_page.dart';
+import '../../features/returns/presentation/pages/admin_defects_page.dart';
 import '../../features/returns/presentation/pages/my_returns_page.dart';
 import '../../features/profile/presentation/pages/favorites_page.dart';
 import '../../features/profile/presentation/pages/profile_edit_page.dart';
@@ -255,6 +256,11 @@ class AppRouter {
             GoRoute(
               path: '/admin/returns',
               builder: (context, _) => const AdminReturnsPage(),
+            ),
+            // Defektlar — sotuvga yaroqsiz writeoff buyumlar
+            GoRoute(
+              path: '/admin/defects',
+              builder: (context, _) => const AdminDefectsPage(),
             ),
             GoRoute(
               path: '/admin/masters',

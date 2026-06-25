@@ -7,6 +7,7 @@ import 'package:dio/dio.dart';
 import '../../../../core/network/api_client.dart';
 import '../../../../core/network/api_constants.dart';
 import '../models/order_return_model.dart';
+import '../models/defect_model.dart';
 
 class ReturnsListPage {
   final List<OrderReturn> items;
@@ -79,19 +80,12 @@ class ReturnsRepository {
     required String reasonCode,
     String? reasonText,
     String? customerRequestNote,
+    List<Map<String, int>> items = const [],
     List<MultipartFile> claimImages = const [],
   }) async {
-    final fd = FormData.fromMap({
-      'reason_code': reasonCode,
-      if (reasonText != null) 'reason_text': reasonText,
-      if (customerRequestNote != null) 'customer_request_note': customerRequestNote,
-    });
-    for (final img in claimImages) {
-      fd.files.add(MapEntry('claim_images', img));
-    }
     final r = await apiClient.dio.post(
       ApiConstants.customerCreateReturn(orderId),
-      data: fd,
+      data: _buildReturnPayload(reasonCode, reasonText, customerRequestNote, items, claimImages),
     );
     return OrderReturn.fromJson(r.data as Map<String, dynamic>);
   }
@@ -119,21 +113,46 @@ class ReturnsRepository {
     required String reasonCode,
     String? reasonText,
     String? customerRequestNote,
+    // Qisman qaytarish: [{'order_item_id': id, 'quantity': qty}, ...].
+    // Bo'sh bo'lsa — barcha qoldiq mahsulotlar qaytariladi (backend default).
+    List<Map<String, int>> items = const [],
     List<MultipartFile> claimImages = const [],
   }) async {
-    final fd = FormData.fromMap({
+    final r = await apiClient.dio.post(
+      ApiConstants.adminCreateReturn(orderId),
+      data: _buildReturnPayload(reasonCode, reasonText, customerRequestNote, items, claimImages),
+    );
+    return OrderReturn.fromJson(r.data as Map<String, dynamic>);
+  }
+
+  /// Qaytarish create payload'ini quradi (admin + customer uchun umumiy).
+  /// Rasm bo'lmasa — JSON body (items list bevosita). Rasm bo'lsa — multipart
+  /// (items DRF nested `items[i][key]` formatida).
+  dynamic _buildReturnPayload(
+    String reasonCode,
+    String? reasonText,
+    String? customerRequestNote,
+    List<Map<String, int>> items,
+    List<MultipartFile> claimImages,
+  ) {
+    final base = <String, dynamic>{
       'reason_code': reasonCode,
-      if (reasonText != null) 'reason_text': reasonText,
-      if (customerRequestNote != null) 'customer_request_note': customerRequestNote,
-    });
+      if (reasonText != null && reasonText.isNotEmpty) 'reason_text': reasonText,
+      if (customerRequestNote != null && customerRequestNote.isNotEmpty)
+        'customer_request_note': customerRequestNote,
+    };
+    if (claimImages.isEmpty) {
+      return {...base, if (items.isNotEmpty) 'items': items};
+    }
+    final fd = FormData.fromMap(base);
+    for (var i = 0; i < items.length; i++) {
+      fd.fields.add(MapEntry('items[$i][order_item_id]', '${items[i]['order_item_id']}'));
+      fd.fields.add(MapEntry('items[$i][quantity]', '${items[i]['quantity']}'));
+    }
     for (final img in claimImages) {
       fd.files.add(MapEntry('claim_images', img));
     }
-    final r = await apiClient.dio.post(
-      ApiConstants.adminCreateReturn(orderId),
-      data: fd,
-    );
-    return OrderReturn.fromJson(r.data as Map<String, dynamic>);
+    return fd;
   }
 
   Future<ReturnsListPage> adminList({
@@ -158,6 +177,29 @@ class ReturnsRepository {
   Future<ReturnsStats> adminStats() async {
     final r = await apiClient.dio.get(ApiConstants.adminReturnsStats);
     return ReturnsStats.fromJson(r.data as Map<String, dynamic>);
+  }
+
+  // ── Defektlar (sotuvga yaroqsiz writeoff buyumlar) ──────────────────────────
+  Future<List<DefectItem>> adminDefects({String? condition}) async {
+    final r = await apiClient.dio.get(
+      ApiConstants.adminDefects,
+      queryParameters: {
+        if (condition != null && condition.isNotEmpty) 'condition': condition,
+      },
+    );
+    final data = r.data;
+    // Paginated ({results: [...]}) yoki to'g'ridan list bo'lishi mumkin.
+    final list = data is Map<String, dynamic>
+        ? (data['results'] as List<dynamic>? ?? [])
+        : (data as List<dynamic>? ?? []);
+    return list
+        .map((e) => DefectItem.fromJson(e as Map<String, dynamic>))
+        .toList();
+  }
+
+  Future<DefectStats> adminDefectStats() async {
+    final r = await apiClient.dio.get(ApiConstants.adminDefectsStats);
+    return DefectStats.fromJson(r.data as Map<String, dynamic>);
   }
 
   Future<OrderReturn> adminDetail(int id) async {

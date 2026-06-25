@@ -295,8 +295,7 @@ class ReturnLabels {
       case 'REQUESTED':
         return ['APPROVED', 'REJECTED', 'CANCELLED'];
       case 'APPROVED':
-        return ['PICKUP_SCHEDULED', 'PICKED_UP', 'CANCELLED'];
-      case 'PICKUP_SCHEDULED':
+        // Mijoz tovarni O'ZI do'konga olib keladi — kuryer (PICKUP_SCHEDULED) YO'Q.
         return ['PICKED_UP', 'CANCELLED'];
       case 'PICKED_UP':
         return ['INSPECTING', 'CANCELLED'];

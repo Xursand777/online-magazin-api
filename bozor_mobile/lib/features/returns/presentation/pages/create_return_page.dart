@@ -47,6 +47,8 @@ class _CreateReturnPageState extends State<CreateReturnPage> {
   bool _submitted = false;
   String? _error;
   final List<File> _images = [];
+  // Qisman qaytarish: order_item_id -> miqdor. Default: barcha mahsulot tanlangan.
+  final Map<int, int> _selected = {};
 
   @override
   void initState() {
@@ -90,6 +92,12 @@ class _CreateReturnPageState extends State<CreateReturnPage> {
           if (result.reasons.isNotEmpty && _reasonCode == null) {
             _reasonCode = result.reasons.first.code;
           }
+          // Default: barcha qaytariladigan mahsulotlar tanlangan (admin keraksizini
+          // olib tashlaydi yoki miqdorini o'zgartiradi — qisman qaytarish).
+          _selected
+            ..clear()
+            ..addEntries(
+                result.items.map((it) => MapEntry(it.orderItemId, it.returnableQty)));
         });
       }
     } catch (e) {
@@ -122,6 +130,10 @@ class _CreateReturnPageState extends State<CreateReturnPage> {
 
   Future<void> _submit() async {
     if (_eligibility?.eligible != true || _reasonCode == null) return;
+    if (_selected.isEmpty) {
+      setState(() => _error = "Kamida bitta mahsulotni belgilang");
+      return;
+    }
     final id = int.parse(_orderIdCtrl.text.trim());
     setState(() {
       _busy = true;
@@ -135,6 +147,10 @@ class _CreateReturnPageState extends State<CreateReturnPage> {
           filename: f.path.split('/').last,
         ));
       }
+      // Faqat tanlangan mahsulotlar (qisman qaytarish)
+      final returnItems = _selected.entries
+          .map((e) => {'order_item_id': e.key, 'quantity': e.value})
+          .toList();
       final create = _isCustomer
           ? _repo.customerCreateReturn(id,
               reasonCode: _reasonCode!,
@@ -144,6 +160,7 @@ class _CreateReturnPageState extends State<CreateReturnPage> {
               customerRequestNote: _customerNote.text.trim().isEmpty
                   ? null
                   : _customerNote.text.trim(),
+              items: returnItems,
               claimImages: claimImages)
           : _repo.adminCreateReturn(id,
               reasonCode: _reasonCode!,
@@ -153,6 +170,7 @@ class _CreateReturnPageState extends State<CreateReturnPage> {
               customerRequestNote: _customerNote.text.trim().isEmpty
                   ? null
                   : _customerNote.text.trim(),
+              items: returnItems,
               claimImages: claimImages);
       final ret = await create;
       if (mounted) {
@@ -247,32 +265,74 @@ class _CreateReturnPageState extends State<CreateReturnPage> {
             _Section(
               title: 'Qaytariladigan tovarlar',
               child: Column(
-                children: _eligibility!.items.map((it) {
-                  final fmt = NumberFormat('#,###', 'uz_UZ');
-                  return Container(
-                    margin: const EdgeInsets.only(bottom: 6),
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                    decoration: BoxDecoration(
-                      color: theme.colorScheme.surfaceContainerLowest,
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: theme.colorScheme.outlineVariant),
-                    ),
-                    child: Row(
-                      children: [
-                        Expanded(
-                          child: Text(it.productName,
-                              style: const TextStyle(fontWeight: FontWeight.w700)),
+                children: [
+                  ..._eligibility!.items.map((it) {
+                    final fmt = NumberFormat('#,###', 'uz_UZ');
+                    final isSel = _selected.containsKey(it.orderItemId);
+                    final qty = _selected[it.orderItemId] ?? it.returnableQty;
+                    return Container(
+                      margin: const EdgeInsets.only(bottom: 6),
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: theme.colorScheme.surfaceContainerLowest,
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(
+                          color: isSel
+                              ? const Color(0xFF0A7C55).withValues(alpha: 0.45)
+                              : theme.colorScheme.outlineVariant,
                         ),
-                        Text("${it.returnableQty} ta"),
-                        const SizedBox(width: 12),
-                        Text(
-                          "${fmt.format(double.tryParse(it.price) ?? 0).replaceAll(',', ' ')} so'm",
-                          style: const TextStyle(color: Color(0xFF0A7C55)),
+                      ),
+                      child: Opacity(
+                        opacity: isSel ? 1 : 0.5,
+                        child: Row(
+                          children: [
+                            Checkbox(
+                              value: isSel,
+                              activeColor: const Color(0xFF0A7C55),
+                              onChanged: (v) => setState(() {
+                                if (v == true) {
+                                  _selected[it.orderItemId] = it.returnableQty;
+                                } else {
+                                  _selected.remove(it.orderItemId);
+                                }
+                              }),
+                            ),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(it.productName,
+                                      style: const TextStyle(fontWeight: FontWeight.w700)),
+                                  Text(
+                                    "Mavjud: ${it.returnableQty} ta · ${fmt.format(double.tryParse(it.price) ?? 0).replaceAll(',', ' ')} so'm",
+                                    style: TextStyle(
+                                        fontSize: 12,
+                                        color: theme.colorScheme.onSurfaceVariant),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            if (isSel && it.returnableQty > 1)
+                              _QtyStepper(
+                                value: qty,
+                                max: it.returnableQty,
+                                onChanged: (v) =>
+                                    setState(() => _selected[it.orderItemId] = v),
+                              ),
+                          ],
                         ),
-                      ],
+                      ),
+                    );
+                  }),
+                  const Padding(
+                    padding: EdgeInsets.only(top: 4),
+                    child: Text(
+                      "Faqat qaytariladigan mahsulotlarni belgilang. Bitta buyurtmadan "
+                      "ba'zi mahsulotni qaytarish mumkin (qisman qaytarish).",
+                      style: TextStyle(fontSize: 11, color: Colors.grey),
                     ),
-                  );
-                }).toList(),
+                  ),
+                ],
               ),
             ),
             _Section(
@@ -533,6 +593,63 @@ class _SuccessTile extends StatelessWidget {
                     color: Color(0xFF10B981),
                     fontWeight: FontWeight.w700,
                     fontSize: 13)),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Qisman qaytarish miqdori uchun kichik − [n] + stepper.
+class _QtyStepper extends StatelessWidget {
+  const _QtyStepper({
+    required this.value,
+    required this.max,
+    required this.onChanged,
+  });
+
+  final int value;
+  final int max;
+  final ValueChanged<int> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Container(
+      decoration: BoxDecoration(
+        border: Border.all(color: theme.colorScheme.outlineVariant),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          InkWell(
+            onTap: value > 1 ? () => onChanged(value - 1) : null,
+            child: Padding(
+              padding: const EdgeInsets.all(6),
+              child: Icon(Icons.remove,
+                  size: 16,
+                  color: value > 1
+                      ? theme.colorScheme.onSurface
+                      : theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.4)),
+            ),
+          ),
+          SizedBox(
+            width: 24,
+            child: Text('$value',
+                textAlign: TextAlign.center,
+                style: const TextStyle(fontWeight: FontWeight.w700)),
+          ),
+          InkWell(
+            onTap: value < max ? () => onChanged(value + 1) : null,
+            child: Padding(
+              padding: const EdgeInsets.all(6),
+              child: Icon(Icons.add,
+                  size: 16,
+                  color: value < max
+                      ? const Color(0xFF0A7C55)
+                      : theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.4)),
+            ),
           ),
         ],
       ),

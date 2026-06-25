@@ -22,6 +22,7 @@ class AdminDrawer extends StatelessWidget {
       _NavItem('Buyurtmalar', Icons.local_shipping_rounded, '/admin/orders'),
       // Phase 3.6 — Qaytarishlar
       _NavItem('Qaytarishlar', Icons.assignment_return_rounded, '/admin/returns'),
+      _NavItem('Defektlar', Icons.dangerous_rounded, '/admin/defects'),
       _NavItem('Nasiya', Icons.calendar_month_rounded, '/admin/nasiya'),
       _NavItem('Moliya / Kassa', Icons.account_balance_wallet_rounded, '/admin/kassa'),
     ]),
