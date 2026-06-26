@@ -462,7 +462,8 @@ export const ProductEditor = ({
           ? {
               ...v,
               existingImages: v.existingImages.filter((img) => img.id !== imageId),
-              deleteImageIds: [...v.deleteImageIds, imageId],
+              deleteImageIds: imageId != null ? [...v.deleteImageIds, imageId] : v.deleteImageIds,
+              remove_image: imageId == null ? true : v.remove_image,
             }
           : v,
       ),
