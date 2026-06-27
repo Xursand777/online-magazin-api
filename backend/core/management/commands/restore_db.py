@@ -265,11 +265,15 @@ class Command(BaseCommand):
         if not (is_enc_by_name or is_enc_by_magic):
             return src_path
 
-        # Mos kelmaslik — backup buzilgan yoki noto'g'ri tanlangan
+        # Mos kelmaslik — backup buzilgan yoki noto'g'ri tanlangan.
+        # MUHIM: f-string ichida apostrof bo'lsa Python 3.11+ "backslash"
+        # xatosini beradi — shu sababli labellarni avval o'zgaruvchiga olamiz.
         if is_enc_by_name != is_enc_by_magic:
+            name_label = "ha" if is_enc_by_name else "yo'q"
+            magic_label = "ha" if is_enc_by_magic else "yo'q"
             raise CommandError(
-                f"Backup formati nomuvofiq: nom .enc={'ha' if is_enc_by_name else 'yo\\'q'}, "
-                f"magic={'ha' if is_enc_by_magic else 'yo\\'q'}. Fayl buzilgan."
+                f"Backup formati nomuvofiq: nom .enc={name_label}, "
+                f"magic={magic_label}. Fayl buzilgan."
             )
 
         try:
