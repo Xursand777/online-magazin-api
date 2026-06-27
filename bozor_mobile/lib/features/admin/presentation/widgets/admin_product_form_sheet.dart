@@ -580,26 +580,20 @@ class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
     if (picked != null) setState(() => _pickedImage = File(picked.path));
   }
 
-  Future<void> _pickVariantImage(int index) async {
-    final picker = ImagePicker();
-    final picked = await picker.pickImage(
-      source: ImageSource.gallery,
-      // #N10: backend WebP target'i (1600px) bilan bir xil — telefonning
-      // 3000-4000px surati shu yerda 1600px ga kichraytiriladi → yuklash
-      // 5-10x tez, sifatda yo'qotish yo'q (backend baribir 1600 ga keltiradi).
-      maxWidth: 1600,
-      maxHeight: 1600,
-      imageQuality: 85,
-    );
-    if (picked != null) {
-      setState(() {
-        _variants[index].imageFile = File(picked.path);
-        _variants[index].removeImage = false;
-      });
-    }
-  }
-
   // ── #11: variant galereyasi (ko'p rasm) ──────────────────────────────────
+  // Eslatma: avval mavjud bo'lgan `_pickVariantImage` (sub-variantning alohida
+  // "swatch" rasm tanlash dialogi) sayt UI'si bilan moslashtirilganda olib
+  // tashlandi — endi barcha rasm tanlash `_pickVariantGallery` orqali bo'ladi,
+  // u birinchi rasmni asosiy qilib qo'yish mantig'ini ham o'z ichiga oladi.
+  //
+  // Saytdagi `handleVariantImagesPick` mantig'i bilan AYNAN bir xil:
+  //   • Agar variantda "asosiy" rasm allaqachon bo'lsa (legacy `existingImageUrl`
+  //     ko'rinmoqda yoki yangi `imageFile` tanlangan yoki existingGallery'da
+  //     element bor) — barcha yangi rasmlar GALEREYAGA qo'shiladi.
+  //   • Agar asosiy rasm umuman yo'q bo'lsa — birinchi yangi rasm `imageFile`'ga
+  //     (asosiy = swatch) joylashtiriladi, qolganlari galereyaga ketadi. Bu
+  //     backend tarafida `variant_image_$i` (asosiy) va `variant_images_${i}_$j`
+  //     (galereya) bo'lib alohida saqlanadi.
   Future<void> _pickVariantGallery(int index) async {
     final picker = ImagePicker();
     final picked = await picker.pickMultiImage(
@@ -608,12 +602,29 @@ class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
       maxHeight: 1600,
       imageQuality: 85,
     );
-    if (picked.isNotEmpty && mounted) {
-      setState(() {
-        _variants[index].galleryFiles.addAll(picked.map((x) => File(x.path)));
-      });
-      _scheduleSaveDraft();
-    }
+    if (picked.isEmpty || !mounted) return;
+
+    final files = picked.map((x) => File(x.path)).toList();
+    final v = _variants[index];
+    final hasLegacyMain =
+        (v.existingImageUrl?.isNotEmpty ?? false) && !v.removeImage;
+    final hasNewSwatch = v.imageFile != null;
+    final hasExistingGalleryMain = v.existingGallery.isNotEmpty;
+    final hasMain = hasLegacyMain || hasNewSwatch || hasExistingGalleryMain;
+
+    setState(() {
+      if (!hasMain && files.isNotEmpty) {
+        // Birinchi yangi rasm — asosiy (swatch), qolganlari galereyaga.
+        v.imageFile = files.first;
+        v.removeImage = false;
+        if (files.length > 1) {
+          v.galleryFiles.addAll(files.skip(1));
+        }
+      } else {
+        v.galleryFiles.addAll(files);
+      }
+    });
+    _scheduleSaveDraft();
   }
 
   void _removeGalleryFile(int index, File f) {
@@ -627,6 +638,30 @@ class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
       if (img.id != null) v.deleteImageIds.add(img.id!);
       v.existingGallery.remove(img);
     });
+  }
+
+  // Legacy "swatch" (variant.image — eski asosiy rasm) ni galereyadan o'chirish.
+  // Saytdagi `existing-main` X bilan ekvivalent: `removeImage=true` o'rnatiladi
+  // va keyingi saqlashda backend `variant.image.delete()` qiladi
+  // (_sync_variants ichida). existingImageUrl o'zgartirilmaydi — qoralama
+  // tiklash holatida ham mantiq aniq qolsin.
+  void _removeLegacySwatch(int index) {
+    if (index < 0 || index >= _variants.length) return;
+    setState(() {
+      _variants[index].removeImage = true;
+    });
+    _scheduleSaveDraft();
+  }
+
+  // Yangi tanlangan, hali yuborilmagan "swatch" fayl (`v.imageFile`) ni
+  // tashlash — galereya birinchi yangi rasmni asosiy qiladi (saytdagi
+  // `handleVariantImagesPick` mantiqiga mos).
+  void _clearVariantSwatchFile(int index) {
+    if (index < 0 || index >= _variants.length) return;
+    setState(() {
+      _variants[index].imageFile = null;
+    });
+    _scheduleSaveDraft();
   }
 
   void _addVariantGroup() {
@@ -2235,42 +2270,14 @@ class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
             ],
           ),
           const SizedBox(height: 8),
+          // SAYT BILAN BIR XIL: sub-variantda alohida "swatch" rasm yo'q.
+          // Rang/swatch faqat group sarlavhasida (yuqorida COLOR_PRESETS bilan)
+          // tanlanadi. Sub-variantning shaxsiy rasmlari faqat pastdagi
+          // "Galereya (qo'shimcha rasmlar)" bo'limida boshqariladi.
+          // Mavjud (legacy) `existingImageUrl` bo'lsa, u ham galereya
+          // birinchi elementi sifatida ko'rinadi (_buildVariantGallery ichida).
           Row(
             children: [
-              // Variant image
-              GestureDetector(
-                onTap: () {
-                  final globalIndex = _variants.indexOf(v);
-                  if (globalIndex != -1) _pickVariantImage(globalIndex);
-                },
-                child: Container(
-                  width: 70,
-                  height: 70,
-                  decoration: BoxDecoration(
-                    color: Colors.grey.shade100,
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: Colors.grey.shade300),
-                  ),
-                  child: v.imageFile != null
-                      ? ClipRRect(
-                          borderRadius: BorderRadius.circular(7),
-                          child: Image.file(v.imageFile!, fit: BoxFit.cover),
-                        )
-                      : (v.existingImageUrl != null && !v.removeImage
-                            ? ClipRRect(
-                                borderRadius: BorderRadius.circular(7),
-                                child: CachedNetworkImage(
-                                  imageUrl: v.existingImageUrl!,
-                                  fit: BoxFit.cover,
-                                ),
-                              )
-                            : const Icon(
-                                Icons.add_a_photo_outlined,
-                                color: Colors.grey,
-                              )),
-                ),
-              ),
-              const SizedBox(width: 12),
               Expanded(
                 child: Column(
                   children: [
@@ -2506,15 +2513,49 @@ class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
     );
   }
 
-  // #11: variant uchun qo'shimcha rasmlar galereyasi (mavjud + yangi tanlangan).
+  // #11: variant uchun rasmlar galereyasi (saytdek "1-rasm = asosiy" qoidasi).
+  //
+  // Saytdagi `buildVariantImageList` tartibi bilan AYNAN bir xil bo'lishi uchun:
+  //   1) Legacy `existingImageUrl` (eski "swatch" rasm) — agar bor va o'chirilmagan
+  //      bo'lsa, BIRINCHI element. X bosilsa `removeImage = true`.
+  //   2) Mavjud galereya rasmlari (id != null bo'lganlari) — keyingi tartibda.
+  //   3) Yangi tanlangan, hali yuklanmagan "swatch" fayl (`imageFile`) — eski
+  //      asosiy rasmni yangilash uchun. Kichik X bosilsa fayl tashlanadi.
+  //   4) Yangi tanlangan galereya fayllari.
+  //
+  // Backend (`_sync_variants`) `variant_image_$i` (swatch) va `variant_images_${i}_$j`
+  // (gallery) maydonlarini alohida o'qiydi — shu sababli data model'da legacy/yangi
+  // ajratish saqlanadi. UI esa saytdek bitta yagona galereya ko'rinishida.
   Widget _buildVariantGallery(_VariantData v) {
     final globalIndex = _variants.indexOf(v);
+    final showLegacyMain =
+        (v.existingImageUrl?.isNotEmpty ?? false) && !v.removeImage;
+
     final thumbs = <Widget>[
+      // 1) Legacy "asosiy" (swatch) — saytdagi "existing-main" bilan ekvivalent
+      if (showLegacyMain)
+        _galleryThumb(
+          isMain: true,
+          child: CachedNetworkImage(
+            imageUrl: v.existingImageUrl!,
+            fit: BoxFit.cover,
+          ),
+          onRemove: () => _removeLegacySwatch(globalIndex),
+        ),
+      // 2) Mavjud galereya rasmlari (haqiqiy ID bilan)
       for (final img in v.existingGallery)
         _galleryThumb(
           child: CachedNetworkImage(imageUrl: img.url, fit: BoxFit.cover),
           onRemove: () => _removeExistingGalleryImage(globalIndex, img),
         ),
+      // 3) Yangi tanlangan "swatch" fayl — saytdagi "new-main" ekvivalenti
+      if (v.imageFile != null)
+        _galleryThumb(
+          isMain: !showLegacyMain && v.existingGallery.isEmpty,
+          child: Image.file(v.imageFile!, fit: BoxFit.cover),
+          onRemove: () => _clearVariantSwatchFile(globalIndex),
+        ),
+      // 4) Yangi tanlangan galereya fayllari
       for (final f in v.galleryFiles)
         _galleryThumb(
           child: Image.file(f, fit: BoxFit.cover),
@@ -2571,16 +2612,33 @@ class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
   Widget _galleryThumb({
     required Widget child,
     required VoidCallback onRemove,
+    bool isMain = false,
   }) {
+    // `isMain` — saytdek "ASOSIY" rangli badge ko'rsatadi va yashil halqa qo'yadi.
+    // Bu vizual signal foydalanuvchiga: "bu birinchi rasm — saytda asosiy
+    // ko'rinish" deb tushuntiradi. Funksional jihatdan tartib backend tomonida
+    // (`ProductVariantImage.order`) saqlanadi.
+    const borderRadius = 8.0;
     return SizedBox(
       width: 56,
-      height: 56,
+      // Asosiy badge tushib qolmasligi uchun ozgina balandlik (badge -6px)
+      height: isMain ? 64 : 56,
       child: Stack(
         clipBehavior: Clip.none,
         children: [
-          ClipRRect(
-            borderRadius: BorderRadius.circular(8),
-            child: SizedBox(width: 56, height: 56, child: child),
+          Container(
+            width: 56,
+            height: 56,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(borderRadius),
+              border: isMain
+                  ? Border.all(color: const Color(0xFF0A7C55), width: 2)
+                  : null,
+            ),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(borderRadius - 1),
+              child: SizedBox(width: 56, height: 56, child: child),
+            ),
           ),
           Positioned(
             right: -4,
@@ -2597,6 +2655,33 @@ class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
               ),
             ),
           ),
+          if (isMain)
+            Positioned(
+              bottom: -6,
+              left: 0,
+              right: 0,
+              child: Center(
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 4,
+                    vertical: 1,
+                  ),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF0A7C55),
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: const Text(
+                    'ASOSIY',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 8,
+                      fontWeight: FontWeight.w900,
+                      letterSpacing: 0.3,
+                    ),
+                  ),
+                ),
+              ),
+            ),
         ],
       ),
     );
