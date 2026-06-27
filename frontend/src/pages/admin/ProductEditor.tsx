@@ -248,10 +248,40 @@ export const ProductEditor = ({
   // yuqorida ochilib, ko'rinmay qoladi — "ochildimi yo'qmi?" degan shubha tug'iladi.
   // Shuning uchun forma ochilganda unga silliq scroll qilamiz (block:'start').
   // Kichik timeout — forma DOM'da to'liq joylashgandan keyin scroll bo'lishi uchun.
+  //
+  // Phase 4.2 — agar admin mahsulot ro'yxatidan AYNAN bir variantni tahrirlash
+  // tugmasini bosgan bo'lsa, sahifa pastiga scroll qilib o'sha variantga keladi
+  // (DOM elementi `data-variant-id` atributiga ega). Bu URL hash o'rniga
+  // global state orqali qilinadi: `window.__bozorScrollVariantId` (props bilan
+  // uzatish o'rniga oddiy, mavjud arxitekturani buzmaydi).
   const rootRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const id = window.setTimeout(() => {
+      // 1) Avval butun formaga scroll
       rootRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+      // 2) Variant'ga aniq scroll — agar so'rovda tanlangan bo'lsa
+      const targetVid: number | null =
+        (window as unknown as { __bozorScrollVariantId?: number | null })
+          .__bozorScrollVariantId ?? null;
+      if (targetVid) {
+        window.setTimeout(() => {
+          const el = rootRef.current?.querySelector<HTMLElement>(
+            `[data-variant-id="${targetVid}"]`,
+          );
+          if (el) {
+            el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            // Visual highlight 2 soniya
+            el.classList.add('ring-4', 'ring-primary/60', 'rounded-xl');
+            window.setTimeout(() => {
+              el.classList.remove('ring-4', 'ring-primary/60', 'rounded-xl');
+            }, 2000);
+          }
+          // Bir martalik ishlatish — keyingi tahrirlash uchun tozalaymiz
+          (window as unknown as { __bozorScrollVariantId?: number | null })
+            .__bozorScrollVariantId = null;
+        }, 200);
+      }
     }, 60);
     return () => window.clearTimeout(id);
   }, [product, mode]);
@@ -603,6 +633,9 @@ export const ProductEditor = ({
     payload.append('is_active', String(form.is_active));
     payload.append('is_new', String(form.is_new));
     payload.append('is_popular', String(form.is_popular));
+    // Phase 4.2 — product-level polka (variantsiz mahsulot uchun yoki
+    // barcha variantlar uchun default). Max 20 belgi backend cheklov.
+    payload.append('shelf_location', (form.shelf_location || '').trim().slice(0, 20));
     payload.append('remove_image', String(removeImage));
     if (imageFile) payload.append('image', imageFile);
     // ── PAYLOAD QURISH — backend "may not be null" xatosini OLDINI olamiz ────
@@ -941,6 +974,30 @@ export const ProductEditor = ({
               onChange={(e) => setForm((c) => ({ ...c, stock: e.target.value }))}
               className='w-full rounded-lg border border-outline-variant bg-surface-bright px-3 py-2 outline-none focus:border-primary'
               placeholder='10'
+            />
+          </div>
+          {/* Phase 4.2 — Polka maydoni mahsulot darajasida. Variantsiz mahsulot
+              uchun asosiy, variantli mahsulot uchun default (variant polkasi
+              bo'sh bo'lsa backend bu yerdan fallback qiladi). Faqat admin/POS
+              ko'radi — public API'da hech qachon chiqmaydi. */}
+          <div className='xl:col-span-2'>
+            <label
+              className='mb-1 flex items-center gap-1 text-label-md font-label-md text-primary'
+              title="Do'kondagi polka manzili (faqat admin va POS'da ko'rinadi)"
+            >
+              <span className='material-symbols-outlined text-[16px]'>pin_drop</span>
+              Polka
+            </label>
+            <input
+              type='text'
+              maxLength={20}
+              value={form.shelf_location}
+              onChange={(e) =>
+                setForm((c) => ({ ...c, shelf_location: e.target.value.slice(0, 20) }))
+              }
+              className='w-full rounded-lg border border-primary/40 bg-surface-bright px-3 py-2 font-bold text-primary outline-none placeholder:font-normal placeholder:text-on-surface-variant/50 focus:border-primary focus:ring-2 focus:ring-primary/30'
+              placeholder='001'
+              title="Variantsiz mahsulot uchun asosiy polka. Variantli mahsulotda variant'da polka yozilmasa bu qiymat ishlatiladi."
             />
           </div>
           <div className='xl:col-span-4'>
@@ -1451,6 +1508,9 @@ const ColorGroupVariantEditor = ({
                     return (
                       <div
                         key={variant.client_id}
+                        // Phase 4.2 — variant qatoriga tahrirlash uchun anchor
+                        // (mahsulotlar ro'yxatidan "Edit" bossa shu yerga scroll).
+                        data-variant-id={variant.id ?? undefined}
                         className={`rounded-xl border p-3 transition-colors ${
                           below
                             ? 'border-error bg-error-container/15'

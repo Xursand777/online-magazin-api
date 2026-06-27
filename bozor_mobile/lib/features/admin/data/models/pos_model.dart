@@ -9,6 +9,10 @@ class PosProduct {
   final int stock;
   final String? mainImage;
   final List<PosVariant> variants;
+  // Phase 4.2 — product darajasidagi polka. Variantsiz mahsulot uchun asosiy,
+  // variantli mahsulotda variant'da polka bo'sh bo'lsa fallback (backend
+  // `effective_shelf` qaytaradi). Mobil POS karta ko'rsatishida ishlatamiz.
+  final String shelfLocation;
 
   const PosProduct({
     required this.id,
@@ -19,6 +23,7 @@ class PosProduct {
     required this.stock,
     required this.mainImage,
     required this.variants,
+    this.shelfLocation = '',
   });
 
   factory PosProduct.fromJson(Map<String, dynamic> json) {
@@ -41,6 +46,7 @@ class PosProduct {
       costPrice: _double(json['cost_price']),
       stock: _int(json['stock']),
       mainImage: mainImg,
+      shelfLocation: (json['shelf_location'] as String? ?? '').trim(),
       variants: ((json['variants'] as List?) ?? [])
           .map((e) => PosVariant.fromJson(e as Map<String, dynamic>))
           .toList(),
@@ -69,6 +75,8 @@ class PosProduct {
           quantity: 1,
           stock: stock,
           sku: '',
+          // Phase 4.2 — variantsiz mahsulot polkasi product darajasida.
+          shelfLocation: shelfLocation,
         ),
       ];
     }
@@ -84,6 +92,11 @@ class PosProduct {
     }
     return variants.map((v) {
       final colorImg = colorToImage[v.color.trim().toLowerCase()];
+      // Phase 4.2 — variant polkasi bo'sh bo'lsa product polkasiga fallback
+      // (backend `effective_shelf` ham shunday qaytaradi — defensive layer).
+      final effectiveShelf = v.shelfLocation.isNotEmpty
+          ? v.shelfLocation
+          : shelfLocation;
       return PosCartItem(
         cartId: 'v-${v.id}',
         productId: id,
@@ -99,7 +112,7 @@ class PosProduct {
         quantity: 1,
         stock: v.stock,
         sku: v.sku,
-        shelfLocation: v.shelfLocation,
+        shelfLocation: effectiveShelf,
       );
     }).toList();
   }
@@ -145,6 +158,12 @@ class PosVariant {
       if (first is Map && first['url'] is String) img = first['url'] as String;
     }
     img ??= json['image_url'] as String?;
+    // Phase 4.2 — variant'da o'z polkasi bo'sh bo'lsa, backend `effective_shelf`
+    // qaytaradi (variant'niki yoki parent product.shelf_location). Defensive
+    // 2-pog'onali fallback: own → effective.
+    final ownShelf = (json['shelf_location'] as String? ?? '').trim();
+    final effShelf = (json['effective_shelf'] as String? ?? '').trim();
+    final shelf = ownShelf.isNotEmpty ? ownShelf : effShelf;
     return PosVariant(
       id: _int(json['id']),
       color: json['color'] as String? ?? '',
@@ -152,7 +171,7 @@ class PosVariant {
       model: json['model'] as String? ?? '',
       size: json['size'] as String? ?? '',
       sku: json['sku'] as String? ?? '',
-      shelfLocation: (json['shelf_location'] as String? ?? '').trim(),
+      shelfLocation: shelf,
       price: _doubleOrNull(json['price']),
       discountPrice: _doubleOrNull(json['discount_price']),
       costPrice: _doubleOrNull(json['cost_price']),

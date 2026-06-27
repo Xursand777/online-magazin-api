@@ -164,7 +164,14 @@ class AdminProductVariantSerializer(ProductVariantSerializer):
     `ProductVariantSerializer` (catalog/home/product detail uchun
     ishlatiladi) esa bu maydonni qaytarmaydi → foydalanuvchi tomon
     polka raqami tarmoq darajasida ko'rinmaydi.
+
+    Phase 4.2 — `effective_shelf`: variant'da polka bo'sh bo'lsa
+    parent product'dan fallback (model'dagi @property dan oladi).
+    Bu frontend uchun "qaysi polka chiqarish kerakligi" mantig'ini
+    backend tomonida bir joyda hal qiladi (DRY printsipi).
     """
+    effective_shelf = serializers.CharField(read_only=True)
+
     class Meta(ProductVariantSerializer.Meta):
         fields = ProductVariantSerializer.Meta.fields + (
             'cost_price',
@@ -173,7 +180,8 @@ class AdminProductVariantSerializer(ProductVariantSerializer):
             'is_active',
             'position',
             'images',
-            'shelf_location',  # Phase 4.0 — faqat admin/POS
+            'shelf_location',   # Phase 4.0 — variant'ning o'z yozuvi
+            'effective_shelf',  # Phase 4.2 — fallback bilan amaldagi qiymat
         )
 
 class ProductListSerializer(serializers.ModelSerializer):
@@ -970,6 +978,9 @@ class AdminProductSerializer(serializers.ModelSerializer):
             'id', 'name', 'slug', 'description', 'category', 'category_name',
             'price', 'price_usd', 'discount_price', 'discount_price_usd', 'cost_price', 'cost_price_usd', 'stock',
             'is_active', 'is_popular', 'is_new', 'is_discount',
+            # Phase 4.2 — product darajasidagi polka (variantsiz mahsulot
+            # uchun yoki barcha variantlar uchun default fallback).
+            'shelf_location',
             'created_at', 'updated_at', 'main_image', 'image', 'remove_image', 'images', 'variants_data', 'variants'
         )
         read_only_fields = ('slug', 'created_at', 'updated_at', 'is_discount')

@@ -505,6 +505,20 @@ class Product(models.Model):
     cost_price_usd = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
     stock = models.PositiveIntegerField(default=0)
 
+    # ── PHASE 4.2 — DO'KON POLKASI (variantsiz mahsulot uchun, faqat admin)
+    #
+    # Variantli mahsulotlarda har variantning o'z `shelf_location`'i bo'lishi
+    # mumkin. Variantsiz mahsulotlarda esa polka shu yerda — Product darajasida.
+    # Variant'da polka bo'sh bo'lsa — `ProductVariant.effective_shelf` shu
+    # maydondan fallback qiladi (do'konda bir polkada turgan barcha variant
+    # uchun bir marta yozish kifoya).
+    shelf_location = models.CharField(
+        max_length=20, blank=True, default='',
+        help_text="Do'kondagi polka manzili (variantsiz mahsulot uchun yoki "
+                  "barcha variantlar bir polkada bo'lsa default). "
+                  "FAQAT admin paneli, POS va Buyurtmalarda ko'rinadi.",
+    )
+
     is_active = models.BooleanField(default=True)
     is_popular = models.BooleanField(default=False)
     is_new = models.BooleanField(default=True)
@@ -512,6 +526,11 @@ class Product(models.Model):
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+
+    @property
+    def effective_shelf(self) -> str:
+        """O'z polka manzili. Variantsiz mahsulot uchun bevosita shu."""
+        return self.shelf_location or ''
 
     def save(self, *args, **kwargs):
         if not self.slug:
@@ -658,6 +677,31 @@ class ProductVariant(models.Model):
 
     class Meta:
         ordering = ['position', 'id']
+
+    @property
+    def effective_shelf(self) -> str:
+        """
+        Real polka manzili — variant'niki yoki product'nikiga fallback.
+
+        Mantiq (Phase 4.2):
+          • Variant'da polka YOZILGAN bo'lsa — uni qaytaradi (override)
+          • Variant'da polka bo'sh bo'lsa — Product.shelf_location'dan oladi
+            (admin bir marta product darajasida yozsa, barcha variantlar
+            shuni meros oladi — qulay UX)
+
+        Foydalanuvchi (mijoz) tomonida bu hech qachon ko'rinmaydi —
+        public `ProductVariantSerializer`'da bu field yo'q.
+        """
+        own = (self.shelf_location or '').strip()
+        if own:
+            return own
+        # product'siz variant amalda bo'lmaydi (FK NOT NULL), lekin defensive
+        if not self.product_id:
+            return ''
+        # N+1 ehtiyot: agar `self.product` allaqachon yuklangan bo'lsa, qo'shimcha
+        # so'rov yo'q. Aks holda Django bitta SELECT qiladi (kichik narx — admin
+        # POS bir necha mahsulot ko'rsatadi, prefetch_related'da hal qilinishi mumkin).
+        return (self.product.shelf_location or '').strip()
 
     def save(self, *args, **kwargs):
         # USD → So'm: FAQAT sotuv narxi va chegirma narxi kursga bog'liq.

@@ -65,8 +65,18 @@ class OrderItemSerializer(serializers.ModelSerializer):
         )
 
     def get_variant_shelf(self, obj):
-        """Polka manzilini qaytarish — faqat staff (admin/sotuvchi/kuryer)
-        uchun. Xaridor None oladi → frontend hech narsa chizmaydi."""
+        """
+        Polka manzilini qaytarish — faqat staff (admin/sotuvchi/kuryer)
+        uchun. Xaridor None oladi → frontend hech narsa chizmaydi.
+
+        Phase 4.2 fallback mantiq:
+          • variant + variant.shelf_location bor → variant'niki
+          • variant + variant.shelf_location bo'sh → product.shelf_location
+          • variant yo'q (variantsiz mahsulot order) → product.shelf_location
+        Buning natijasida buyurtmalar sahifasida har item polkasi DOIM
+        ko'rinadi (agar admin polka yozgan bo'lsa) — variantli ham, variant'siz
+        ham aralash do'konda yagona oqim.
+        """
         request = self.context.get('request')
         user = getattr(request, 'user', None)
         if not user or not user.is_authenticated:
@@ -76,7 +86,11 @@ class OrderItemSerializer(serializers.ModelSerializer):
         if not getattr(user, 'is_staff', False):
             return None
         variant = obj.variant
-        return getattr(variant, 'shelf_location', '') if variant else ''
+        if variant is not None:
+            # Model'dagi @property fallback'ni avtomat qiladi
+            return variant.effective_shelf or ''
+        product = obj.product
+        return (getattr(product, 'shelf_location', '') or '').strip() if product else ''
 
 
 class PaymentSerializer(serializers.ModelSerializer):

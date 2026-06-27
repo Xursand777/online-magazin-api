@@ -224,6 +224,9 @@ class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
   final _costPrice = TextEditingController();
   final _costPriceUsd = TextEditingController();
   final _stock = TextEditingController();
+  // Phase 4.2 — product darajasidagi polka (variantsiz mahsulot yoki
+  // variantli mahsulot uchun default fallback).
+  final _shelfLocation = TextEditingController();
 
   int? _selectedCategoryId;
   bool _isActive = true;
@@ -274,6 +277,8 @@ class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
           : '';
       _costPriceUsd.text = p.costPriceUsd?.toStringAsFixed(2) ?? '';
       _stock.text = p.stock.toString();
+      // Phase 4.2 — product polkasi (variantsiz mahsulot uchun yoki default)
+      _shelfLocation.text = (p.shelfLocation ?? '').trim();
       _selectedCategoryId = p.categoryId;
       _isActive = p.isActive;
       _isNew = p.isNew;
@@ -377,6 +382,7 @@ class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
     _costPrice.dispose();
     _costPriceUsd.dispose();
     _stock.dispose();
+    _shelfLocation.dispose();
     for (final v in _variants) {
       v.disposeControllers();
     }
@@ -411,6 +417,8 @@ class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
     'cost_price': _costPrice.text,
     'cost_price_usd': _costPriceUsd.text,
     'stock': _stock.text,
+    // Phase 4.2 — product polkasi qoralama saqlash
+    'shelf_location': _shelfLocation.text,
     'category': _selectedCategoryId,
     'is_active': _isActive,
     'is_new': _isNew,
@@ -496,6 +504,7 @@ class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
       _costPrice.text = s(d['cost_price']);
       _costPriceUsd.text = s(d['cost_price_usd']);
       _stock.text = s(d['stock']);
+      _shelfLocation.text = s(d['shelf_location']);
       _selectedCategoryId = d['category'] as int?;
       _isActive = d['is_active'] as bool? ?? true;
       _isNew = d['is_new'] as bool? ?? true;
@@ -1209,6 +1218,13 @@ class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
       'is_active': _isActive.toString(),
       'is_new': _isNew.toString(),
       'is_popular': _isPopular.toString(),
+      // Phase 4.2 — product polkasi (variantsiz mahsulot uchun asosiy,
+      // variantli mahsulot uchun default fallback). Backend max 20 belgi
+      // cheklov bilan. Bo'sh string bo'lsa ham yuboramiz — eski yozuvni
+      // tozalash mumkin bo'lsin.
+      'shelf_location': _shelfLocation.text.trim().length > 20
+          ? _shelfLocation.text.trim().substring(0, 20)
+          : _shelfLocation.text.trim(),
     };
     if (_selectedCategoryId != null) {
       fields['category'] = _selectedCategoryId.toString();
@@ -1610,10 +1626,33 @@ class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
                                 : "Umumiy Stok (variantlar bo'lsa shart emas)",
                             controller: _stock,
                             keyboardType: TextInputType.number,
-                            textInputAction: TextInputAction.done,
+                            textInputAction: TextInputAction.next,
                             validator: (v) => (_variants.isEmpty && v!.isEmpty)
                                 ? 'Majburiy'
                                 : null,
+                          ),
+                          const SizedBox(height: 16),
+                          // ── PHASE 4.2 — Product-level polka maydoni ────────
+                          // Variantsiz mahsulot uchun asosiy, variantli mahsulotda
+                          // har variant polkasi bo'sh bo'lsa default (backend
+                          // `effective_shelf` shu yerdan fallback qiladi).
+                          // FAQAT admin paneli va POS'da ko'rinadi.
+                          _FormField(
+                            label: _variants.isEmpty
+                                ? "Polka (do'kondagi joy)"
+                                : "Default polka (variantlar bo'sh polkali bo'lsa)",
+                            controller: _shelfLocation,
+                            keyboardType: TextInputType.text,
+                            textInputAction: TextInputAction.done,
+                            onChanged: (val) {
+                              // Max 20 belgi (backend cheklov)
+                              if (val.length > 20) {
+                                _shelfLocation.text = val.substring(0, 20);
+                                _shelfLocation.selection =
+                                    TextSelection.collapsed(offset: 20);
+                              }
+                              _scheduleSaveDraft();
+                            },
                           ),
                           const SizedBox(height: 24),
 

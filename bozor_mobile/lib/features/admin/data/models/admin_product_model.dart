@@ -41,6 +41,10 @@ class AdminProductVariantModel {
   // uchun keladi — backend public `ProductVariantSerializer` bu maydonni
   // qaytarmaydi → oddiy foydalanuvchilarda bu yo'q.
   final String? shelfLocation;
+  // Phase 4.2 — backend fallback bilan amaldagi polka (variant'niki yoki
+  // parent product.shelfLocation). UI faqat shuni o'qisa kifoya — fallback
+  // mantig'i backend tomonida bir joyda hal qilingan (DRY).
+  final String? effectiveShelf;
 
   AdminProductVariantModel({
     this.id,
@@ -62,6 +66,7 @@ class AdminProductVariantModel {
     this.imageUrl,
     required this.images,
     this.shelfLocation,
+    this.effectiveShelf,
   });
 
   factory AdminProductVariantModel.fromJson(Map<String, dynamic> json) {
@@ -88,6 +93,7 @@ class AdminProductVariantModel {
               .toList() ??
           [],
       shelfLocation: json['shelf_location'] as String?,
+      effectiveShelf: json['effective_shelf'] as String?,
     );
   }
 
@@ -120,6 +126,10 @@ class AdminProductModel {
   final String? mainImage;
   final List<AdminProductImageModel> images;
   final List<AdminProductVariantModel> variants;
+  // Phase 4.2 — product darajasidagi polka (variantsiz mahsulot uchun yoki
+  // variantli mahsulot uchun default fallback). Variant'da polka bo'sh bo'lsa
+  // backend bu yerdan oladi. UI har joyda `effectiveShelf` bilan ishlasa kifoya.
+  final String? shelfLocation;
 
   AdminProductModel({
     required this.id,
@@ -142,6 +152,7 @@ class AdminProductModel {
     this.mainImage,
     required this.images,
     required this.variants,
+    this.shelfLocation,
   });
 
   factory AdminProductModel.fromJson(Map<String, dynamic> json) {
@@ -172,6 +183,7 @@ class AdminProductModel {
               ?.map((e) => AdminProductVariantModel.fromJson(e))
               .toList() ??
           [],
+      shelfLocation: json['shelf_location'] as String?,
     );
   }
 

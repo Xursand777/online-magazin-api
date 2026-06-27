@@ -51,6 +51,9 @@ export interface AdminProductVariant {
   // Phase 4.0 — do'kondagi polka manzili (faqat admin/POS). Public API
   // bu maydonni qaytarmaydi → faqat AdminProduct*Serializer'dan keladi.
   shelf_location?: string | null;
+  // Phase 4.2 — backend fallback bilan amaldagi polka (variant'niki yoki
+  // product.shelf_location'dan o'qiladi). UI faqat shuni ko'rsatsa kifoya.
+  effective_shelf?: string | null;
 }
 
 export interface AdminProduct {
@@ -72,6 +75,9 @@ export interface AdminProduct {
   is_new: boolean;
   is_discount: boolean;
   main_image?: string | null;
+  // Phase 4.2 — product-level polka (variantsiz mahsulot uchun yoki
+  // barcha variantlar uchun default fallback). Faqat admin so'rovida keladi.
+  shelf_location?: string | null;
   created_at: string;
   updated_at: string;
   variants: AdminProductVariant[];
@@ -98,6 +104,10 @@ export interface ProductFormState {
   is_active: boolean;
   is_new: boolean;
   is_popular: boolean;
+  // Phase 4.2 — product darajasidagi polka (variantsiz mahsulot uchun yoki
+  // barcha variantlar uchun default — variant.shelf_location bo'sh bo'lsa
+  // backend bu yerdan fallback qiladi).
+  shelf_location: string;
 }
 
 export interface VariantFormState {
@@ -252,6 +262,7 @@ export const emptyProductForm = (): ProductFormState => ({
   is_active: true,
   is_new: false,
   is_popular: false,
+  shelf_location: '',
 });
 
 export const makeVariantClientId = () => `variant-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -423,6 +434,7 @@ export const mapProductToForm = (product?: AdminProduct): ProductFormState => {
     is_active: product.is_active,
     is_new: product.is_new,
     is_popular: product.is_popular,
+    shelf_location: (product.shelf_location || '').slice(0, 20),
   };
 };
 

@@ -490,7 +490,14 @@ const AdminPOS = () => {
             quantity: 1,
             stock: v.stock,
             sku: v.sku || '',
-            shelfLocation: (v.shelf_location || '').trim(),
+            // Phase 4.2 fallback: variant'da o'z polkasi yo'q bo'lsa,
+            // backend `effective_shelf` (variant'niki yoki product fallback)
+            // qaytaradi. Eski API javoblari uchun defensive 3-pog'onali
+            // fallback (variant own → effective → product).
+            shelfLocation:
+              (v.shelf_location || '').trim() ||
+              (v.effective_shelf || '').trim() ||
+              (p.shelf_location || '').trim(),
           });
         });
       } else {
@@ -501,7 +508,8 @@ const AdminPOS = () => {
           quality: '', model: '', size: '', color: '',
           image: productMainImg,
           price: Number(p.discount_price || p.price),
-          shelfLocation: '',
+          // Phase 4.2 — variantsiz mahsulot uchun product polkasi.
+          shelfLocation: (p.shelf_location || '').trim(),
           soldPrice: Number(p.discount_price || p.price),
           costPrice: Number(p.cost_price),
           quantity: 1, stock: p.stock, sku: '',
