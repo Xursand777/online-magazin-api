@@ -100,7 +100,14 @@ services:
       - "80:80"
       - "443:443"
     volumes:
-      - ./deploy/nginx/api.conf:/etc/nginx/conf.d/default.conf:ro
+      # Backend reverse proxy (api.700mobile.uz)
+      - ./deploy/nginx/api.conf:/etc/nginx/conf.d/api.conf:ro
+      # Phase 4.1+: Frontend static SPA (700mobile.uz) — Cloudflare Pages'dan
+      # Hetzner'ga ko'chirildi (auto-deploy ishlamasdan qolgan sababli).
+      # Bitta server backend va frontend xizmati — Cloudflare faqat DNS+CDN.
+      - ./deploy/nginx/site.conf:/etc/nginx/conf.d/site.conf:ro
+      - ./frontend/dist:/usr/share/nginx/html:ro
+      # SSL sertifikatlari (*.700mobile.uz, 15 yil Cloudflare Origin Cert)
       - ./deploy/nginx/certs:/etc/nginx/certs:ro
 
 volumes:

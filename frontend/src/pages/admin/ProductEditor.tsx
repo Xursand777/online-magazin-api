@@ -1668,7 +1668,7 @@ const ColorGroupVariantEditor = ({
                             <div className='flex items-center gap-1.5'>
                               <span
                                 className='material-symbols-outlined text-[14px] text-primary'
-                                title='Do\'kondagi polka manzili (faqat admin)'
+                                title="Do'kondagi polka manzili (faqat admin)"
                               >
                                 pin_drop
                               </span>
@@ -1686,7 +1686,7 @@ const ColorGroupVariantEditor = ({
                                 }
                                 placeholder='001'
                                 maxLength={20}
-                                title='Do\'kondagi jismoniy polka (faqat admin va POS\'da ko\'rinadi)'
+                                title="Do'kondagi jismoniy polka (faqat admin va POS'da ko'rinadi)"
                                 className='w-24 rounded-lg border border-primary/40 bg-surface-bright px-2 py-1 text-sm font-bold text-primary outline-none placeholder:font-normal placeholder:text-on-surface-variant/50 focus:border-primary focus:ring-2 focus:ring-primary/30'
                               />
                             </div>

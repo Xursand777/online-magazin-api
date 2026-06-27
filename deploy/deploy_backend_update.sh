@@ -18,11 +18,15 @@
 set -uo pipefail
 
 LOCAL_BACKEND="/Users/xursand/Online Magazin API/backend"
+LOCAL_FRONTEND="/Users/xursand/Online Magazin API/frontend"
+LOCAL_DEPLOY="/Users/xursand/Online Magazin API/deploy"
+LOCAL_DOCKER_COMPOSE="/Users/xursand/Online Magazin API/docker-compose.yml"
 IP="$(awk '/ssh-ed25519/ && $1 ~ /^46\./ {print $1; exit}' ~/.ssh/known_hosts)"
 SSH="ssh -o BatchMode=yes -o ConnectTimeout=25 root@$IP"
 
 [ -z "$IP" ] && { echo "XATO: server IP topilmadi (~/.ssh/known_hosts)"; exit 1; }
 [ -d "$LOCAL_BACKEND" ] || { echo "XATO: lokal backend topilmadi: $LOCAL_BACKEND"; exit 1; }
+[ -d "$LOCAL_FRONTEND" ] || { echo "XATO: lokal frontend topilmadi: $LOCAL_FRONTEND"; exit 1; }
 echo "Server: $IP"
 
 # ── 1) Pre-flight: DB backup + joriy image'larni :rollback tag ──────────────
@@ -33,7 +37,7 @@ $SSH 'set -e; cd /opt/bozor
     docker tag "bozor-$s:latest" "bozor-$s:rollback" && echo "rollback tag: bozor-$s:rollback"
   done'
 
-# ── 2) Kodni rsync (xavfsiz exclude bilan) ─────────────────────────────────
+# ── 2) Backend kodini rsync (xavfsiz exclude bilan) ────────────────────────
 echo "== 2) Backend kodini rsync (push) =="
 rsync -az \
   --exclude 'venv/' --exclude '__pycache__/' --exclude '*.pyc' \
@@ -43,6 +47,40 @@ rsync -az \
   -e "ssh -o BatchMode=yes" \
   "$LOCAL_BACKEND/" "root@$IP:/opt/bozor/backend/" \
   && echo "rsync: OK" || { echo "XATO: rsync muvaffaqiyatsiz"; exit 1; }
+
+# ── 2b) FRONTEND build + rsync (Phase 4.1+ — Cloudflare Pages'dan ko'chirildi)
+# Vite production build lokalda → dist papkasi serverga rsync → nginx serve qiladi.
+# Bu Hetzner backend+frontend BIR sahada ishlashini ta'minlaydi (CF auto-deploy
+# muammosi yo'q, har deploy aniq bitta script bilan).
+echo "== 2b) Frontend build (Vite) + rsync =="
+(
+  cd "$LOCAL_FRONTEND"
+  echo "  npm ci (lockfile bo'yicha aniq versiyalar) ..."
+  if [ ! -d node_modules ]; then
+    npm ci --silent 2>&1 | tail -3 || { echo "XATO: npm ci"; exit 1; }
+  fi
+  echo "  vite build ..."
+  npm run build 2>&1 | tail -5 || { echo "XATO: vite build"; exit 1; }
+  [ -f dist/index.html ] || { echo "XATO: dist/index.html topilmadi"; exit 1; }
+  bundle=$(grep -oE 'assets/index-[a-zA-Z0-9_-]+\.js' dist/index.html | head -1)
+  echo "  build OK — bundle: $bundle"
+) || exit 1
+
+echo "  frontend/dist → server'ga rsync ..."
+rsync -az --delete \
+  -e "ssh -o BatchMode=yes" \
+  "$LOCAL_FRONTEND/dist/" "root@$IP:/opt/bozor/frontend/dist/" \
+  && echo "  frontend rsync: OK" || { echo "XATO: frontend rsync"; exit 1; }
+
+# ── 2c) Nginx config + docker-compose.yml ham rsync (site.conf yangi) ──────
+echo "== 2c) deploy/nginx + docker-compose.yml rsync =="
+rsync -az -e "ssh -o BatchMode=yes" \
+  "$LOCAL_DEPLOY/nginx/" "root@$IP:/opt/bozor/deploy/nginx/" \
+  --exclude 'certs/' \
+  && echo "  nginx config rsync: OK" || { echo "XATO: nginx rsync"; exit 1; }
+rsync -az -e "ssh -o BatchMode=yes" \
+  "$LOCAL_DOCKER_COMPOSE" "root@$IP:/opt/bozor/docker-compose.yml" \
+  && echo "  docker-compose.yml rsync: OK" || { echo "XATO: compose rsync"; exit 1; }
 
 # ── 3) Build + up + migrate + verify (+ avto-rollback) ─────────────────────
 echo "== 3) Build + deploy + verify (server'da) =="
@@ -94,7 +132,31 @@ echo "-- VERIFY 4: app Telegram --"
 docker compose exec -T -e M="Deploy OK — Hetzner backend kodi main HEAD ga yangilandi (Qaytarish, received-code, courier nav, Favorite endi jonli). $(date '+%F %H:%M')" web \
   python manage.py shell -c "import os; from core.notifications import send_admin_alert, AlertSeverity; print('tg=', send_admin_alert(os.environ['M'], severity=AlertSeverity.INFO, dedup=False))"
 
+# ── FRONTEND nginx — yangi site.conf + dist papkani qabul qilish ─────────
+# nginx konteyneri docker-compose.yml o'zgargandagina qayta yaratiladi.
+# Volume mountlar (frontend/dist va deploy/nginx/site.conf) o'zgartirilgan
+# bo'lsa, konteynerni `up -d` orqali qayta yaratish kerak.
+echo "-- nginx: site.conf va frontend/dist mountlarini olish uchun recreate --"
+docker compose up -d --no-build --force-recreate nginx
+sleep 2
+
+# Frontend smoke test — nginx /usr/share/nginx/html/index.html topadi?
+echo "-- VERIFY 5: Frontend index.html mavjud --"
+docker compose exec -T nginx test -f /usr/share/nginx/html/index.html \
+  || { echo "XATO: frontend index.html nginx ichida topilmadi"; rollback; exit 1; }
+
+# Frontend qachondan beri build qilingan — bundle hash chiqarib ko'rsatamiz
+new_bundle=$(docker compose exec -T nginx sh -c "grep -oE 'assets/index-[a-zA-Z0-9_-]+\.js' /usr/share/nginx/html/index.html | head -1")
+echo "-- yangi frontend bundle: $new_bundle --"
+
+# Nginx config tekshiruvi
+echo "-- nginx config sintaksis tekshiruvi --"
+docker compose exec -T nginx nginx -t 2>&1 | tail -3 \
+  || { echo "XATO: nginx config sintaksisi"; rollback; exit 1; }
+docker compose exec -T nginx nginx -s reload && echo "nginx reload: OK"
+
 echo ""
-echo "✅ DEPLOY MUVAFFAQIYATLI — kod drift tuzatildi, hammasi tekshirildi."
+echo "✅ DEPLOY MUVAFFAQIYATLI — backend + frontend ham yangilandi."
 echo "   Eski image'lar :rollback tag'da saqlanmoqda (kerak bo'lsa qaytarish mumkin)."
+echo "   Frontend yangi bundle: $new_bundle"
 REMOTE
