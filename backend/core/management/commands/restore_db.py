@@ -56,9 +56,20 @@ from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
 from django.db import connection
 
+# Phase 0.3+ — client-side deshifrlash. Backup B2'da AES-256-GCM bilan
+# shifrlangan bo'lsa, .enc qo'shimchasi bilan keladi. Bu yerda deshifrlab,
+# keyin gunzip qilinadi.
+from core.backup_crypto import (
+    BackupCryptoError,
+    decrypt_stream,
+    get_passphrase,
+    is_encrypted_file,
+)
+
 logger = logging.getLogger(__name__)
 
 BACKUP_PREFIX = 'bozor-backup-'
+ENC_SUFFIX = '.enc'
 
 
 class Command(BaseCommand):
@@ -192,14 +203,19 @@ class Command(BaseCommand):
     def _restore_backup(self, backup_key: str, target_url: str | None) -> None:
         # 1. B2 dan yuklab olish
         temp_dir = Path(tempfile.gettempdir())
-        local_gz = temp_dir / backup_key
+        downloaded_path = temp_dir / backup_key
         self.stdout.write(f'B2 dan yuklab olinmoqda: {backup_key}...')
-        self._download_from_b2(backup_key, local_gz)
+        self._download_from_b2(backup_key, downloaded_path)
 
-        # 2. Engine aniqlash — fayl extension'idan
-        if backup_key.endswith('.sql.gz'):
+        # 2. Shifrlangan bo'lsa — deshifrlash (`.gz.enc` → `.gz`)
+        local_gz = self._maybe_decrypt(downloaded_path)
+        # Engine aniqlash uchun key'dan `.enc` qo'shimchasini olib tashlaymiz
+        key_for_engine = backup_key[:-len(ENC_SUFFIX)] if backup_key.endswith(ENC_SUFFIX) else backup_key
+
+        # 3. Engine aniqlash — fayl extension'idan
+        if key_for_engine.endswith('.sql.gz'):
             engine = 'postgresql'
-        elif backup_key.endswith('.sqlite3.gz'):
+        elif key_for_engine.endswith('.sqlite3.gz'):
             engine = 'sqlite'
         else:
             raise CommandError(f'Noma\'lum backup format: {backup_key}')
@@ -212,12 +228,12 @@ class Command(BaseCommand):
                 f'  --target-url orqali alohida DB ko\'rsating.'
             )
 
-        # 3. Decompress
-        local_sql = temp_dir / backup_key.replace('.gz', '')
+        # 4. Decompress
+        local_sql = temp_dir / key_for_engine.replace('.gz', '')
         self.stdout.write(f'Decompress qilinmoqda...')
         self._decompress_gzip(local_gz, local_sql)
 
-        # 4. Restore
+        # 5. Restore
         self.stdout.write(f'DB ga restore qilinmoqda...')
         try:
             if engine == 'postgresql':
@@ -225,13 +241,57 @@ class Command(BaseCommand):
             else:
                 self._restore_sqlite(local_sql, target_url)
         finally:
-            # Lokal fayllarni tozalash
-            for path in (local_gz, local_sql):
+            # Lokal fayllarni tozalash (set bilan dublikat ehtimolini olib tashlaymiz —
+            # shifrlanmagan holatda downloaded_path == local_gz).
+            cleanup_paths = {p for p in (downloaded_path, local_gz, local_sql) if p}
+            for path in cleanup_paths:
                 if path.exists():
                     try:
                         path.unlink()
                     except OSError:
                         pass
+
+    def _maybe_decrypt(self, src_path: Path) -> Path:
+        """
+        Shifrlangan bo'lsa AES-GCM bilan deshifrlab `.gz` faylini qaytaradi.
+        Aks holda src_path'ni o'zini qaytaradi (eski format'lar uchun).
+
+        Aniqlash: fayl nomidagi `.enc` qo'shimchasi YOKI fayl ichidagi MAGIC.
+        Ikkalasini ham tekshirish — ma'lumotni xato fayldan o'qib qolmaslik
+        uchun (defense-in-depth).
+        """
+        is_enc_by_name = src_path.name.endswith(ENC_SUFFIX)
+        is_enc_by_magic = is_encrypted_file(str(src_path))
+        if not (is_enc_by_name or is_enc_by_magic):
+            return src_path
+
+        # Mos kelmaslik — backup buzilgan yoki noto'g'ri tanlangan
+        if is_enc_by_name != is_enc_by_magic:
+            raise CommandError(
+                f"Backup formati nomuvofiq: nom .enc={'ha' if is_enc_by_name else 'yo\\'q'}, "
+                f"magic={'ha' if is_enc_by_magic else 'yo\\'q'}. Fayl buzilgan."
+            )
+
+        try:
+            passphrase = get_passphrase(required=True)
+        except BackupCryptoError as exc:
+            raise CommandError(str(exc))
+
+        decrypted_path = src_path.with_name(src_path.name[:-len(ENC_SUFFIX)])
+        self.stdout.write(f'AES-256-GCM deshifrlanmoqda → {decrypted_path.name}')
+        try:
+            with open(src_path, 'rb') as src, open(decrypted_path, 'wb') as dst:
+                decrypt_stream(src, dst, passphrase=passphrase)
+        except BackupCryptoError as exc:
+            # Yarim yozilgan deshifrlangan faylni o'chirib tashlaymiz —
+            # qisman ma'lumot oshkor qilmasligi uchun.
+            if decrypted_path.exists():
+                try:
+                    decrypted_path.unlink()
+                except OSError:
+                    pass
+            raise CommandError(f'Deshifrlash xato: {exc}')
+        return decrypted_path
 
     def _download_from_b2(self, key: str, dest: Path) -> None:
         client = self._b2_client()

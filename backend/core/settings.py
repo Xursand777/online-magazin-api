@@ -843,10 +843,32 @@ if _REDIS_URL:
     CELERY_TASK_TIME_LIMIT     = 60    # 60 soniya — task hard kill (SIGKILL)
 
     # Beat (scheduled tasks) uchun
+    # ─────────────────────────────────────────────────────────────────────────
+    # Hetzner migratsiyasidan keyin DB backup'lar SHU YERDA bo'shatilmoqda
+    # (GitHub Actions emas). Sabab: Hetzner PostgreSQL TASHQARI ko'rinmaydi,
+    # faqat docker-compose ichki tarmog'idagi `web`/`worker` konteyneri ulanishi
+    # mumkin. Celery Beat → Redis → worker → backup_db management command.
+    # Tafsilot: core/tasks.py va core/management/commands/backup_db.py
+    # ─────────────────────────────────────────────────────────────────────────
+    from celery.schedules import crontab as _crontab
+
     CELERY_BEAT_SCHEDULE = {
         'auto_cancel_expired_orders_every_10_minutes': {
             'task': 'orders.auto_cancel_expired_orders_task',
-            'schedule': 600.0, # 10 daqiqa
+            'schedule': 600.0,  # 10 daqiqa
+        },
+        # Phase 0.3 — kunlik shifrlangan DB backup B2 ga.
+        # 03:00 UTC = 08:00 Toshkent (UTC+5). Trafik pasaytirilgan vaqt.
+        # Bajaruvchi: backup_db_task → call_command('backup_db')
+        #   → pg_dump | gzip | AES-256-GCM → Backblaze B2 (private bucket)
+        'backup_db_daily_03_utc': {
+            'task': 'core.backup_db_task',
+            'schedule': _crontab(hour=3, minute=0),
+            'options': {
+                # Bir backup bajarilayotganda yangisi qo'yilmasin (resurs
+                # himoyasi + concurrent pg_dump muammosi yo'q).
+                'expires': 3600,
+            },
         },
     }
 

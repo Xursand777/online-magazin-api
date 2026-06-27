@@ -61,6 +61,16 @@ from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
 from django.db import connection
 
+# Phase 0.3+ — client-side shifrlash (defense-in-depth)
+# Modul mustaqil — backup_crypto.py o'z xato sinflarini ko'taradi va biz ularni
+# qayta-paketlaymiz CommandError'ga (Django foydalanuvchi do'st xato).
+from core.backup_crypto import (
+    BackupCryptoError,
+    encrypt_stream,
+    is_enabled as crypto_is_enabled,
+    get_passphrase,
+)
+
 logger = logging.getLogger(__name__)
 
 
@@ -68,6 +78,11 @@ logger = logging.getLogger(__name__)
 
 # Backup fayllar prefixi — list/cleanup vaqtida grep qilish uchun
 BACKUP_PREFIX = 'bozor-backup-'
+
+# Shifrlangan backup fayllarining qo'shimcha kengaytmasi.
+# Format: bozor-backup-<sana>.sql.gz.enc — `.gz.enc` borligi B2 list paytida
+# shifrlangan/oddiy ekanini ajratish imkonini beradi.
+ENC_SUFFIX = '.enc'
 
 # B2 ga yuborish vaqtida bir o'qish — 5 MB chunk (gzip oqim uchun)
 UPLOAD_CHUNK_SIZE = 5 * 1024 * 1024
@@ -116,6 +131,7 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         start_time = time.time()
         backup_path: Path | None = None
+        encrypted_path: Path | None = None  # Phase 0.3+ shifrlangan nusxa
         prev_size: int | None = None
 
         try:
@@ -134,39 +150,48 @@ class Command(BaseCommand):
 
             # 4. Dump + gzip (streaming)
             backup_path = self._create_compressed_dump(engine)
-            size_bytes = backup_path.stat().st_size
+            raw_size_bytes = backup_path.stat().st_size
             self.stdout.write(self.style.SUCCESS(
-                f'Dump tayyor: {backup_path.name} ({self._fmt_size(size_bytes)})'
+                f'Dump tayyor: {backup_path.name} ({self._fmt_size(raw_size_bytes)})'
             ))
 
-            # 5. Sanity check — hajm normal'mi?
-            self._validate_dump_size(size_bytes, prev_size)
+            # 5. Sanity check — hajm normal'mi? (shifrlash dump'idan oldin)
+            self._validate_dump_size(raw_size_bytes, prev_size)
 
-            # 6. Dry run bo'lsa shu yerda to'xtaymiz
+            # 6. AES-256-GCM shifrlash (passphrase env'da bo'lsa).
+            # XAVFSIZLIK: Production'da SHART (DEBUG=False). Dev'da OPTIONAL
+            # (legacy fallback). Bu defense-in-depth qatlami — B2 bucket creds
+            # oshkor qilsa ham, ma'lumot o'qib bo'lmaydi.
+            upload_path, size_bytes = self._maybe_encrypt(
+                backup_path, dry_run=options['dry_run']
+            )
+            encrypted_path = upload_path if upload_path != backup_path else None
+
+            # 7. Dry run bo'lsa shu yerda to'xtaymiz
             if options['dry_run']:
                 self.stdout.write(self.style.WARNING(
                     '\n[DRY RUN] B2 ga yuklash o\'tkazib yuborildi.'
                 ))
-                self.stdout.write(f'Lokal fayl: {backup_path}')
+                self.stdout.write(f'Lokal fayl: {upload_path}')
                 return
 
-            # 7. B2 ga yuklash
-            object_key = backup_path.name
-            uploaded_etag = self._upload_to_b2(backup_path, object_key)
+            # 8. B2 ga yuklash (shifrlangan yoki oddiy nusxa)
+            object_key = upload_path.name
+            uploaded_etag = self._upload_to_b2(upload_path, object_key)
             self.stdout.write(self.style.SUCCESS(
                 f'B2 ga yuklandi: {object_key} (etag: {uploaded_etag[:16]}...)'
             ))
 
-            # 8. Yuklanish tasdiqlash
+            # 9. Yuklanish tasdiqlash
             self._verify_upload(object_key, size_bytes)
 
-            # 9. Eski backup'larni tozalash
+            # 10. Eski backup'larni tozalash
             retention = options['retention_days'] or getattr(
                 settings, 'BACKUP_RETENTION_DAYS', 30
             )
             deleted_count = self._cleanup_old_backups(retention_days=retention)
 
-            # 10. Hisobot
+            # 11. Hisobot
             duration = time.time() - start_time
             self._report_success(
                 object_key=object_key,
@@ -186,17 +211,30 @@ class Command(BaseCommand):
 
         finally:
             # Lokal faylni doim tozalash (--keep-local bo'lmasa)
-            if backup_path and backup_path.exists() and not options.get('keep_local'):
-                try:
-                    backup_path.unlink()
-                    self.stdout.write(f'Lokal fayl o\'chirildi: {backup_path}')
-                except OSError as exc:
-                    logger.warning('Lokal fayl o\'chirishda xato: %s', exc)
+            for path in [backup_path, encrypted_path]:
+                if path and path.exists() and not options.get('keep_local'):
+                    try:
+                        path.unlink()
+                        self.stdout.write(f'Lokal fayl o\'chirildi: {path}')
+                    except OSError as exc:
+                        logger.warning('Lokal fayl o\'chirishda xato: %s', exc)
 
     # ── Konfiguratsiya tekshiruvi ────────────────────────────────────────────
 
     def _validate_config(self, *, dry_run: bool) -> None:
         """B2 sozlamalari va backup bucket borligini tekshiradi."""
+        # Production'da SHART: shifrlash passphrase'i sozlangan bo'lishi kerak.
+        # Bu defense-in-depth — B2 creds oshkor qilsa ham, ma'lumot o'qib
+        # bo'lmaydi. Dev (DEBUG=True) uchun ixtiyoriy.
+        require_encryption = not settings.DEBUG
+        if require_encryption:
+            # `get_passphrase(required=True)` env yo'q yoki zaif bo'lsa
+            # BackupCryptoConfigError ko'taradi (foydalanuvchi do'st xato).
+            try:
+                get_passphrase(required=True)
+            except BackupCryptoError as exc:
+                raise CommandError(str(exc))
+
         if dry_run:
             return  # dry run uchun B2 kerak emas
 
@@ -218,6 +256,44 @@ class Command(BaseCommand):
                 "DIQQAT: Backup bucket media bucket'dan ALOHIDA va PRIVATE "
                 "bo'lishi shart.\n"
             )
+
+    def _maybe_encrypt(self, src_path: Path, *, dry_run: bool) -> tuple[Path, int]:
+        """
+        Dump'ni AES-256-GCM bilan shifrlaydi (passphrase env'da bo'lsa).
+        Qaytaradi: (upload qilinadigan fayl, fayl hajmi).
+
+        Production'da SHART (_validate_config tekshirgan); dev'da OPTIONAL.
+        """
+        # Production'da _validate_config allaqachon required=True bilan tekshirgan.
+        # Bu yerda required=False — dev rejimida shifrlamasdan o'tishga ruxsat.
+        passphrase = get_passphrase(required=False)
+        if not passphrase:
+            self.stdout.write(self.style.WARNING(
+                "⚠️  Shifrlash o'tkazib yuborildi (BACKUP_ENCRYPTION_PASSPHRASE "
+                "yo'q). DEV rejim uchun OK, PRODUCTION uchun XAVF."
+            ))
+            return src_path, src_path.stat().st_size
+
+        encrypted_path = src_path.with_name(src_path.name + ENC_SUFFIX)
+        self.stdout.write(f'AES-256-GCM bilan shifrlanmoqda → {encrypted_path.name}')
+        try:
+            with open(src_path, 'rb') as src, open(encrypted_path, 'wb') as dst:
+                encrypt_stream(src, dst, passphrase=passphrase)
+        except BackupCryptoError as exc:
+            # Yarim yozilgan faylni tozalash — qisman shifrlangan dump'ni
+            # B2'ga yuklamaymiz (restore vaqtida xato chiqaradi).
+            if encrypted_path.exists():
+                try:
+                    encrypted_path.unlink()
+                except OSError:
+                    pass
+            raise CommandError(f'Shifrlash xato: {exc}')
+
+        enc_size = encrypted_path.stat().st_size
+        self.stdout.write(self.style.SUCCESS(
+            f'Shifrlandi: {encrypted_path.name} ({self._fmt_size(enc_size)})'
+        ))
+        return encrypted_path, enc_size
 
     def _get_backup_bucket(self) -> str:
         """Backup bucket nomi — alohida env yoki settings'dan."""

@@ -41,6 +41,10 @@ pillow==11.3.0
 psycopg2-binary==2.9.12
 dj-database-url==2.1.0
 celery==5.4.0
+# DB backup'larini AES-256-GCM bilan client-side shifrlash uchun (Phase 0.3+).
+# Backup B2'ga shifrlangan holda yuboriladi — bucket creds yo'qolsa ham ma'lumot
+# o'qib bo'lmaydi. PBKDF2-SHA256 600k iter bilan passphrase'dan kalit chiqariladi.
+cryptography==43.0.3
 python-dotenv==1.0.1
 sentry-sdk[django]==2.18.0
 referencing==0.36.2
