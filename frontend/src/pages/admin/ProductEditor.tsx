@@ -638,6 +638,9 @@ export const ProductEditor = ({
         barcode: v.barcode.trim(),
         is_active: boolish(v.is_active, true),
         position: safeInt(v.position, 0),
+        // Phase 4.0 — do'kondagi polka manzili (max 20). Backend `default=''`,
+        // shu sababli bo'sh stringni jim qabul qiladi.
+        shelf_location: v.shelf_location.trim().slice(0, 20),
       }))
       .filter((v) =>
         hasVariantContent({
@@ -1634,9 +1637,9 @@ const ColorGroupVariantEditor = ({
                           </div>
                         </div>
 
-                        {/* ROW 2 — IMAGE STRIP (per-variant) */}
+                        {/* ROW 2 — IMAGE STRIP (per-variant) + POLKA (rasm yonida) */}
                         <div className='mt-3 rounded-lg border border-dashed border-outline-variant/60 bg-surface/40 p-2.5'>
-                          <div className='mb-2 flex items-center justify-between'>
+                          <div className='mb-2 flex flex-wrap items-center justify-between gap-2'>
                             <div className='flex items-center gap-1.5'>
                               <span className='material-symbols-outlined text-[16px] text-on-surface-variant'>
                                 image
@@ -1652,12 +1655,41 @@ const ColorGroupVariantEditor = ({
                                   1-rasm = asosiy
                                 </span>
                               )}
+                              {images.length === 0 && (
+                                <span className='ml-1 text-[10px] text-error/80'>
+                                  ⚠ Rasm yo'q — boshqa variantning rasmi ko'rinadi
+                                </span>
+                              )}
                             </div>
-                            {images.length === 0 && (
-                              <span className='text-[10px] text-error/80'>
-                                ⚠ Rasm yo'q — saytda boshqa variantning rasmi ko'rinadi
+                            {/* Phase 4.0 — POLKA (do'kondagi joy). RASM YONIDA — admin
+                                qaysi polkaga qo'yganini rasm tanlash payti yozadi.
+                                FAQAT admin tomonida ko'rinadi — backend public API
+                                bu maydonni qaytarmaydi. */}
+                            <div className='flex items-center gap-1.5'>
+                              <span
+                                className='material-symbols-outlined text-[14px] text-primary'
+                                title='Do\'kondagi polka manzili (faqat admin)'
+                              >
+                                pin_drop
                               </span>
-                            )}
+                              <span className='text-[11px] font-bold uppercase tracking-wide text-primary'>
+                                Polka
+                              </span>
+                              <input
+                                value={variant.shelf_location}
+                                onChange={(e) =>
+                                  onVariantChange(
+                                    idx,
+                                    'shelf_location',
+                                    e.target.value.slice(0, 20),
+                                  )
+                                }
+                                placeholder='001'
+                                maxLength={20}
+                                title='Do\'kondagi jismoniy polka (faqat admin va POS\'da ko\'rinadi)'
+                                className='w-24 rounded-lg border border-primary/40 bg-surface-bright px-2 py-1 text-sm font-bold text-primary outline-none placeholder:font-normal placeholder:text-on-surface-variant/50 focus:border-primary focus:ring-2 focus:ring-primary/30'
+                              />
+                            </div>
                           </div>
                           <div className='flex flex-wrap gap-2'>
                             {images.map((img, i) => {

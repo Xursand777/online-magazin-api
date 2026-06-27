@@ -99,6 +99,7 @@ class PosProduct {
         quantity: 1,
         stock: v.stock,
         sku: v.sku,
+        shelfLocation: v.shelfLocation,
       );
     }).toList();
   }
@@ -116,6 +117,9 @@ class PosVariant {
   final double? costPrice;
   final int stock;
   final String? imageUrl;
+  // Phase 4.0 — do'kondagi polka manzili (admin/POS uchun). Backend
+  // public API'da yo'q → faqat admin token bilan keladi.
+  final String shelfLocation;
 
   const PosVariant({
     required this.id,
@@ -129,6 +133,7 @@ class PosVariant {
     required this.costPrice,
     required this.stock,
     required this.imageUrl,
+    this.shelfLocation = '',
   });
 
   factory PosVariant.fromJson(Map<String, dynamic> json) {
@@ -147,6 +152,7 @@ class PosVariant {
       model: json['model'] as String? ?? '',
       size: json['size'] as String? ?? '',
       sku: json['sku'] as String? ?? '',
+      shelfLocation: (json['shelf_location'] as String? ?? '').trim(),
       price: _doubleOrNull(json['price']),
       discountPrice: _doubleOrNull(json['discount_price']),
       costPrice: _doubleOrNull(json['cost_price']),
@@ -172,6 +178,9 @@ class PosCartItem {
   final int quantity;
   final int stock;
   final String sku;
+  // Phase 4.0 — do'kondagi polka manzili (FAQAT admin/POS). Backend public
+  // API'da bu maydon yo'q → oddiy foydalanuvchi tomonida bu joy mavjud emas.
+  final String shelfLocation;
 
   const PosCartItem({
     required this.cartId,
@@ -189,6 +198,7 @@ class PosCartItem {
     required this.quantity,
     required this.stock,
     required this.sku,
+    this.shelfLocation = '',
   }) : soldPrice = soldPrice ?? price;
 
   /// Variant atributlari — sifat • model • hajm • rang (backend tartibi bilan).
@@ -233,6 +243,7 @@ class PosCartItem {
         quantity: quantity ?? this.quantity,
         stock: stock,
         sku: sku,
+        shelfLocation: shelfLocation,
       );
 }
 

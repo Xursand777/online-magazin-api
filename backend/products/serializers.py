@@ -158,6 +158,13 @@ class ProductVariantSerializer(serializers.ModelSerializer):
 
 
 class AdminProductVariantSerializer(ProductVariantSerializer):
+    """
+    Admin uchun kengaytirilgan variant ko'rinishi — `shelf_location`
+    (do'kondagi polka manzili) shu yerda ATAYIN qo'shilgan, public
+    `ProductVariantSerializer` (catalog/home/product detail uchun
+    ishlatiladi) esa bu maydonni qaytarmaydi → foydalanuvchi tomon
+    polka raqami tarmoq darajasida ko'rinmaydi.
+    """
     class Meta(ProductVariantSerializer.Meta):
         fields = ProductVariantSerializer.Meta.fields + (
             'cost_price',
@@ -166,6 +173,7 @@ class AdminProductVariantSerializer(ProductVariantSerializer):
             'is_active',
             'position',
             'images',
+            'shelf_location',  # Phase 4.0 — faqat admin/POS
         )
 
 class ProductListSerializer(serializers.ModelSerializer):
@@ -919,6 +927,11 @@ class AdminProductVariantInputSerializer(serializers.Serializer):
     barcode = serializers.CharField(required=False, allow_blank=True, allow_null=True)
     is_active = serializers.BooleanField(required=False, default=True, allow_null=True)
     position = serializers.IntegerField(required=False, min_value=0, default=0, allow_null=True)
+    # Phase 4.0 — do'kondagi polka manzili (faqat admin/POS uchun).
+    # max 20 belgi — qisqa kodlar uchun yetarli (001, A-3, Sklad-2/Polka-15).
+    shelf_location = serializers.CharField(
+        required=False, allow_blank=True, allow_null=True, max_length=20,
+    )
 
     def to_internal_value(self, data):
         # Frontend ba'zan bo'sh string yoki noto'g'ri tipdagi raqamlarni yuborishi
@@ -1072,6 +1085,9 @@ class AdminProductSerializer(serializers.ModelSerializer):
             'barcode': variant_data.get('barcode') or None,
             'is_active': True if is_active_raw is None else bool(is_active_raw),
             'position': position_raw if isinstance(position_raw, int) and position_raw >= 0 else 0,
+            # Phase 4.0 — polka. None/bo'sh string → '' (model'da default='').
+            # CharField(blank=True), null=False bo'lgani uchun '' bo'lib qoladi.
+            'shelf_location': (variant_data.get('shelf_location') or '').strip()[:20],
         }
         has_content = any(
             value not in (None, '', Decimal('0.00'), 0, True)

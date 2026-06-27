@@ -564,36 +564,77 @@ class _OrderCard extends StatelessWidget {
                         : null,
                   ),
                 const SizedBox(height: 8),
-                // Items
+                // Phase 4.0 — buyurtma item'lari: TO'LIQ mahsulot nomi (oxirida
+                // `...` chiqmaydi), polka bo'lsa rangli bold badge ko'rinadi.
                 ...order.items.map((it) => Padding(
-                      padding: const EdgeInsets.only(bottom: 4),
-                      child: Row(
+                      padding: const EdgeInsets.only(bottom: 6),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Container(
-                            width: 6,
-                            height: 6,
-                            margin: const EdgeInsets.only(right: 8),
-                            decoration: const BoxDecoration(
-                              color: Color(0xFF0A7C55),
-                              shape: BoxShape.circle,
-                            ),
+                          Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Container(
+                                width: 6,
+                                height: 6,
+                                margin: const EdgeInsets.only(
+                                    right: 8, top: 6),
+                                decoration: const BoxDecoration(
+                                  color: Color(0xFF0A7C55),
+                                  shape: BoxShape.circle,
+                                ),
+                              ),
+                              Expanded(
+                                child: Text(
+                                  '${it.productName}'
+                                  '${it.variantText.isNotEmpty ? ' (${it.variantText})' : ''}'
+                                  ' × ${it.quantity}',
+                                  softWrap: true,
+                                  style: theme.textTheme.bodySmall,
+                                ),
+                              ),
+                              const SizedBox(width: 6),
+                              Text(
+                                formatSom(it.priceSnapshot * it.quantity),
+                                style: theme.textTheme.bodySmall?.copyWith(
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ],
                           ),
-                          Expanded(
-                            child: Text(
-                              '${it.productName}'
-                              '${it.variantText.isNotEmpty ? ' (${it.variantText})' : ''}'
-                              ' × ${it.quantity}',
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
-                              style: theme.textTheme.bodySmall,
+                          // POLKA badge — faqat admin/staff so'rovida keladi.
+                          // Rangli, kalin, kattaroq shrift bilan ko'zga
+                          // tashlanadi → buyurtmani yig'ish vaqtida tezda
+                          // do'konning qaerdan olish kerakligini bildiradi.
+                          if (it.shelfLocation.isNotEmpty)
+                            Padding(
+                              padding: const EdgeInsets.only(left: 14, top: 4),
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 8, vertical: 2),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFF0A7C55),
+                                  borderRadius: BorderRadius.circular(6),
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    const Icon(Icons.pin_drop,
+                                        size: 12, color: Colors.white),
+                                    const SizedBox(width: 3),
+                                    Text(
+                                      'Polka: ${it.shelfLocation}',
+                                      style: const TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w900,
+                                        letterSpacing: 0.3,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
                             ),
-                          ),
-                          Text(
-                            formatSom(it.priceSnapshot * it.quantity),
-                            style: theme.textTheme.bodySmall?.copyWith(
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
                         ],
                       ),
                     )),

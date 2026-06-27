@@ -121,6 +121,10 @@ class _VariantData {
   String? size;
   String? barcode;
   String? sku;
+  // Phase 4.0 — do'kondagi polka manzili (faqat admin/POS uchun). Maksimal
+  // 20 belgi (backend `CharField(max_length=20)`). Foydalanuvchi tomonida
+  // umuman ko'rsatilmaydi — backend public API'da bu maydon yo'q.
+  String? shelfLocation;
   String? price;
   String? priceUsd;
   // #N(per-variant cost/discount): web bilan to'liq tenglash — har variant o'z
@@ -161,6 +165,7 @@ class _VariantData {
     this.size,
     this.barcode,
     this.sku,
+    this.shelfLocation,
     this.price,
     this.priceUsd,
     this.discountPrice,
@@ -291,6 +296,9 @@ class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
             size: v.size,
             barcode: widget.clone ? null : v.barcode,
             sku: widget.clone ? null : v.sku,
+            // Phase 4.0 — polka: klon paytida ham saqlanadi (jismoniy joy
+            // takrorlanmasligi mumkin, lekin admin keyin o'zgartiradi).
+            shelfLocation: widget.clone ? null : v.shelfLocation,
             price: v.price?.toStringAsFixed(0),
             priceUsd: v.priceUsd?.toStringAsFixed(2),
             // Chegirma/tannarx — klonда ham saqlanadi (iqtisod, SKU emas).
@@ -419,6 +427,7 @@ class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
             'size': v.size,
             'barcode': v.barcode,
             'sku': v.sku,
+            'shelf_location': v.shelfLocation,
             'price': v.priceCtrl.text,
             'price_usd': v.priceUsdCtrl.text,
             'discount': v.discountCtrl.text,
@@ -508,6 +517,7 @@ class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
           size: m['size'] as String?,
           barcode: m['barcode'] as String?,
           sku: m['sku'] as String?,
+          shelfLocation: m['shelf_location'] as String?,
           price: m['price'] as String?,
           priceUsd: m['price_usd'] as String?,
           discountPrice: m['discount'] as String?,
@@ -1238,6 +1248,16 @@ class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
         if (v.size?.isNotEmpty == true) vMap['size'] = v.size;
         if (v.barcode?.isNotEmpty == true) vMap['barcode'] = v.barcode;
         if (v.sku?.isNotEmpty == true) vMap['sku'] = v.sku;
+        // Phase 4.0 — polka (max 20 belgi). Bo'sh string ham yuborilishi mumkin,
+        // backend `default=''` qabul qiladi. NULL/eski variantlar uchun JSON'da
+        // umuman ko'rsatilmaydi — backend defaultga tushadi.
+        if (v.shelfLocation?.isNotEmpty == true) {
+          vMap['shelf_location'] = v.shelfLocation!.trim();
+        } else if (v.id != null) {
+          // Edit holatida bo'shatilgan polkani backend'ga jim yuboramiz —
+          // shu sababli '' qiymat berib, eski qiymat ham tozalansin.
+          vMap['shelf_location'] = '';
+        }
         if (v.price?.isNotEmpty == true) vMap['price'] = v.price;
         if (v.priceUsd?.isNotEmpty == true) vMap['price_usd'] = v.priceUsd;
         if (v.discountPrice?.isNotEmpty == true) {
@@ -2397,6 +2417,63 @@ class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
                 ),
               ),
             ],
+          ),
+          // Phase 4.0 — POLKA maydoni. Saytdagi `ProductEditor`'da bu maydon
+          // rasm yuklash bo'limining tepasiga joylashtirilgan. Mobilda esa
+          // input ko'rinishlari to'liq qatorda turishi UX uchun yaxshiroq —
+          // shu sababli alohida `pin_drop` ikonkasi bilan, rangli ramka va
+          // matn bilan diqqatni jalb qilamiz. FAQAT admin ko'radi.
+          const SizedBox(height: 8),
+          TextFormField(
+            initialValue: v.shelfLocation,
+            maxLength: 20,
+            textInputAction: TextInputAction.next,
+            onFieldSubmitted: (_) => FocusScope.of(context).nextFocus(),
+            style: const TextStyle(
+              fontWeight: FontWeight.w800,
+              color: Color(0xFF0A7C55),
+            ),
+            decoration: InputDecoration(
+              hintText: 'Masalan: 001',
+              hintStyle: const TextStyle(
+                fontSize: 12,
+                color: Colors.grey,
+                fontWeight: FontWeight.normal,
+              ),
+              labelText: "Polka (do'kondagi joy)",
+              labelStyle: const TextStyle(
+                fontWeight: FontWeight.bold,
+                color: Color(0xFF0A7C55),
+              ),
+              prefixIcon: const Icon(
+                Icons.pin_drop_outlined,
+                color: Color(0xFF0A7C55),
+                size: 20,
+              ),
+              counterText: '', // 20 belgi counter'ini yashirib qo'yamiz
+              isDense: true,
+              contentPadding: const EdgeInsets.symmetric(
+                horizontal: 10,
+                vertical: 10,
+              ),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(8),
+                borderSide: const BorderSide(color: Color(0xFF0A7C55)),
+              ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(8),
+                borderSide:
+                    const BorderSide(color: Color(0xFF0A7C55), width: 1.2),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(8),
+                borderSide:
+                    const BorderSide(color: Color(0xFF0A7C55), width: 2),
+              ),
+              helperText: 'Faqat admin/POS\'da ko\'rinadi',
+              helperStyle: const TextStyle(fontSize: 10, color: Colors.grey),
+            ),
+            onChanged: (val) => v.shelfLocation = val,
           ),
           const SizedBox(height: 8),
           Row(

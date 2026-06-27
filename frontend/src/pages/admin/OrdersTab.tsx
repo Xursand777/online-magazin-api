@@ -639,14 +639,29 @@ export const OrdersTab = () => {
                                 )}
                               </div>
                               <div className='min-w-0 flex-1'>
-                                <div className='line-clamp-1 text-sm text-on-surface'>
+                                <div className='text-sm text-on-surface break-words'>
+                                  {/* Phase 4.0 — mahsulot nomi to'liq ko'rinsin
+                                      (oxirida `...` chiqmasin). Buyurtmalarda
+                                      uzun nomli mahsulot ham bir necha qatorga
+                                      sig'adi → admin to'liq matnni o'qiy oladi. */}
                                   {item.product_details?.name || 'Mahsulot'}
                                 </div>
-                                <div className='text-xs text-on-surface-variant'>
-                                  {item.quantity} dona
-                                  {item.variant_details
-                                    ? ` • ${[item.variant_details.color, item.variant_details.quality, item.variant_details.model, item.variant_details.size].filter(_notNull).join(' / ')}`
-                                    : ''}
+                                <div className='mt-0.5 flex flex-wrap items-center gap-1.5 text-xs text-on-surface-variant'>
+                                  <span>{item.quantity} dona</span>
+                                  {item.variant_details && (
+                                    <span>
+                                      • {[item.variant_details.color, item.variant_details.quality, item.variant_details.model, item.variant_details.size].filter(_notNull).join(' / ')}
+                                    </span>
+                                  )}
+                                  {/* PHASE 4.0 — POLKA badge (rangli bold kattaroq).
+                                      Backend faqat staff so'rovida `variant_shelf`
+                                      qaytaradi → xaridor tomonida bu joy yo'q. */}
+                                  {item.variant_shelf && (
+                                    <span className='inline-flex items-center gap-0.5 rounded-md bg-primary px-2 py-0.5 text-[13px] font-extrabold tracking-wide text-on-primary shadow-sm'>
+                                      <span className='material-symbols-outlined text-[14px]'>pin_drop</span>
+                                      Polka: {item.variant_shelf}
+                                    </span>
+                                  )}
                                 </div>
                               </div>
                             </div>

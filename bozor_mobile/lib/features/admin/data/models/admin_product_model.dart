@@ -37,6 +37,10 @@ class AdminProductVariantModel {
   final bool isActive;
   final String? imageUrl;
   final List<AdminProductImageModel> images;
+  // Phase 4.0 — do'kondagi polka manzili. FAQAT admin paneli (POS, buyurtmalar)
+  // uchun keladi — backend public `ProductVariantSerializer` bu maydonni
+  // qaytarmaydi → oddiy foydalanuvchilarda bu yo'q.
+  final String? shelfLocation;
 
   AdminProductVariantModel({
     this.id,
@@ -57,6 +61,7 @@ class AdminProductVariantModel {
     required this.isActive,
     this.imageUrl,
     required this.images,
+    this.shelfLocation,
   });
 
   factory AdminProductVariantModel.fromJson(Map<String, dynamic> json) {
@@ -82,6 +87,7 @@ class AdminProductVariantModel {
               ?.map((e) => AdminProductImageModel.fromJson(e))
               .toList() ??
           [],
+      shelfLocation: json['shelf_location'] as String?,
     );
   }
 

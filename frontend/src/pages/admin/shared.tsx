@@ -48,6 +48,9 @@ export interface AdminProductVariant {
   barcode?: string | null;
   is_active?: boolean;
   position?: number;
+  // Phase 4.0 — do'kondagi polka manzili (faqat admin/POS). Public API
+  // bu maydonni qaytarmaydi → faqat AdminProduct*Serializer'dan keladi.
+  shelf_location?: string | null;
 }
 
 export interface AdminProduct {
@@ -121,6 +124,8 @@ export interface VariantFormState {
   barcode: string;
   is_active: boolean;
   position: string;
+  // Phase 4.0 — do'kondagi jismoniy polka (masalan: "001", "A-3").
+  shelf_location: string;
 }
 
 export interface ProductEditorState {
@@ -210,6 +215,8 @@ export interface AdminOrder {
     price_snapshot: string | number;
     product_details?: { name: string; main_image?: string | null };
     variant_details?: { color?: string | null; quality?: string | null; model?: string | null; size?: string | null } | null;
+    // Phase 4.0 — variant polkasi. Faqat staff so'rovida keladi (xaridorga `null`).
+    variant_shelf?: string | null;
   }>;
   history: AdminOrderHistory[];
   user?: { id: number; phone: string } | null;
@@ -272,6 +279,7 @@ export const emptyVariant = (groupId?: string): VariantFormState => ({
   barcode: '',
   is_active: true,
   position: '0',
+  shelf_location: '',
 });
 
 export const emptyBannerForm = (): BannerFormState => ({
@@ -449,6 +457,7 @@ export const mapProductVariants = (product?: AdminProduct): VariantFormState[] =
     barcode: v.barcode || '',
     is_active: v.is_active ?? true,
     position: String(v.position ?? 0),
+    shelf_location: v.shelf_location || '',
   }));
 };
 

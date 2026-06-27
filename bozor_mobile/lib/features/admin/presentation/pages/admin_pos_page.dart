@@ -222,11 +222,16 @@ class _AdminPosPageState extends State<AdminPosPage> {
       controller: _scrollController,
       keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
       padding: const EdgeInsets.fromLTRB(12, 12, 12, 96),
+      // Phase 4.0 — kartalar KENGAYTIRILDI (220 → 280): uzun nomli
+      // mahsulotlar to'liq sig'adi (oxirida `...` chiqmaydi), polka
+      // badgi ham bemalol joylashadi. childAspectRatio 0.92 → 0.86 →
+      // karta balandligi nisbatan kattaroq, qo'shilgan polka qatori joy
+      // oladi va kartlar baribir yagona ko'rinishga ega.
       gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-        maxCrossAxisExtent: 220,
+        maxCrossAxisExtent: 280,
         mainAxisSpacing: 10,
         crossAxisSpacing: 10,
-        childAspectRatio: 0.92,
+        childAspectRatio: 0.86,
       ),
       itemCount: units.length + (state.isFetchingMore ? 1 : 0),
       itemBuilder: (context, i) {
@@ -379,79 +384,113 @@ class _ProductUnitCard extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // To'liq mahsulot nomi — rasm yo'q (POSda ortiqcha shovqin).
-            // Nom bloki AYNAN 2 qator joy band — har bir karta bir xil
-            // balandlikda turishi uchun (kartochkalar bir xilligini saqlash).
-            SizedBox(
-              height: 40,
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Expanded(
-                    child: Text(
-                      unit.name,
-                      softWrap: true,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: theme.textTheme.titleSmall?.copyWith(
-                        fontWeight: FontWeight.w800,
-                        height: 1.25,
-                        fontSize: 15,
-                      ),
+            // Phase 4.0 — TO'LIQ mahsulot nomi (oxirida `...` chiqmaydi).
+            // `maxLines` cheklov OLIB TASHLANDI — uzun nomli mahsulot ham
+            // to'liq ko'rinadi. Karta `SliverGridDelegateWithMaxCrossAxisExtent`
+            // (280px) ichida wraplandi, balandlik ham `childAspectRatio: 0.86`
+            // bilan kengaytirilgan.
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: Text(
+                    unit.name,
+                    softWrap: true,
+                    style: theme.textTheme.titleSmall?.copyWith(
+                      fontWeight: FontWeight.w800,
+                      height: 1.25,
+                      fontSize: 15,
                     ),
                   ),
-                  if (inCart > 0)
-                    Container(
-                      margin: const EdgeInsets.only(left: 4),
-                      padding:
-                          const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                      decoration: const BoxDecoration(
-                        color: Color(0xFF0A7C55),
-                        shape: BoxShape.rectangle,
-                        borderRadius: BorderRadius.all(Radius.circular(8)),
-                      ),
-                      child: Text('$inCart',
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 12,
-                            fontWeight: FontWeight.w800,
-                          )),
+                ),
+                if (inCart > 0)
+                  Container(
+                    margin: const EdgeInsets.only(left: 4),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                    decoration: const BoxDecoration(
+                      color: Color(0xFF0A7C55),
+                      shape: BoxShape.rectangle,
+                      borderRadius: BorderRadius.all(Radius.circular(8)),
                     ),
-                ],
-              ),
+                    child: Text('$inCart',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w800,
+                        )),
+                  ),
+              ],
             ),
             // Atribut chip'lar joyi — atributlar bo'lmasa ham mini balandlik
             // saqlanadi (bir xil kartochka balandligi uchun).
             const SizedBox(height: 6),
-            SizedBox(
-              height: 24,
-              child: unit.variantText.isEmpty
-                  ? const SizedBox.shrink()
-                  : Wrap(
-                      spacing: 6,
-                      runSpacing: 6,
-                      children: [
-                        for (final attr in [unit.quality, unit.model, unit.size, unit.color]
-                            .where((e) => e.trim().isNotEmpty))
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 9, vertical: 3),
-                            decoration: BoxDecoration(
-                              color: theme.colorScheme.surfaceContainer,
-                              borderRadius: BorderRadius.circular(6),
-                            ),
-                            child: Text(
-                              attr,
-                              style: theme.textTheme.labelMedium?.copyWith(
-                                fontSize: 12,
-                                fontWeight: FontWeight.w600,
-                                color: theme.colorScheme.onSurface,
-                              ),
-                            ),
-                          ),
-                      ],
+            if (unit.variantText.isNotEmpty)
+              Wrap(
+                spacing: 6,
+                runSpacing: 6,
+                children: [
+                  for (final attr in [unit.quality, unit.model, unit.size, unit.color]
+                      .where((e) => e.trim().isNotEmpty))
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 9, vertical: 3),
+                      decoration: BoxDecoration(
+                        color: theme.colorScheme.surfaceContainer,
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: Text(
+                        attr,
+                        style: theme.textTheme.labelMedium?.copyWith(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: theme.colorScheme.onSurface,
+                        ),
+                      ),
                     ),
-            ),
+                ],
+              ),
+            // PHASE 4.0 — POLKA badge (rangli, kalin, kattaroq shrift).
+            // Admin/sotuvchi POS'da mahsulotni do'kondan tezda topishi uchun.
+            // Faqat shelf_location bo'sh bo'lmasa chiziladi → eski mahsulotlar
+            // bilan teskari moslik buzilmaydi.
+            if (unit.shelfLocation.isNotEmpty) ...[
+              const SizedBox(height: 6),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF0A7C55),
+                  borderRadius: BorderRadius.circular(6),
+                  boxShadow: [
+                    BoxShadow(
+                      color: const Color(0xFF0A7C55).withOpacity(0.25),
+                      blurRadius: 4,
+                      offset: const Offset(0, 1),
+                    ),
+                  ],
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(
+                      Icons.pin_drop,
+                      size: 14,
+                      color: Colors.white,
+                    ),
+                    const SizedBox(width: 3),
+                    Text(
+                      'Polka: ${unit.shelfLocation}',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: 0.3,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
             const Spacer(),
             Text(
               "${formatSom(unit.price)} so'm",

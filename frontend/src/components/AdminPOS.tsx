@@ -34,6 +34,10 @@ interface POSItem {
   quantity: number;
   stock: number;
   sku: string;
+  // Phase 4.0 — do'kondagi polka manzili. FAQAT admin/POS uchun.
+  // Backend `AdminProductVariantSerializer` orqali keladi; public API
+  // bu maydonni qaytarmaydi → foydalanuvchi tomonida bu joy yo'q.
+  shelfLocation: string;
 }
 
 /**
@@ -486,6 +490,7 @@ const AdminPOS = () => {
             quantity: 1,
             stock: v.stock,
             sku: v.sku || '',
+            shelfLocation: (v.shelf_location || '').trim(),
           });
         });
       } else {
@@ -496,6 +501,7 @@ const AdminPOS = () => {
           quality: '', model: '', size: '', color: '',
           image: productMainImg,
           price: Number(p.discount_price || p.price),
+          shelfLocation: '',
           soldPrice: Number(p.discount_price || p.price),
           costPrice: Number(p.cost_price),
           quantity: 1, stock: p.stock, sku: '',
@@ -825,7 +831,7 @@ const AdminPOS = () => {
                   {/* POS GRID — bir xil balandlikdagi kartochkalar.
                       `auto-rows-fr` har bir qator avtomatik bir xil bo'lib chiziladi;
                       `items-stretch` esa har bir cell butun row balandligida cho'ziladi. */}
-                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 auto-rows-fr items-stretch">
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3 auto-rows-fr items-stretch">
                     {expandedItems.map((item) => {
                       const out = item.stock < 1;
                       // Variant atributlari katta o'qiladigan chip'lar bilan ko'rsatiladi
@@ -841,9 +847,13 @@ const AdminPOS = () => {
                           disabled={out}
                           className={`flex h-full flex-col text-left rounded-xl border p-3.5 transition-all hover:border-primary hover:bg-primary/5 active:scale-95 ${out ? 'opacity-40 cursor-not-allowed border-error' : 'border-outline-variant cursor-pointer'}`}
                         >
-                          {/* TITLE — 2 qator uchun joy doim band, kichik nomli karta
-                              ham 2 qatorli kartochka balandligini saqlab turadi. */}
-                          <p className="min-h-[2.75rem] font-bold leading-snug text-on-surface text-base break-words line-clamp-2">
+                          {/* TITLE — TO'LIQ nom, `line-clamp` YO'Q (foydalanuvchi
+                              so'rovi: oxirida `...` chiqmasin). `min-h` 2 qator joy
+                              reservasiya — qisqa nomli karta ham tarkibi pastga tushib
+                              ketmasin. Uzun nomlar `break-words` bilan wrap qilinadi
+                              va karta tabiiy ravishda balandlikda o'sadi (grid
+                              `auto-rows-fr` shu qatordagi barcha kartalarni teng qiladi). */}
+                          <p className="min-h-[2.75rem] font-bold leading-snug text-on-surface text-base break-words">
                             {item.name}
                           </p>
                           {/* ATTR CHIP RING — har doim bir qator joy band (2 chiziq
@@ -858,6 +868,21 @@ const AdminPOS = () => {
                               </span>
                             ))}
                           </div>
+                          {/* PHASE 4.0 — POLKA badge (rangli, kalin, kattaroq shrift).
+                              Foydalanuvchi POS'da mahsulotni do'kondan tez topishi uchun
+                              ko'zga tashlanadigan ko'rinishda. Faqat admin/POS uchun
+                              backend qaytaradi → public sayt foydalanuvchilarida bu
+                              joy umuman yo'q. */}
+                          {item.shelfLocation && (
+                            <div className="mt-2 flex items-center gap-1.5">
+                              <span className="material-symbols-outlined text-[18px] text-primary">
+                                pin_drop
+                              </span>
+                              <span className="rounded-md bg-primary px-2.5 py-0.5 text-[15px] font-extrabold tracking-wide text-on-primary shadow-sm">
+                                Polka: {item.shelfLocation}
+                              </span>
+                            </div>
+                          )}
                           {/* O'rta bo'sh joy — kartani markazga tushirib, pastki blokni
                               har doim pastdagi chiziqqa tortib turadi. */}
                           <div className="flex-1" />

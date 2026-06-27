@@ -46,6 +46,10 @@ class GpsDecimalField(serializers.DecimalField):
 class OrderItemSerializer(serializers.ModelSerializer):
     product_details = ProductListSerializer(source='product', read_only=True)
     variant_details = ProductVariantSerializer(source='variant', read_only=True)
+    # Phase 4.0 — variant polkasi (do'kondagi jismoniy joy). FAQAT admin/xodim
+    # so'rovida qaytariladi. Oddiy foydalanuvchi (xaridor) tomon `null` ko'radi —
+    # mahsulot ichki manzili maxfiy biznes ma'lumoti.
+    variant_shelf = serializers.SerializerMethodField()
 
     class Meta:
         model = OrderItem
@@ -57,7 +61,22 @@ class OrderItemSerializer(serializers.ModelSerializer):
             'price_snapshot',
             'product_details',
             'variant_details',
+            'variant_shelf',
         )
+
+    def get_variant_shelf(self, obj):
+        """Polka manzilini qaytarish — faqat staff (admin/sotuvchi/kuryer)
+        uchun. Xaridor None oladi → frontend hech narsa chizmaydi."""
+        request = self.context.get('request')
+        user = getattr(request, 'user', None)
+        if not user or not user.is_authenticated:
+            return None
+        # `User.is_staff` rol berilganda avtomat True (users/models.py).
+        # Bu — admin, super_admin, sotuvchi, kuryer rolelarini qamrab oladi.
+        if not getattr(user, 'is_staff', False):
+            return None
+        variant = obj.variant
+        return getattr(variant, 'shelf_location', '') if variant else ''
 
 
 class PaymentSerializer(serializers.ModelSerializer):

@@ -642,6 +642,20 @@ class ProductVariant(models.Model):
     sku = models.CharField(max_length=100, null=True, blank=True)
     barcode = models.CharField(max_length=100, null=True, blank=True)
 
+    # ── PHASE 4.0 — DO'KON POLKASI (faqat ADMIN uchun, foydalanuvchidan yashirin)
+    #
+    # MAQSAD: admin do'konda mahsulotni qaerdan olishni tez topishi uchun
+    # variant uchun jismoniy polka manzili (masalan: "001", "A-3", "Sklad-2/15").
+    # POS sotuv vaqtida, Buyurtmalar admin sahifasida ko'rinadi. Sayt va
+    # mobil ilovaning oddiy foydalanuvchi qismida ATAYIN ko'rsatilmaydi —
+    # public serializer'larda bu maydon `fields` ro'yxatida yo'q. Hatto
+    # DevTools'da JSON kuzatuvchi ham bu ma'lumotni topa olmaydi.
+    shelf_location = models.CharField(
+        max_length=20, blank=True, default='',
+        help_text="Do'kondagi jismoniy polka manzili (masalan: '001'). "
+                  "FAQAT admin paneli va POS'da ko'rinadi.",
+    )
+
     class Meta:
         ordering = ['position', 'id']
 

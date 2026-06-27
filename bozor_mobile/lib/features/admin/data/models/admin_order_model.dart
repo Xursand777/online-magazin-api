@@ -204,6 +204,10 @@ class AdminOrderItem {
   final String productName;
   final String? mainImage;
   final String variantText;
+  // Phase 4.0 — variant polkasi. Faqat admin/staff so'rovida keladi
+  // (`variant_shelf` field backend tomonidan rolega ko'ra to'ldiriladi —
+  // xaridorga `null`). Bo'sh string holatida UI'da chiziq chiqarmaymiz.
+  final String shelfLocation;
 
   const AdminOrderItem({
     required this.id,
@@ -212,6 +216,7 @@ class AdminOrderItem {
     required this.productName,
     required this.mainImage,
     required this.variantText,
+    this.shelfLocation = '',
   });
 
   factory AdminOrderItem.fromJson(Map<String, dynamic> json) {
@@ -230,6 +235,8 @@ class AdminOrderItem {
       productName: pd['name'] as String? ?? 'Mahsulot',
       mainImage: pd['main_image'] as String?,
       variantText: variantText,
+      // Backend admin tokeniga `variant_shelf` qaytaradi; xaridor tokenida null.
+      shelfLocation: (json['variant_shelf'] as String? ?? '').trim(),
     );
   }
 }
