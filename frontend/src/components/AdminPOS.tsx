@@ -822,7 +822,10 @@ const AdminPOS = () => {
                       {hasNextPage && " (skroll qiling — yana bor)"}
                     </p>
                   )}
-                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                  {/* POS GRID — bir xil balandlikdagi kartochkalar.
+                      `auto-rows-fr` har bir qator avtomatik bir xil bo'lib chiziladi;
+                      `items-stretch` esa har bir cell butun row balandligida cho'ziladi. */}
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 auto-rows-fr items-stretch">
                     {expandedItems.map((item) => {
                       const out = item.stock < 1;
                       // Variant atributlari katta o'qiladigan chip'lar bilan ko'rsatiladi
@@ -836,38 +839,39 @@ const AdminPOS = () => {
                           type="button"
                           onClick={() => addToCart(item)}
                           disabled={out}
-                          className={`flex flex-col text-left rounded-xl border p-3.5 transition-all hover:border-primary hover:bg-primary/5 active:scale-95 h-full ${out ? 'opacity-40 cursor-not-allowed border-error' : 'border-outline-variant cursor-pointer'}`}
+                          className={`flex h-full flex-col text-left rounded-xl border p-3.5 transition-all hover:border-primary hover:bg-primary/5 active:scale-95 ${out ? 'opacity-40 cursor-not-allowed border-error' : 'border-outline-variant cursor-pointer'}`}
                         >
-                          <div className="flex-1">
-                            {/* To'liq mahsulot nomi — clamp YO'Q, hammasi ko'rinadi */}
-                            <p className="font-bold leading-snug text-on-surface text-base break-words line-clamp-2">
-                              {item.name}
-                            </p>
-                          {attrs.length > 0 && (
-                            <div className="mt-2 flex flex-wrap gap-1.5">
-                              {attrs.map((a, i) => (
-                                <span
-                                  key={i}
-                                  className="rounded-md bg-surface-container px-2 py-0.5 text-xs font-semibold text-on-surface"
-                                >
-                                  {a}
-                                </span>
-                              ))}
-                            </div>
-                          )}
+                          {/* TITLE — 2 qator uchun joy doim band, kichik nomli karta
+                              ham 2 qatorli kartochka balandligini saqlab turadi. */}
+                          <p className="min-h-[2.75rem] font-bold leading-snug text-on-surface text-base break-words line-clamp-2">
+                            {item.name}
+                          </p>
+                          {/* ATTR CHIP RING — har doim bir qator joy band (2 chiziq
+                              bo'lganda ham wraplanadi-yu, balandlikka qarab qisqarmaydi). */}
+                          <div className="mt-2 flex flex-wrap gap-1.5 min-h-[1.75rem]">
+                            {attrs.map((a, i) => (
+                              <span
+                                key={i}
+                                className="rounded-md bg-surface-container px-2 py-0.5 text-xs font-semibold text-on-surface"
+                              >
+                                {a}
+                              </span>
+                            ))}
                           </div>
-                          
+                          {/* O'rta bo'sh joy — kartani markazga tushirib, pastki blokni
+                              har doim pastdagi chiziqqa tortib turadi. */}
+                          <div className="flex-1" />
                           <div className="mt-3 flex items-end justify-between pt-3 border-t border-outline-variant/30 shrink-0">
                             <span className="font-bold text-primary text-lg">{fmt(item.price)}</span>
                             <span className={`text-xs font-semibold px-2 py-0.5 rounded-md ${item.stock < 5 ? 'bg-error-container/50 text-error' : 'bg-surface-container text-on-surface-variant'}`}>
                               {item.stock} ta
                             </span>
                           </div>
-                          {item.sku && (
-                            <p className="mt-1.5 text-[10px] font-mono text-on-surface-variant opacity-70">
-                              SKU: {item.sku}
-                            </p>
-                          )}
+                          {/* SKU — har doim joy reservasiya (bo'sh bo'lsa ham bir
+                              qatorli `min-h` saqlanadi → kartochkalar bir xil bo'ladi). */}
+                          <p className="mt-1.5 min-h-[14px] text-[10px] font-mono text-on-surface-variant opacity-70">
+                            {item.sku ? `SKU: ${item.sku}` : ' '}
+                          </p>
                         </button>
                       );
                     })}

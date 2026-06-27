@@ -455,15 +455,22 @@ export const ProductEditor = ({
     });
   };
 
-  const handleVariantGalleryDeleteExisting = (clientId: string, imageId: number) => {
+  const handleVariantGalleryDeleteExisting = (clientId: string, imageId: number | null) => {
+    // imageId xavfsizligi: faqat real (musbat butun) ID o'chirish ro'yxatiga
+    // qo'shiladi. null/0/NaN — backend `ListField(IntegerField())` rad etadi va
+    // "may not be null" xatosi tushadi. Legacy fallback (id=null) holatida esa
+    // variantning `remove_image` bayrog'i o'rnatiladi.
+    const isRealId = Number.isInteger(imageId) && (imageId as number) > 0;
     setVariants((c) =>
       c.map((v) =>
         v.client_id === clientId
           ? {
               ...v,
               existingImages: v.existingImages.filter((img) => img.id !== imageId),
-              deleteImageIds: imageId != null ? [...v.deleteImageIds, imageId] : v.deleteImageIds,
-              remove_image: imageId == null ? true : v.remove_image,
+              deleteImageIds: isRealId
+                ? Array.from(new Set([...v.deleteImageIds, imageId as number]))
+                : v.deleteImageIds,
+              remove_image: isRealId ? v.remove_image : true,
             }
           : v,
       ),
@@ -598,14 +605,25 @@ export const ProductEditor = ({
     payload.append('is_popular', String(form.is_popular));
     payload.append('remove_image', String(removeImage));
     if (imageFile) payload.append('image', imageFile);
+    // ── PAYLOAD QURISH — backend "may not be null" xatosini OLDINI olamiz ────
+    // safeInt: NaN/null/undefined ham, foydalanuvchi yozgan kir matn ham
+    // xavfsiz raqamga aylanadi (JSON.stringify(NaN) → "null" muammosi yo'q).
+    // boolish: agar qiymat undefined/null bo'lsa default qaytadi, aks holda
+    // booleanga aylantirilaadi — `is_active`/`remove_image` hech qachon
+    // serverga null ko'rinishida ketmaydi.
+    const safeInt = (val: unknown, def = 0) => {
+      const n = Number(typeof val === 'string' ? stripNumberFormatting(val) : val);
+      return Number.isFinite(n) && n >= 0 ? Math.trunc(n) : def;
+    };
+    const boolish = (val: unknown, def: boolean) =>
+      val === undefined || val === null ? def : Boolean(val);
     const variantsPayload = variants
       .map((v) => ({
         client_id: v.client_id,
         ...(v.id ? { id: v.id } : {}),
         color: v.color.trim(),
         color_hex: v.color_hex.trim(),
-        image_url: v.image_url,
-        remove_image: v.remove_image,
+        remove_image: boolish(v.remove_image, false),
         quality: v.quality.trim(),
         model: v.model.trim(),
         size: v.size.trim(),
@@ -615,11 +633,11 @@ export const ProductEditor = ({
         discount_price_usd: stripNumberFormatting(v.discount_price_usd) || null,
         cost_price: stripNumberFormatting(v.cost_price) || null,
         cost_price_usd: stripNumberFormatting(v.cost_price_usd) || null,
-        stock: Number(v.stock || 0),
+        stock: safeInt(v.stock, 0),
         sku: v.sku.trim(),
         barcode: v.barcode.trim(),
-        is_active: v.is_active,
-        position: Number(v.position || 0),
+        is_active: boolish(v.is_active, true),
+        position: safeInt(v.position, 0),
       }))
       .filter((v) =>
         hasVariantContent({
@@ -644,7 +662,16 @@ export const ProductEditor = ({
       'variants_data',
       JSON.stringify(
         variantsPayload.map(({ client_id, ...v }) => {
-          const deleteIds = variants.find((vv) => vv.client_id === client_id)?.deleteImageIds || [];
+          // delete_image_ids: faqat haqiqiy musbat raqamlar — null/NaN/0 emas.
+          // Backend `ListField(child=IntegerField())` null elementni qabul qilmaydi.
+          const rawIds = variants.find((vv) => vv.client_id === client_id)?.deleteImageIds || [];
+          const deleteIds = Array.from(
+            new Set(
+              rawIds
+                .map((id) => Number(id))
+                .filter((id) => Number.isInteger(id) && id > 0),
+            ),
+          );
           return { ...v, delete_image_ids: deleteIds };
         }),
       ),

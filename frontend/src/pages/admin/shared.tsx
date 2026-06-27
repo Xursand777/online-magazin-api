@@ -30,7 +30,10 @@ export interface AdminProductVariant {
   color?: string | null;
   color_hex?: string | null;
   image_url?: string | null;
-  images?: { id: number; url: string }[];
+  // Backend legacy fallback: `id: null` — variant'ning eski `image` field'idan
+  // sintetik element. Frontendda alohida `image_url` orqali ko'rsatiladi,
+  // shu sababli galereya elementlaridan ajratish uchun null'ni qabul qilamiz.
+  images?: { id: number | null; url: string }[];
   quality?: string | null;
   model?: string | null;
   size?: string | null;
@@ -425,7 +428,12 @@ export const mapProductVariants = (product?: AdminProduct): VariantFormState[] =
     color_hex: v.color_hex || '',
     image_url: v.image_url || null,
     remove_image: false,
-    existingImages: v.images || [],
+    // Backend backward-compat: agar variant'da faqat legacy `image` bo'lsa,
+    // `images` ro'yxati `{id: null, url: legacyUrl}` fallback'ni qaytaradi.
+    // Bu URL allaqachon `image_url` orqali "asosiy rasm" sifatida ko'rsatiladi —
+    // shu sababli null-id elementlarni galereyaga qo'shmaymiz (aks holda bir xil
+    // rasm 2 marta chiqib qoladi va o'chirish payloadi noto'g'ri ishlaydi).
+    existingImages: (v.images || []).filter((img): img is { id: number; url: string } => img.id != null),
     deleteImageIds: [],
     quality: v.quality || '',
     model: v.model || '',

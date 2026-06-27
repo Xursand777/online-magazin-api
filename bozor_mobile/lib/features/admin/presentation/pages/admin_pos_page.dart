@@ -380,70 +380,78 @@ class _ProductUnitCard extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             // To'liq mahsulot nomi — rasm yo'q (POSda ortiqcha shovqin).
-            // Nom to'liq ko'rinishi uchun maxLines berilmagan (cheksiz qator).
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Expanded(
-                  child: Text(
-                    unit.name,
-                    softWrap: true,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: theme.textTheme.titleSmall?.copyWith(
-                      fontWeight: FontWeight.w800,
-                      height: 1.25,
-                      fontSize: 15,
-                    ),
-                  ),
-                ),
-                if (inCart > 0)
-                  Container(
-                    margin: const EdgeInsets.only(left: 4),
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                    decoration: const BoxDecoration(
-                      color: Color(0xFF0A7C55),
-                      shape: BoxShape.rectangle,
-                      borderRadius: BorderRadius.all(Radius.circular(8)),
-                    ),
-                    child: Text('$inCart',
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 12,
-                          fontWeight: FontWeight.w800,
-                        )),
-                  ),
-              ],
-            ),
-            // Variant atributlari KATTA, chiroyli chip'lar bilan
-            if (unit.variantText.isNotEmpty) ...[
-              const SizedBox(height: 8),
-              Wrap(
-                spacing: 6,
-                runSpacing: 6,
+            // Nom bloki AYNAN 2 qator joy band — har bir karta bir xil
+            // balandlikda turishi uchun (kartochkalar bir xilligini saqlash).
+            SizedBox(
+              height: 40,
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  for (final attr in [unit.quality, unit.model, unit.size, unit.color]
-                      .where((e) => e.trim().isNotEmpty))
+                  Expanded(
+                    child: Text(
+                      unit.name,
+                      softWrap: true,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.titleSmall?.copyWith(
+                        fontWeight: FontWeight.w800,
+                        height: 1.25,
+                        fontSize: 15,
+                      ),
+                    ),
+                  ),
+                  if (inCart > 0)
                     Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 9, vertical: 3),
-                      decoration: BoxDecoration(
-                        color: theme.colorScheme.surfaceContainer,
-                        borderRadius: BorderRadius.circular(6),
+                      margin: const EdgeInsets.only(left: 4),
+                      padding:
+                          const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                      decoration: const BoxDecoration(
+                        color: Color(0xFF0A7C55),
+                        shape: BoxShape.rectangle,
+                        borderRadius: BorderRadius.all(Radius.circular(8)),
                       ),
-                      child: Text(
-                        attr,
-                        style: theme.textTheme.labelMedium?.copyWith(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w600,
-                          color: theme.colorScheme.onSurface,
-                        ),
-                      ),
+                      child: Text('$inCart',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w800,
+                          )),
                     ),
                 ],
               ),
-            ],
+            ),
+            // Atribut chip'lar joyi — atributlar bo'lmasa ham mini balandlik
+            // saqlanadi (bir xil kartochka balandligi uchun).
+            const SizedBox(height: 6),
+            SizedBox(
+              height: 24,
+              child: unit.variantText.isEmpty
+                  ? const SizedBox.shrink()
+                  : Wrap(
+                      spacing: 6,
+                      runSpacing: 6,
+                      children: [
+                        for (final attr in [unit.quality, unit.model, unit.size, unit.color]
+                            .where((e) => e.trim().isNotEmpty))
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 9, vertical: 3),
+                            decoration: BoxDecoration(
+                              color: theme.colorScheme.surfaceContainer,
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: Text(
+                              attr,
+                              style: theme.textTheme.labelMedium?.copyWith(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                                color: theme.colorScheme.onSurface,
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+            ),
             const Spacer(),
             Text(
               "${formatSom(unit.price)} so'm",

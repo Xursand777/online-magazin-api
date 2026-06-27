@@ -885,11 +885,26 @@ class AdminHomeBannerSerializer(serializers.ModelSerializer):
         return super().update(instance, validated_data)
 
 class AdminProductVariantInputSerializer(serializers.Serializer):
-    id = serializers.IntegerField(required=False)
+    """
+    Frontend (web + mobil) yuborgan variant ma'lumotlari uchun input serializer.
+
+    Bu yer DEFENSIVE — null/empty/noma'lum tipdagi qiymatlarni mehribon kutib oladi:
+      • bool maydonlar default'ga tushadi (None → False/True)
+      • integer maydonlar default'ga tushadi (None → 0)
+      • `delete_image_ids` ichida null/0 elementlar avtomat tashlanadi
+    Maqsad: brauzerda `JSON.stringify(NaN) → "null"` kabi kichik xato butun
+    saqlashni "This field may not be null" bilan to'xtatib qo'ymasin.
+    """
+    id = serializers.IntegerField(required=False, allow_null=True)
     color = serializers.CharField(required=False, allow_blank=True, allow_null=True)
     color_hex = serializers.CharField(required=False, allow_blank=True, allow_null=True)
-    remove_image = serializers.BooleanField(required=False, default=False)
-    delete_image_ids = serializers.ListField(child=serializers.IntegerField(), required=False, default=list)
+    remove_image = serializers.BooleanField(required=False, default=False, allow_null=True)
+    delete_image_ids = serializers.ListField(
+        child=serializers.IntegerField(allow_null=True),
+        required=False,
+        default=list,
+        allow_null=True,
+    )
     quality = serializers.CharField(required=False, allow_blank=True, allow_null=True)
     model = serializers.CharField(required=False, allow_blank=True, allow_null=True)
     size = serializers.CharField(required=False, allow_blank=True, allow_null=True)
@@ -899,11 +914,31 @@ class AdminProductVariantInputSerializer(serializers.Serializer):
     discount_price_usd = serializers.DecimalField(max_digits=12, decimal_places=2, required=False, allow_null=True)
     cost_price = serializers.DecimalField(max_digits=12, decimal_places=2, required=False, allow_null=True)
     cost_price_usd = serializers.DecimalField(max_digits=12, decimal_places=2, required=False, allow_null=True)
-    stock = serializers.IntegerField(required=False, min_value=0, default=0)
+    stock = serializers.IntegerField(required=False, min_value=0, default=0, allow_null=True)
     sku = serializers.CharField(required=False, allow_blank=True, allow_null=True)
     barcode = serializers.CharField(required=False, allow_blank=True, allow_null=True)
-    is_active = serializers.BooleanField(required=False, default=True)
-    position = serializers.IntegerField(required=False, min_value=0, default=0)
+    is_active = serializers.BooleanField(required=False, default=True, allow_null=True)
+    position = serializers.IntegerField(required=False, min_value=0, default=0, allow_null=True)
+
+    def to_internal_value(self, data):
+        # Frontend ba'zan bo'sh string yoki noto'g'ri tipdagi raqamlarni yuborishi
+        # mumkin (JSON.stringify(NaN)='null' kabi). Bu yerda biz mayda
+        # nomuvofiqliklarni saqlash YO'L QO'YMAYDI deb tashlash o'rniga jim
+        # tuzatib o'tamiz — model darajasidagi default'lar himoya qiladi.
+        if isinstance(data, dict):
+            data = data.copy()
+            for int_field in ('stock', 'position'):
+                if data.get(int_field) in (None, '', 'null'):
+                    data.pop(int_field, None)
+            for bool_field in ('remove_image', 'is_active'):
+                if data.get(bool_field) is None:
+                    data.pop(bool_field, None)
+            ids = data.get('delete_image_ids')
+            if isinstance(ids, list):
+                data['delete_image_ids'] = [i for i in ids if isinstance(i, int) and i > 0]
+            elif ids in (None, '', 'null'):
+                data['delete_image_ids'] = []
+        return super().to_internal_value(data)
 
 class AdminProductSerializer(serializers.ModelSerializer):
     category = serializers.PrimaryKeyRelatedField(queryset=Category.objects.all(), required=False, allow_null=True)
@@ -927,10 +962,25 @@ class AdminProductSerializer(serializers.ModelSerializer):
         read_only_fields = ('slug', 'created_at', 'updated_at', 'is_discount')
 
     def to_internal_value(self, data):
+        # Frontend (FormData) ba'zan bo'sh string yuboradi (`discount_price=""`).
+        # DRF default holatida bunga "A valid number is required" deydi —
+        # foydalanuvchi uchun chalkash. Bo'sh stringlar ("") va "null" satrlarni
+        # `allow_null=True` maydonlar uchun None'ga aylantiramiz.
+        # MUHIM: bu yerga FAQAT model'da `null=True` bo'lgan maydonlar qo'shiladi
+        # (aks holda DRF "This field may not be null" beradi). `cost_price` esa
+        # `default=0.00` bilan NOT NULL — uni RO'YXATGA qo'shma!
         data = data.copy()
-        for nullable_field in ('category', 'discount_price', 'price_usd', 'discount_price_usd', 'cost_price_usd'):
-            if data.get(nullable_field) == '':
+        nullable_fields = (
+            'category', 'price_usd', 'discount_price',
+            'discount_price_usd', 'cost_price_usd',
+        )
+        for nullable_field in nullable_fields:
+            if data.get(nullable_field) in ('', 'null'):
                 data[nullable_field] = None
+        # cost_price NOT NULL → bo'sh string kelsa 0'ga aylantiramiz (frontend
+        # `|| '0'` qiladi, lekin defensive qatlam — eski mobil ilovalar uchun).
+        if data.get('cost_price') in ('', 'null', None):
+            data['cost_price'] = '0'
         return super().to_internal_value(data)
 
     def get_main_image(self, obj):
@@ -998,6 +1048,13 @@ class AdminProductSerializer(serializers.ModelSerializer):
                 'variants_data': "Variant chegirma narxi asosiy variant narxidan kichik bo'lishi kerak."
             })
 
+        # Default'lar — `to_internal_value` allaqachon None'larni tozalagan,
+        # lekin DRF Serializer `default=` qiymati keyin keladi. Bu yerda yana
+        # bir bor qatlam: agar variantda qiymat hech qanday bo'lmasa, model
+        # darajasidagi default ishlatilsin.
+        stock_raw = variant_data.get('stock')
+        position_raw = variant_data.get('position')
+        is_active_raw = variant_data.get('is_active')
         normalized = {
             'color': variant_data.get('color') or None,
             'color_hex': color_hex,
@@ -1010,11 +1067,11 @@ class AdminProductSerializer(serializers.ModelSerializer):
             'discount_price_usd': variant_data.get('discount_price_usd'),
             'cost_price': variant_data.get('cost_price'),
             'cost_price_usd': variant_data.get('cost_price_usd'),
-            'stock': variant_data.get('stock', 0),
+            'stock': stock_raw if isinstance(stock_raw, int) and stock_raw >= 0 else 0,
             'sku': variant_data.get('sku') or None,
             'barcode': variant_data.get('barcode') or None,
-            'is_active': variant_data.get('is_active', True),
-            'position': variant_data.get('position', 0),
+            'is_active': True if is_active_raw is None else bool(is_active_raw),
+            'position': position_raw if isinstance(position_raw, int) and position_raw >= 0 else 0,
         }
         has_content = any(
             value not in (None, '', Decimal('0.00'), 0, True)
@@ -1032,8 +1089,13 @@ class AdminProductSerializer(serializers.ModelSerializer):
             variant_id = variant.get('id')
             payload, has_content = self._normalize_variant_payload(variant)
             image_file = files.get(f'variant_image_{index}')
-            remove_image = variant.get('remove_image', False)
-            delete_image_ids = variant.get('delete_image_ids', [])
+            remove_image = bool(variant.get('remove_image', False))
+            # delete_image_ids: faqat haqiqiy musbat butun ID — None/0/dublikatlar
+            # tashlanadi. Bu null-id legacy fallback'ga bog'liq xatolardan himoya.
+            delete_image_ids = sorted({
+                int(i) for i in (variant.get('delete_image_ids') or [])
+                if isinstance(i, int) and i > 0
+            })
             if not has_content:
                 continue
 

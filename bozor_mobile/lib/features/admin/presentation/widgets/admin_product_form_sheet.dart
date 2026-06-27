@@ -1217,8 +1217,11 @@ class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
         }
         if (v.removeImage) vMap['remove_image'] = true;
         // #11: o'chirilgan galereya rasm id'lari (faqat tahrirda bo'ladi).
-        if (v.deleteImageIds.isNotEmpty) {
-          vMap['delete_image_ids'] = v.deleteImageIds.toList();
+        // Faqat haqiqiy musbat butun ID'lar — null/0 backend'da
+        // `ListField(IntegerField())` rad etadi va "may not be null" beradi.
+        final cleanIds = v.deleteImageIds.where((i) => i > 0).toList();
+        if (cleanIds.isNotEmpty) {
+          vMap['delete_image_ids'] = cleanIds;
         }
 
         variantsJson.add(vMap);
