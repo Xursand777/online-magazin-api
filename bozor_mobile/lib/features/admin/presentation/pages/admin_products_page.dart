@@ -86,6 +86,11 @@ class _AdminProductsPageState extends State<AdminProductsPage> {
                     return _ProductTile(
                       product: products[i],
                       onEdit: () => _showProductForm(context, products[i]),
+                      onEditVariant: (variantId) => _showProductForm(
+                        context,
+                        products[i],
+                        initialVariantId: variantId,
+                      ),
                       onClone: () =>
                           _showProductForm(context, products[i], clone: true),
                       onDelete: () => _confirmDelete(
@@ -191,16 +196,24 @@ class _AdminProductsPageState extends State<AdminProductsPage> {
     BuildContext context,
     AdminProductModel? product, {
     bool clone = false,
+    int? initialVariantId,
   }) {
     // #8: forma endi to'liq ekran (Scaffold + bosqichli stepper) — surib yopish
     // tasodifi yo'q, klaviatura oqimi qulay. go_router'ning nested navigator'i
     // bilan to'g'ri ishlashi uchun shu (lokal) navigator'da push qilamiz.
+    //
+    // Phase 4.2 — `initialVariantId` berilgan bo'lsa, forma Variantlar
+    // bosqichida ochiladi va o'sha variantga avtomat scroll bo'ladi.
     Navigator.of(context).push(
       MaterialPageRoute(
         fullscreenDialog: true,
         builder: (_) => BlocProvider.value(
           value: context.read<AdminBloc>(),
-          child: AdminProductFormSheet(product: product, clone: clone),
+          child: AdminProductFormSheet(
+            product: product,
+            clone: clone,
+            initialVariantId: initialVariantId,
+          ),
         ),
       ),
     );
@@ -268,22 +281,65 @@ class _PendingSyncBanner extends StatelessWidget {
   }
 }
 
+// ── Mobil Mahsulot kartochkasi — Phase 4.2 (saytdek variant-level qatorlar) ─
+//
+// Variantli mahsulot: GROUP header (umumiy nom + "5 variant" badge + product
+// actions) + har variant alohida pastki qator (to'liq nom, narx, stok, polka).
+// Variantsiz mahsulot: BITTA yagona qator (polka badge bilan).
+//
+// Variant qatorida edit tugmasi -> product editor ochiladi va o'sha variantga
+// avtomat scroll bo'ladi (window.__bozorScrollVariantId saytdagi ekvivalenti).
 class _ProductTile extends StatelessWidget {
   const _ProductTile({
     required this.product,
     required this.onEdit,
+    required this.onEditVariant,
     required this.onClone,
     required this.onDelete,
   });
   final AdminProductModel product;
   final VoidCallback onEdit;
+  final void Function(int variantId) onEditVariant;
   final VoidCallback onClone;
   final VoidCallback onDelete;
+
+  static const _brand = Color(0xFF0A7C55);
+
+  // Variantning to'liq nomi (mahsulot bilan birga, saytdagi `buildVariantFullName`
+  // ga teng). Bo'sh atributlar avtomat o'tkazib yuboriladi.
+  String _fullVariantName(AdminProductVariantModel v) {
+    final parts = <String>[
+      product.name,
+      v.quality ?? '',
+      v.model ?? '',
+      v.size ?? '',
+      v.color ?? '',
+    ].map((s) => s.trim()).where((s) => s.isNotEmpty).toList();
+    return parts.join(' • ');
+  }
+
+  // Variantning amaldagi polka qiymati — variant own -> effective -> product.
+  // Backend `effective_shelf` field qaytaradi, lekin eski API javoblari yoki
+  // mobil cache uchun defensive 3-pog'onali fallback.
+  String _variantShelf(AdminProductVariantModel v) {
+    final own = (v.shelfLocation ?? '').trim();
+    if (own.isNotEmpty) return own;
+    final eff = (v.effectiveShelf ?? '').trim();
+    if (eff.isNotEmpty) return eff;
+    return (product.shelfLocation ?? '').trim();
+  }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final fmt = NumberFormat('#,###', 'uz_UZ');
+    final variants = product.variants;
+    final hasVariants = variants.isNotEmpty;
+    final productShelf = (product.shelfLocation ?? '').trim();
+    final totalStock = hasVariants
+        ? variants.fold<int>(0, (s, v) => s + v.stock)
+        : product.stock;
+
     return Container(
       margin: const EdgeInsets.only(bottom: 10),
       decoration: BoxDecoration(
@@ -298,86 +354,361 @@ class _ProductTile extends StatelessWidget {
           ),
         ],
       ),
-      child: ListTile(
-        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-        leading: ClipRRect(
-          borderRadius: BorderRadius.circular(10),
-          child: SizedBox(
-            width: 56,
-            height: 56,
-            child: product.mainImage != null
-                ? CachedNetworkImage(
-                    imageUrl: product.mainImage!,
-                    fit: BoxFit.cover,
-                  )
-                : Container(
-                    color: theme.colorScheme.surfaceContainer,
-                    child: Icon(
-                      Icons.image_outlined,
-                      color: theme.colorScheme.onSurfaceVariant,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // ─── PRODUCT HEADER ───────────────────────────────────────────────
+          InkWell(
+            onTap: onEdit,
+            borderRadius: BorderRadius.circular(14),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(10),
+                    child: SizedBox(
+                      width: 56,
+                      height: 56,
+                      child: product.mainImage != null
+                          ? CachedNetworkImage(
+                              imageUrl: product.mainImage!,
+                              fit: BoxFit.cover,
+                            )
+                          : Container(
+                              color: theme.colorScheme.surfaceContainer,
+                              child: Icon(
+                                Icons.image_outlined,
+                                color: theme.colorScheme.onSurfaceVariant,
+                              ),
+                            ),
                     ),
                   ),
-          ),
-        ),
-        title: Text(
-          product.name,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: theme.textTheme.bodyMedium?.copyWith(
-            fontWeight: FontWeight.w700,
-          ),
-        ),
-        subtitle: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const SizedBox(height: 2),
-            Text(
-              '${fmt.format(product.price).replaceAll(',', ' ')} so\'m',
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: const Color(0xFF0A7C55),
-                fontWeight: FontWeight.w700,
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        // Nom + "N variant" badge
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                product.name,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: theme.textTheme.bodyMedium?.copyWith(
+                                  fontWeight: FontWeight.w800,
+                                  fontSize: 14,
+                                ),
+                              ),
+                            ),
+                            if (hasVariants)
+                              Container(
+                                margin: const EdgeInsets.only(left: 6),
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 7, vertical: 2),
+                                decoration: BoxDecoration(
+                                  color: _brand.withValues(alpha: 0.12),
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
+                                child: Text(
+                                  '${variants.length} variant',
+                                  style: const TextStyle(
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.w800,
+                                    color: _brand,
+                                  ),
+                                ),
+                              ),
+                          ],
+                        ),
+                        const SizedBox(height: 4),
+                        // Narx + jami stok (yoki variantsiz narx)
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 4,
+                          children: [
+                            Text(
+                              hasVariants
+                                  ? '${fmt.format(product.price).replaceAll(',', ' ')} so\'m (min)'
+                                  : '${fmt.format(product.price).replaceAll(',', ' ')} so\'m',
+                              style: theme.textTheme.bodySmall?.copyWith(
+                                color: _brand,
+                                fontWeight: FontWeight.w800,
+                                fontSize: 13,
+                              ),
+                            ),
+                            _Badge(
+                              label: hasVariants
+                                  ? 'Jami: $totalStock'
+                                  : 'Stok: $totalStock',
+                              color: totalStock > 0 ? Colors.blueGrey : Colors.red,
+                            ),
+                            if (!hasVariants && productShelf.isNotEmpty)
+                              _ShelfBadge(label: productShelf),
+                            if (hasVariants && productShelf.isNotEmpty)
+                              _ShelfBadge(
+                                label: '$productShelf (default)',
+                                muted: true,
+                              ),
+                            if (product.isDiscount)
+                              _Badge(label: 'Chegirma', color: Colors.orange),
+                            if (!product.isActive)
+                              _Badge(label: 'Nofaol', color: Colors.grey),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                  // Action ustuni — vertikal kompakt
+                  Column(
+                    children: [
+                      IconButton(
+                        icon: const Icon(Icons.edit_outlined, size: 20),
+                        color: const Color(0xFF2563EB),
+                        tooltip: 'Tahrirlash',
+                        visualDensity: VisualDensity.compact,
+                        constraints: const BoxConstraints(
+                          minWidth: 32,
+                          minHeight: 32,
+                        ),
+                        padding: EdgeInsets.zero,
+                        onPressed: onEdit,
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.content_copy_outlined, size: 18),
+                        color: Colors.grey,
+                        tooltip: 'Nusxa olish',
+                        visualDensity: VisualDensity.compact,
+                        constraints: const BoxConstraints(
+                          minWidth: 32,
+                          minHeight: 32,
+                        ),
+                        padding: EdgeInsets.zero,
+                        onPressed: onClone,
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.delete_outline, size: 20),
+                        color: Colors.red,
+                        tooltip: "O'chirish",
+                        visualDensity: VisualDensity.compact,
+                        constraints: const BoxConstraints(
+                          minWidth: 32,
+                          minHeight: 32,
+                        ),
+                        padding: EdgeInsets.zero,
+                        onPressed: onDelete,
+                      ),
+                    ],
+                  ),
+                ],
               ),
             ),
-            const SizedBox(height: 2),
-            Wrap(
-              spacing: 6,
-              runSpacing: 6,
-              children: [
-                _Badge(
-                  label: 'Stok: ${product.stock}',
-                  color: product.stock > 0 ? Colors.blueGrey : Colors.red,
-                ),
-                if (product.isDiscount)
-                  _Badge(label: 'Chegirma', color: Colors.orange),
-                if (!product.isActive)
-                  _Badge(label: 'Nofaol', color: Colors.grey),
-              ],
+          ),
+
+          // ─── VARIANT ROWS (faqat variantli mahsulot uchun) ────────────────
+          if (hasVariants) ...[
+            Container(
+              height: 1,
+              color: theme.colorScheme.outlineVariant.withValues(alpha: 0.4),
             ),
+            for (final v in variants)
+              _VariantRow(
+                variant: v,
+                fullName: _fullVariantName(v),
+                shelf: _variantShelf(v),
+                productMainImage: product.mainImage,
+                onEdit: () {
+                  if (v.id != null) onEditVariant(v.id!);
+                },
+              ),
           ],
+        ],
+      ),
+    );
+  }
+}
+
+// ── Variant qatori (group ostida) — saytdagi ProductRowGroup variant tr ekvivalenti
+class _VariantRow extends StatelessWidget {
+  const _VariantRow({
+    required this.variant,
+    required this.fullName,
+    required this.shelf,
+    required this.productMainImage,
+    required this.onEdit,
+  });
+
+  final AdminProductVariantModel variant;
+  final String fullName;
+  final String shelf;
+  final String? productMainImage;
+  final VoidCallback onEdit;
+
+  static const _brand = Color(0xFF0A7C55);
+
+  String? _variantImage() {
+    // Variant rasm: birinchi gallery rasmi -> swatch -> product main image
+    if (variant.images.isNotEmpty) {
+      final first = variant.images.first;
+      if (first.url.isNotEmpty) return first.url;
+    }
+    if ((variant.imageUrl ?? '').isNotEmpty) return variant.imageUrl;
+    return productMainImage;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final fmt = NumberFormat('#,###', 'uz_UZ');
+    final img = _variantImage();
+    final price = variant.price ?? 0;
+    final stock = variant.stock;
+    final hasOwnShelf = (variant.shelfLocation ?? '').trim().isNotEmpty;
+
+    return InkWell(
+      onTap: onEdit,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        decoration: BoxDecoration(
+          border: Border(
+            left: BorderSide(color: _brand.withValues(alpha: 0.4), width: 3),
+          ),
         ),
-        trailing: Row(
-          mainAxisSize: MainAxisSize.min,
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            // Variant rasm — sub-row visual marker bilan
+            ClipRRect(
+              borderRadius: BorderRadius.circular(8),
+              child: SizedBox(
+                width: 40,
+                height: 40,
+                child: img != null
+                    ? CachedNetworkImage(imageUrl: img, fit: BoxFit.cover)
+                    : Container(
+                        color: theme.colorScheme.surfaceContainer,
+                        child: Icon(
+                          Icons.image_outlined,
+                          size: 18,
+                          color: theme.colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    fullName,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      fontWeight: FontWeight.w700,
+                      fontSize: 12.5,
+                      height: 1.25,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Wrap(
+                    spacing: 6,
+                    runSpacing: 4,
+                    children: [
+                      Text(
+                        '${fmt.format(price).replaceAll(',', ' ')} so\'m',
+                        style: const TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w800,
+                          color: _brand,
+                        ),
+                      ),
+                      _Badge(
+                        label: '$stock dona',
+                        color: stock > 0 ? Colors.blueGrey : Colors.red,
+                      ),
+                      if (shelf.isNotEmpty)
+                        _ShelfBadge(
+                          label: shelf,
+                          // Variant own shelf bo'lmasa "(default)" ko'rsatamiz
+                          muted: !hasOwnShelf,
+                        ),
+                      if ((variant.sku ?? '').isNotEmpty)
+                        Text(
+                          variant.sku!,
+                          style: TextStyle(
+                            fontSize: 10,
+                            color: theme.colorScheme.onSurfaceVariant
+                                .withValues(alpha: 0.7),
+                            fontFamily: 'monospace',
+                          ),
+                        ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            // Variant edit tugma — forma o'sha variantga scroll bo'ladi
             IconButton(
-              icon: const Icon(Icons.edit_outlined, size: 20),
+              icon: const Icon(Icons.edit_outlined, size: 18),
               color: const Color(0xFF2563EB),
-              tooltip: 'Tahrirlash',
+              tooltip: 'Bu variantni tahrirlash',
+              visualDensity: VisualDensity.compact,
+              constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+              padding: EdgeInsets.zero,
               onPressed: onEdit,
             ),
-            IconButton(
-              icon: const Icon(Icons.content_copy_outlined, size: 19),
-              color: Colors.grey,
-              tooltip: 'Nusxa olish',
-              onPressed: onClone,
-            ),
-            IconButton(
-              icon: const Icon(Icons.delete_outline, size: 20),
-              color: Colors.red,
-              tooltip: "O'chirish",
-              onPressed: onDelete,
-            ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+// ── Polka badge — saytdagi <ShelfBadge> ekvivalenti ─────────────────────────
+class _ShelfBadge extends StatelessWidget {
+  const _ShelfBadge({required this.label, this.muted = false});
+  final String label;
+  // `muted=true` — product default polkasi (variant override emas).
+  // Yoki product darajasidagi "default" badge — biroz pasaytirilgan tone.
+  final bool muted;
+
+  static const _brand = Color(0xFF0A7C55);
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      decoration: BoxDecoration(
+        color: _brand.withValues(alpha: muted ? 0.08 : 0.15),
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(
+          color: _brand.withValues(alpha: muted ? 0.18 : 0.32),
+          width: 1,
+        ),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            Icons.pin_drop_outlined,
+            size: 12,
+            color: _brand.withValues(alpha: muted ? 0.7 : 1.0),
+          ),
+          const SizedBox(width: 3),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w800,
+              color: _brand.withValues(alpha: muted ? 0.75 : 1.0),
+              letterSpacing: 0.2,
+            ),
+          ),
+        ],
       ),
     );
   }

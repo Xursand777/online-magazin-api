@@ -100,12 +100,23 @@ const List<String> QUALITY_PRESETS = [
 ];
 
 class AdminProductFormSheet extends StatefulWidget {
-  const AdminProductFormSheet({super.key, this.product, this.clone = false});
+  const AdminProductFormSheet({
+    super.key,
+    this.product,
+    this.clone = false,
+    this.initialVariantId,
+  });
   final AdminProductModel? product;
 
   /// #N(clone): product berilgan, lekin YANGI mahsulot sifatida (id'siz) —
   /// ma'lumotlar manba mahsulotdan to'ldiriladi, saqlashda Create yuboriladi.
   final bool clone;
+
+  /// Phase 4.2 — agar mahsulotlar ro'yxatidan AYNAN bir variantni tahrirlash
+  /// tugmasini bossa, forma ochilgandan keyin Variantlar bosqichi (step=2)
+  /// avtomat tanlanadi va o'sha variantga scroll bo'ladi (saytdagi
+  /// `window.__bozorScrollVariantId` bilan teng UX).
+  final int? initialVariantId;
 
   @override
   State<AdminProductFormSheet> createState() => _AdminProductFormSheetState();
@@ -349,6 +360,51 @@ class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
         if (mounted) setState(() {});
       });
     }
+
+    // Phase 4.2 — agar `initialVariantId` ko'rsatilgan bo'lsa (mahsulotlar
+    // ro'yxatidan variant qatorida "tahrirlash" tugmasi bosilgan), forma to'liq
+    // qurilgandan keyin avtomat ravishda Variantlar bosqichiga o'tib o'sha
+    // variantga scroll qilamiz. Bu — saytdagi `window.__bozorScrollVariantId`
+    // signalining mobil ekvivalenti.
+    final targetVid = widget.initialVariantId;
+    if (targetVid != null && _variants.isNotEmpty) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        setState(() => _step = 2); // 0=Asosiy, 1=Narx, 2=Variantlar
+        // Yana bir frame keyinroq — Variantlar bosqichi render bo'lgach scroll
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted) return;
+          _scrollToVariant(targetVid);
+        });
+      });
+    }
+  }
+
+  // ── PHASE 4.2 — variant qatoriga avtomat scroll + visual highlight ────────
+  //
+  // GlobalKey orqali har variant kartasiga ishora saqlaymiz va
+  // `Scrollable.ensureVisible` chaqiramiz. Highlight uchun State'da
+  // `_highlightedVariantId` ni 2 soniyaga belgilab qo'yamiz —
+  // `_buildSubVariantCard` shu ID bo'yicha yashil halqa va shadow chizadi.
+  final Map<int, GlobalKey> _variantKeys = {};
+  int? _highlightedVariantId;
+
+  void _scrollToVariant(int variantId) {
+    final key = _variantKeys[variantId];
+    final ctx = key?.currentContext;
+    if (ctx == null) return;
+    Scrollable.ensureVisible(
+      ctx,
+      duration: const Duration(milliseconds: 400),
+      curve: Curves.easeInOutCubic,
+      alignment: 0.2, // ekran tepasidan 20% pastda — qulay ko'rinish
+    );
+    setState(() => _highlightedVariantId = variantId);
+    // 2 soniyadan keyin highlight'ni olib tashlaymiz
+    Future.delayed(const Duration(seconds: 2), () {
+      if (!mounted) return;
+      setState(() => _highlightedVariantId = null);
+    });
 
     // #N6: yangi qo'shishda — asosiy maydonlar o'zgarsa qoralamani saqlaymiz
     // (debounce) va saqlanmagan qoralamani tekshiramiz. Klonда draft YO'Q.
@@ -2300,11 +2356,36 @@ class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
   }
 
   Widget _buildSubVariantCard(BuildContext context, _VariantData v, int index) {
+    // Phase 4.2 — variant ID bo'yicha GlobalKey ro'yxatga olamiz va highlight
+    // halqasini chizamiz (mahsulotlar ro'yxatidan variant qatori bossa
+    // forma shu kartochkaga avtomat scroll qiladi).
+    GlobalKey? variantKey;
+    final vid = v.id;
+    if (vid != null) {
+      variantKey = _variantKeys.putIfAbsent(vid, () => GlobalKey());
+    }
+    final isHighlighted = vid != null && vid == _highlightedVariantId;
+
     return Container(
+      key: variantKey,
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        border: Border(top: BorderSide(color: Colors.grey.shade200)),
-        color: Colors.white,
+        border: isHighlighted
+            ? Border.all(color: const Color(0xFF0A7C55), width: 3)
+            : Border(top: BorderSide(color: Colors.grey.shade200)),
+        color: isHighlighted
+            ? const Color(0xFF0A7C55).withValues(alpha: 0.06)
+            : Colors.white,
+        borderRadius: isHighlighted ? BorderRadius.circular(12) : null,
+        boxShadow: isHighlighted
+            ? [
+                BoxShadow(
+                  color: const Color(0xFF0A7C55).withValues(alpha: 0.25),
+                  blurRadius: 12,
+                  spreadRadius: 1,
+                ),
+              ]
+            : null,
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
