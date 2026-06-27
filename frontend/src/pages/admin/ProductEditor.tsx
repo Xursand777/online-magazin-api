@@ -979,14 +979,19 @@ export const ProductEditor = ({
           {/* Phase 4.2 — Polka maydoni mahsulot darajasida. Variantsiz mahsulot
               uchun asosiy, variantli mahsulot uchun default (variant polkasi
               bo'sh bo'lsa backend bu yerdan fallback qiladi). Faqat admin/POS
-              ko'radi — public API'da hech qachon chiqmaydi. */}
+              ko'radi — public API'da hech qachon chiqmaydi. Label dinamik —
+              variant borligi/yo'qligiga qarab "Polka" yoki "Default polka". */}
           <div className='xl:col-span-2'>
             <label
               className='mb-1 flex items-center gap-1 text-label-md font-label-md text-primary'
-              title="Do'kondagi polka manzili (faqat admin va POS'da ko'rinadi)"
+              title={
+                hasVariants
+                  ? "Default polka — variantda polka yozilmagan bo'lsa shu qiymat ishlatiladi"
+                  : "Do'kondagi polka manzili (faqat admin va POS'da ko'rinadi)"
+              }
             >
               <span className='material-symbols-outlined text-[16px]'>pin_drop</span>
-              Polka
+              {hasVariants ? 'Default polka' : 'Polka'}
             </label>
             <input
               type='text'
@@ -996,8 +1001,12 @@ export const ProductEditor = ({
                 setForm((c) => ({ ...c, shelf_location: e.target.value.slice(0, 20) }))
               }
               className='w-full rounded-lg border border-primary/40 bg-surface-bright px-3 py-2 font-bold text-primary outline-none placeholder:font-normal placeholder:text-on-surface-variant/50 focus:border-primary focus:ring-2 focus:ring-primary/30'
-              placeholder='001'
-              title="Variantsiz mahsulot uchun asosiy polka. Variantli mahsulotda variant'da polka yozilmasa bu qiymat ishlatiladi."
+              placeholder={hasVariants ? '001 (default)' : '001'}
+              title={
+                hasVariants
+                  ? "Default polka — variant'da polka bo'sh bo'lsa backend shu qiymat'ni ishlatadi (fallback)"
+                  : "Mahsulotning polka manzili. POS va Buyurtmalarda ko'rinadi."
+              }
             />
           </div>
           <div className='xl:col-span-4'>
@@ -1166,6 +1175,7 @@ export const ProductEditor = ({
               onGalleryAdd={handleVariantGalleryAdd}
               onGalleryRemoveNew={handleVariantGalleryRemoveNew}
               onGalleryDeleteExisting={handleVariantGalleryDeleteExisting}
+              productShelfFallback={form.shelf_location.trim()}
               onAddVariantToGroup={(baseVariant) => {
                 // Yangi qator faqat rang/narx/kirim qiymatlarini "rang-darajasidagi"
                 // sukut bo'yicha meros qilib oladi. image_url MEROS QILINMAYDI —
@@ -1297,6 +1307,11 @@ const ColorGroupVariantEditor = ({
   onGalleryRemoveNew,
   onGalleryDeleteExisting,
   onAddVariantToGroup,
+  // Phase 4.2 — variant polkasi bo'sh bo'lsa qaysi qiymat fallback bo'lishini
+  // admin ko'rishi uchun product darajasidagi shelf qiymati. Smart placeholder
+  // — variant input'ida "001 (default)" ko'rinadi va admin tushunadi: yozmasa
+  // ham backend product polkasidan oladi.
+  productShelfFallback,
 }: {
   variants: VariantFormState[];
   variantImageFiles: Record<string, File | null>;
@@ -1316,6 +1331,7 @@ const ColorGroupVariantEditor = ({
   onGalleryRemoveNew: (clientId: string, idx: number) => void;
   onGalleryDeleteExisting: (clientId: string, imageId: number) => void;
   onAddVariantToGroup: (baseVariant: VariantFormState) => void;
+  productShelfFallback: string;
 }) => {
   // Rang bo'yicha guruhlash (group_id — bir xil ranga ega variantlar uchun bir xil)
   const groups = useMemo(() => {
@@ -1744,10 +1760,22 @@ const ColorGroupVariantEditor = ({
                                     e.target.value.slice(0, 20),
                                   )
                                 }
-                                placeholder='001'
+                                // Smart placeholder — variant bo'sh bo'lsa product
+                                // polkasini ko'rsatamiz: "001 (mahsulot)" — admin
+                                // tushunadi: yozmasa ham backend shu qiymat'ni
+                                // fallback sifatida ishlatadi.
+                                placeholder={
+                                  productShelfFallback
+                                    ? `${productShelfFallback} (default)`
+                                    : '001'
+                                }
                                 maxLength={20}
-                                title="Do'kondagi jismoniy polka (faqat admin va POS'da ko'rinadi)"
-                                className='w-24 rounded-lg border border-primary/40 bg-surface-bright px-2 py-1 text-sm font-bold text-primary outline-none placeholder:font-normal placeholder:text-on-surface-variant/50 focus:border-primary focus:ring-2 focus:ring-primary/30'
+                                title={
+                                  productShelfFallback
+                                    ? `Bo'sh qoldirsangiz: "${productShelfFallback}" (mahsulot default polkasi) ishlatiladi`
+                                    : "Do'kondagi jismoniy polka (faqat admin va POS'da ko'rinadi)"
+                                }
+                                className='w-32 rounded-lg border border-primary/40 bg-surface-bright px-2 py-1 text-sm font-bold text-primary outline-none placeholder:font-normal placeholder:text-on-surface-variant/50 focus:border-primary focus:ring-2 focus:ring-primary/30'
                               />
                             </div>
                           </div>

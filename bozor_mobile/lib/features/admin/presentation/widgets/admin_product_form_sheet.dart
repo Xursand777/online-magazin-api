@@ -2457,62 +2457,72 @@ class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
               ),
             ],
           ),
-          // Phase 4.0 — POLKA maydoni. Saytdagi `ProductEditor`'da bu maydon
-          // rasm yuklash bo'limining tepasiga joylashtirilgan. Mobilda esa
-          // input ko'rinishlari to'liq qatorda turishi UX uchun yaxshiroq —
-          // shu sababli alohida `pin_drop` ikonkasi bilan, rangli ramka va
-          // matn bilan diqqatni jalb qilamiz. FAQAT admin ko'radi.
+          // Phase 4.0+4.2 — POLKA maydoni. Smart placeholder mantiqi:
+          // agar product darajasida polka yozilgan bo'lsa (_shelfLocation),
+          // variant inputi unda fallback qiymatni hint sifatida ko'rsatadi:
+          // "001 (default)" — admin bo'sh qoldirsa product polkasi ishlatilishi
+          // aniq bo'ladi. FAQAT admin/POS ko'radi.
           const SizedBox(height: 8),
-          TextFormField(
-            initialValue: v.shelfLocation,
-            maxLength: 20,
-            textInputAction: TextInputAction.next,
-            onFieldSubmitted: (_) => FocusScope.of(context).nextFocus(),
-            style: const TextStyle(
-              fontWeight: FontWeight.w800,
-              color: Color(0xFF0A7C55),
-            ),
-            decoration: InputDecoration(
-              hintText: 'Masalan: 001',
-              hintStyle: const TextStyle(
-                fontSize: 12,
-                color: Colors.grey,
-                fontWeight: FontWeight.normal,
-              ),
-              labelText: "Polka (do'kondagi joy)",
-              labelStyle: const TextStyle(
-                fontWeight: FontWeight.bold,
-                color: Color(0xFF0A7C55),
-              ),
-              prefixIcon: const Icon(
-                Icons.pin_drop_outlined,
-                color: Color(0xFF0A7C55),
-                size: 20,
-              ),
-              counterText: '', // 20 belgi counter'ini yashirib qo'yamiz
-              isDense: true,
-              contentPadding: const EdgeInsets.symmetric(
-                horizontal: 10,
-                vertical: 10,
-              ),
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(8),
-                borderSide: const BorderSide(color: Color(0xFF0A7C55)),
-              ),
-              enabledBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(8),
-                borderSide:
-                    const BorderSide(color: Color(0xFF0A7C55), width: 1.2),
-              ),
-              focusedBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(8),
-                borderSide:
-                    const BorderSide(color: Color(0xFF0A7C55), width: 2),
-              ),
-              helperText: 'Faqat admin/POS\'da ko\'rinadi',
-              helperStyle: const TextStyle(fontSize: 10, color: Colors.grey),
-            ),
-            onChanged: (val) => v.shelfLocation = val,
+          Builder(
+            builder: (context) {
+              final productShelf = _shelfLocation.text.trim();
+              final hintText = productShelf.isNotEmpty
+                  ? '$productShelf (default)'
+                  : 'Masalan: 001';
+              return TextFormField(
+                initialValue: v.shelfLocation,
+                maxLength: 20,
+                textInputAction: TextInputAction.next,
+                onFieldSubmitted: (_) => FocusScope.of(context).nextFocus(),
+                style: const TextStyle(
+                  fontWeight: FontWeight.w800,
+                  color: Color(0xFF0A7C55),
+                ),
+                decoration: InputDecoration(
+                  hintText: hintText,
+                  hintStyle: const TextStyle(
+                    fontSize: 12,
+                    color: Colors.grey,
+                    fontWeight: FontWeight.normal,
+                  ),
+                  labelText: productShelf.isNotEmpty
+                      ? "Polka (bo'sh qoldirsa: $productShelf)"
+                      : "Polka (do'kondagi joy)",
+                  labelStyle: const TextStyle(
+                    fontWeight: FontWeight.bold,
+                    color: Color(0xFF0A7C55),
+                  ),
+                  prefixIcon: const Icon(
+                    Icons.pin_drop_outlined,
+                    color: Color(0xFF0A7C55),
+                    size: 20,
+                  ),
+                  counterText: '',
+                  isDense: true,
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 10,
+                  ),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(8),
+                    borderSide: const BorderSide(color: Color(0xFF0A7C55)),
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(8),
+                    borderSide: const BorderSide(
+                        color: Color(0xFF0A7C55), width: 1.2),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(8),
+                    borderSide: const BorderSide(
+                        color: Color(0xFF0A7C55), width: 2),
+                  ),
+                  helperText: "Faqat admin/POS'da ko'rinadi",
+                  helperStyle: const TextStyle(fontSize: 10, color: Colors.grey),
+                ),
+                onChanged: (val) => v.shelfLocation = val,
+              );
+            },
           ),
           const SizedBox(height: 8),
           Row(
