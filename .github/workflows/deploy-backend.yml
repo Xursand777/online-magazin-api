@@ -1,0 +1,101 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Bozor — Backend AUTO-DEPLOY (Hetzner VPS, Docker Compose)
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# NIMA QILADI:
+#   `main` branch'ga `backend/**` o'zgarishi push qilinsa — Hetzner serverga
+#   SSH orqali ulanadi, kodni yangilaydi va Docker'ni qayta quradi.
+#   Endi qo'lda `git pull` shart emas.
+#
+# NIMA UCHUN SSH (self-hosted runner EMAS):
+#   Repo PUBLIC. Self-hosted runner PUBLIC repo'da xavfli (fork PR zararli kod
+#   ishga tushira oladi). SSH deploy esa FAQAT `main`'ga push'da ishlaydi —
+#   secret'lar fork PR'larga berilmaydi, shuning uchun xavfsiz.
+#
+# XAVFSIZLIK QATLAMLARI:
+#   1. `on: push: branches: [main]` — faqat main'ga push (PR trigger yo'q).
+#      Fork qilgan begona odam bu workflow'ni ishga tushira olmaydi.
+#   2. Alohida "deploy" SSH kaliti (shaxsiy kalitingiz EMAS) — GitHub Secret'da.
+#   3. `paths: backend/**` — faqat backend o'zgarsa ishlaydi (behuda deploy yo'q).
+#   4. `concurrency` — bir vaqtda faqat bitta deploy (yarmida to'xtamaydi).
+#   5. Action'lar versiyaga bog'langan (supply-chain himoyasi).
+#
+# KERAKLI GITHUB SECRETS (Settings → Secrets and variables → Actions):
+#   HETZNER_HOST       — server IP (masalan 49.12.x.x)
+#   HETZNER_USER       — SSH foydalanuvchi (masalan: deploy yoki root)
+#   HETZNER_SSH_KEY    — alohida deploy kalitining MAXFIY qismi (private key)
+#   HETZNER_SSH_PORT   — (ixtiyoriy) SSH port, bo'sh bo'lsa 22
+#
+# QO'LDA ISHGA TUSHIRISH:
+#   Actions tab → "Deploy Backend (Hetzner)" → Run workflow (emergency uchun).
+# ─────────────────────────────────────────────────────────────────────────────
+
+name: Deploy Backend (Hetzner)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'backend/**'
+      - '.github/workflows/deploy-backend.yml'
+  # Qo'lda ham ishga tushirish (emergency / birinchi sinov uchun)
+  workflow_dispatch:
+
+# Bir vaqtda faqat bitta deploy — ikkita push ketma-ket kelsa, navbat bilan.
+# cancel-in-progress: false — boshlangan deploy'ni YARMIDA to'xtatmaymiz.
+concurrency:
+  group: deploy-backend-hetzner
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: SSH deploy → Hetzner
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Deploy over SSH
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.HETZNER_HOST }}
+          username: ${{ secrets.HETZNER_USER }}
+          key: ${{ secrets.HETZNER_SSH_KEY }}
+          port: ${{ secrets.HETZNER_SSH_PORT || 22 }}
+          command_timeout: 12m
+          # Har bir buyruq xato qaytarsa — DARHOL to'xtaydi (yarim deploy yo'q).
+          script_stop: true
+          script: |
+            set -euo pipefail
+            cd /opt/bozor
+
+            echo "── 1/4 Kodni yangilash (origin/main) ──"
+            git fetch --all --prune
+            # reset --hard: serverda tasodifiy o'zgarish bo'lsa ham toza main HEAD.
+            git reset --hard origin/main
+
+            echo "── 2/4 Docker qayta qurish + ishga tushirish ──"
+            # migrate + collectstatic web servis startida avtomat bajariladi.
+            docker compose up -d --build
+
+            echo "── 3/4 Eski image'larni tozalash (disk tejash) ──"
+            docker image prune -f
+
+            echo "── 4/4 Deploy sog'ligini tekshirish ──"
+            docker compose exec -T web python manage.py check_deployment
+
+            echo "✅ Deploy muvaffaqiyatli yakunlandi."
+
+      # Deploy muvaffaqiyatsiz bo'lsa — Telegram'ga ogohlantirish
+      # (daily-digest workflow'idagi pattern bilan bir xil).
+      - name: Notify Telegram on failure
+        if: failure()
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_ADMIN_CHAT_ID: ${{ secrets.TELEGRAM_ADMIN_CHAT_ID }}
+        run: |
+          if [ -n "${TELEGRAM_BOT_TOKEN}" ] && [ -n "${TELEGRAM_ADMIN_CHAT_ID}" ]; then
+            curl -sS -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+              -d "chat_id=${TELEGRAM_ADMIN_CHAT_ID}" \
+              -d "parse_mode=Markdown" \
+              -d "text=🔴 *DEPLOY XATO* — backend Hetzner'ga chiqmadi.%0A%0AHavola: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          fi
