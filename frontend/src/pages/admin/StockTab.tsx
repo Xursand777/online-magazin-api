@@ -207,6 +207,16 @@ export const StockTab = () => {
                   </div>
                   <div className='mt-1 flex flex-wrap items-center gap-2 text-xs'>
                     <span className='font-semibold text-on-surface'>{fmt(item.price)} so'm</span>
+                    {/* Phase 4.2 — polka badge ombor sahifasida ham ko'rinadi:
+                        admin "kam tovar"ni topib qaerdan olishni darrov biladi. */}
+                    {item.shelf_location && (
+                      <span className='inline-flex items-center gap-1 rounded-md bg-primary/15 px-2 py-0.5 text-[11px] font-extrabold text-primary ring-1 ring-primary/30'>
+                        <span className='material-symbols-outlined text-[12px]'>
+                          pin_drop
+                        </span>
+                        {item.shelf_location}
+                      </span>
+                    )}
                     <span className='rounded bg-surface-container px-1.5 py-0.5 font-mono text-[10px] text-on-surface-variant'>{item.sku}</span>
                   </div>
                 </div>
@@ -226,7 +236,7 @@ export const StockTab = () => {
             <table className='w-full min-w-[900px] text-left text-sm'>
               <thead className='bg-surface-container/60'>
                 <tr>
-                  {['Mahsulot', 'Variant', 'SKU', 'Narx', 'Qoldiq', 'Status'].map((h) => (
+                  {['Mahsulot', 'Variant', 'Polka', 'SKU', 'Narx', 'Qoldiq', 'Status'].map((h) => (
                     <th
                       key={h}
                       className='px-5 py-3 font-bold uppercase text-xs text-on-surface-variant'
@@ -266,6 +276,22 @@ export const StockTab = () => {
                     </td>
                     <td className='px-5 py-4 text-on-surface font-medium'>
                       {item.variant_info || <span className='text-outline italic'>Standart</span>}
+                    </td>
+                    {/* Phase 4.2 — POLKA ustun: ombor hisobotini "Polka 001 da
+                        5 dona qoldi" kabi tezda o'qish imkonini beradi.
+                        Backend `effective_shelf` (variant yoki product fallback)
+                        qaytaradi. */}
+                    <td className='px-5 py-4'>
+                      {item.shelf_location ? (
+                        <span className='inline-flex items-center gap-1 rounded-md bg-primary/15 px-2 py-0.5 text-xs font-extrabold text-primary ring-1 ring-primary/30'>
+                          <span className='material-symbols-outlined text-[13px]'>
+                            pin_drop
+                          </span>
+                          {item.shelf_location}
+                        </span>
+                      ) : (
+                        <span className='text-outline italic text-xs'>—</span>
+                      )}
                     </td>
                     <td className='px-5 py-4'>
                       <span className='rounded bg-surface-container px-2 py-1 font-mono text-[11px] text-on-surface-variant'>

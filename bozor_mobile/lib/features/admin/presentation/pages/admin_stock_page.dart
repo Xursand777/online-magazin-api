@@ -462,9 +462,44 @@ class _AdminStockPageState extends State<AdminStockPage> {
                         ),
                       ),
                     const SizedBox(height: 6),
-                    Text(
-                      '${_fmt(item.price)} so\'m',
-                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: AppColors.primary),
+                    Row(
+                      children: [
+                        Text(
+                          '${_fmt(item.price)} so\'m',
+                          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: AppColors.primary),
+                        ),
+                        // Phase 4.2 — POLKA badge ombor hisobotida ham ko'rinadi:
+                        // "kam tovar" qatorida darrov qaerdan olishni biladi.
+                        if (item.shelfLocation.isNotEmpty) ...[
+                          const SizedBox(width: 8),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 6, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF0A7C55).withValues(alpha: 0.15),
+                              borderRadius: BorderRadius.circular(6),
+                              border: Border.all(
+                                color: const Color(0xFF0A7C55).withValues(alpha: 0.35),
+                                width: 1,
+                              ),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                const Icon(Icons.pin_drop_outlined,
+                                    size: 12, color: Color(0xFF0A7C55)),
+                                const SizedBox(width: 3),
+                                Text(item.shelfLocation,
+                                    style: const TextStyle(
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w800,
+                                      color: Color(0xFF0A7C55),
+                                    )),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ],
                     ),
                   ],
                 ),

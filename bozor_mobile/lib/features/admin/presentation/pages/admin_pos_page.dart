@@ -667,6 +667,40 @@ class _CartItemRow extends StatelessWidget {
                           height: 1.3,
                           fontSize: 15,
                         )),
+                    // Phase 4.2 — POLKA savatchada ham ko'rinadi (sotuvchi
+                    // "tovarni qaerdan olganman?" deb cart'da tasdiqlay oladi).
+                    // Saytdagi badge bilan vizual izchillik: yashil, pin_drop
+                    // ikonkasi, bold matn, kichik border.
+                    if (item.shelfLocation.isNotEmpty)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 4),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 6, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF0A7C55).withValues(alpha: 0.15),
+                            borderRadius: BorderRadius.circular(6),
+                            border: Border.all(
+                              color: const Color(0xFF0A7C55).withValues(alpha: 0.35),
+                              width: 1,
+                            ),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Icon(Icons.pin_drop_outlined,
+                                  size: 13, color: Color(0xFF0A7C55)),
+                              const SizedBox(width: 3),
+                              Text('Polka: ${item.shelfLocation}',
+                                  style: const TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w800,
+                                    color: Color(0xFF0A7C55),
+                                  )),
+                            ],
+                          ),
+                        ),
+                      ),
                     if (item.sku.isNotEmpty)
                       Padding(
                         padding: const EdgeInsets.only(top: 4),

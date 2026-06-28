@@ -33,6 +33,10 @@ class AdminStockItem {
   final String sku;
   final double price;
   final int stock;
+  // Phase 4.2 — backend AdminStockReportView qaytaradigan polka manzili.
+  // Variantli item uchun `effective_shelf` (variant yoki product fallback);
+  // variantsiz item uchun product.shelf_location. Bo'sh string mumkin.
+  final String shelfLocation;
 
   AdminStockItem({
     required this.type,
@@ -43,6 +47,7 @@ class AdminStockItem {
     required this.sku,
     required this.price,
     required this.stock,
+    this.shelfLocation = '',
   });
 
   factory AdminStockItem.fromJson(Map<String, dynamic> json) {
@@ -55,6 +60,7 @@ class AdminStockItem {
       sku: json['sku'] as String? ?? '',
       price: _double(json['price']),
       stock: _int(json['stock']),
+      shelfLocation: (json['shelf_location'] as String? ?? '').trim(),
     );
   }
 }

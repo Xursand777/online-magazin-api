@@ -20,7 +20,7 @@ YECHIM — Bulk import optimizatsiyasi:
   5. Progress: har 500 ta mahsulotda log (admin ko'ra oladi)
 
 CSV FORMAT:
-  name,price_usd,category_id,stock,description,is_active,is_new,is_popular,is_discount,discount_price_usd
+  name,price_usd,category_id,stock,description,is_active,is_new,is_popular,is_discount,discount_price_usd,shelf_location
   iPhone 16,999.99,1,50,"Apple smartfon",true,true,true,false,
 
 EXCEL FORMAT:
@@ -290,6 +290,10 @@ def import_products_from_csv(
             'is_new': _parse_bool(row.get('is_new', 'true')),
             'is_popular': _parse_bool(row.get('is_popular', 'false')),
             'is_discount': is_discount,
+            # Phase 4.2 — Excel/CSV importida polka ustun (ixtiyoriy, max 20 belgi).
+            # Admin 100+ mahsulotni Excel'dan yuklaganda har biri uchun polka
+            # manzilini ham birga kirita oladi. Bo'sh bo'lsa default ''.
+            'shelf_location': (row.get('shelf_location') or '').strip()[:20],
         })
         names_to_translate.append(name)
         descriptions_to_translate.append((row.get('description') or '').strip())
@@ -345,6 +349,10 @@ def import_products_from_csv(
                 is_new=row_data['is_new'],
                 is_popular=row_data['is_popular'],
                 is_discount=row_data['is_discount'],
+                # Phase 4.2 — shelf_location ustun bo'sh bo'lsa ham xato yo'q
+                # (model default=''). Bulk import asosan variantsiz mahsulotlar
+                # uchun ishlatiladi → product polkasi to'g'ridan ishlaydi.
+                shelf_location=row_data.get('shelf_location', ''),
             )
         )
 

@@ -1218,7 +1218,10 @@ class AdminStockReportView(views.APIView):
                 'sku': p.slug,
                 'price': float(p.price),
                 'image': absolute_media_url(request, main_img.image, width=400) if main_img else None,
-                'status': 'critical' if p.stock < 5 else 'low'
+                'status': 'critical' if p.stock < 5 else 'low',
+                # Phase 4.2 — variantsiz mahsulot polkasi (admin do'konda
+                # qaerdan olishni bilishi uchun). Faqat admin/staff so'rovida.
+                'shelf_location': (p.shelf_location or '').strip(),
             })
 
         # 2. Mahsulot variantlari (rang, model, xotira bo'yicha alohida stoglar)
@@ -1248,7 +1251,11 @@ class AdminStockReportView(views.APIView):
                 'sku': v.sku or f"{v.product.slug}-v{v.id}",
                 'price': float(v.discount_price or v.price or v.product.discount_price or v.product.price),
                 'image': absolute_media_url(request, v.image, width=400) if v.image else absolute_media_url(request, main_img.image, width=400) if main_img else None,
-                'status': 'critical' if v.stock < 5 else 'low'
+                'status': 'critical' if v.stock < 5 else 'low',
+                # Phase 4.2 — variant polkasi (variant'niki yoki product fallback).
+                # Model'dagi @property avtomat fallback qiladi → ombor hisobotida
+                # admin har item polkasini DOIM ko'radi.
+                'shelf_location': v.effective_shelf,
             })
 
         # Stog bo'yicha o'sish tartibida saralash

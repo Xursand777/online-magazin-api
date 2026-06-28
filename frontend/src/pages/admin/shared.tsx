@@ -232,6 +232,9 @@ export interface AdminOrder {
   user?: { id: number; phone: string } | null;
 }
 
+// Phase 4.2 — AdminStockItem'ga shelf_location qo'shildi (admin ombor
+// hisobotida polka manzilini ko'rsatishi uchun). Backend fallback bilan
+// qaytaradi (variant'niki yoki product'dan), bo'sh bo'lsa string empty.
 export interface AdminStockItem {
   type: 'product' | 'variant';
   id: number;
@@ -244,6 +247,10 @@ export interface AdminStockItem {
   price: number;
   image: string | null;
   status: 'critical' | 'low';
+  // Phase 4.2 — backend AdminStockReportView qaytaradigan polka qiymati.
+  // Variantli item uchun `effective_shelf` (variant yoki product fallback),
+  // variantsiz item uchun product.shelf_location. Bo'sh string mumkin.
+  shelf_location?: string;
 }
 
 // ─── Bo'sh forma fabrikalari ─────────────────────────────────────────────────

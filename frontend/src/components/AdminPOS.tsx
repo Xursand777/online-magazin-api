@@ -963,6 +963,18 @@ const AdminPOS = () => {
                           <p className="text-base font-bold text-on-surface leading-snug break-words">
                             {buildPosName(item)}
                           </p>
+                          {/* Phase 4.2 — POLKA savatchada ham ko'rinadi (sotuvchi
+                              "tovarni qaerdan oldim?" deb tasdiqlash imkoniyati).
+                              Qidiruv kartochkasidagi badge bilan vizual jihatdan
+                              IZCHIL — yashil, pin_drop ikonkasi, bold matn. */}
+                          {item.shelfLocation && (
+                            <span className="mt-1 inline-flex items-center gap-1 rounded-md bg-primary/15 px-2 py-0.5 text-xs font-extrabold text-primary ring-1 ring-primary/30">
+                              <span className="material-symbols-outlined text-[14px]">
+                                pin_drop
+                              </span>
+                              Polka: {item.shelfLocation}
+                            </span>
+                          )}
                           {item.sku && (
                             <p className="mt-1 text-[11px] font-mono text-on-surface-variant opacity-70">
                               SKU: {item.sku}

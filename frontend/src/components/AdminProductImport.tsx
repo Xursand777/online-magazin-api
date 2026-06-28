@@ -9,7 +9,11 @@ import { toast } from '../utils/toast';
 //  Backend: POST /api/admin/bulk-import/ (AdminBulkImportView)
 //  Ustunlar: name* + (price_usd | price)* , category_id, stock, description,
 //            is_active, is_new, is_popular, discount_price_usd, discount_price,
-//            cost_price.  (is_discount avtomatik.)
+//            cost_price, shelf_location.  (is_discount avtomatik.)
+//
+//  Phase 4.2 — shelf_location ixtiyoriy ustun (max 20 belgi). Bo'sh bo'lsa
+//  default ''. Admin Excel'da 100+ mahsulotni polkalari bilan birga import
+//  qila oladi (faqat admin/POS ko'radi, public API'da chiqmaydi).
 //  Cheklov: 10MB, 50 000 satr.
 //
 //  Bu komponent — "professional ideal" UX:
@@ -71,11 +75,13 @@ const TEMPLATE_HEADERS = [
   'discount_price_usd',
   'discount_price',
   'cost_price',
+  // Phase 4.2 — do'kondagi polka manzili (admin/POS uchun). Max 20 belgi.
+  'shelf_location',
 ] as const;
 
 const TEMPLATE_EXAMPLE_ROWS: string[][] = [
-  ['iPhone 16 Pro', '1099', '', '', '50', 'Apple smartfon', 'true', 'true', 'true', '', '', '950'],
-  ['Smartfon Samsung Galaxy A56', '', '12000000', '', '30', '', 'true', 'true', 'false', '', '11500000', '9800000'],
+  ['iPhone 16 Pro', '1099', '', '', '50', 'Apple smartfon', 'true', 'true', 'true', '', '', '950', '001-A'],
+  ['Smartfon Samsung Galaxy A56', '', '12000000', '', '30', '', 'true', 'true', 'false', '', '11500000', '9800000', '002'],
 ];
 
 const MAX_SIZE = 10 * 1024 * 1024; // 10MB
