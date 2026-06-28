@@ -220,7 +220,7 @@ export const ReportsTab = () => {
 
   const gatherExportData = async () => {
     const info = loadShopInfo();
-    const shop = { name: info.name || 'Bozor', phone: info.phone, address: info.address };
+    const shop = { name: info.name || '700Mobile', phone: info.phone, address: info.address };
     // Sana oralig'idagi BARCHA cheklarni olamiz (infinite-scroll emas)
     const rawOrders = (await fetchAllReportOrders({
       date_from: params.date_from,
@@ -378,7 +378,7 @@ export const ReportsTab = () => {
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `bozor_hisobot_${dateFrom || 'all'}_${dateTo || 'all'}.xlsx`;
+      a.download = `700mobile_hisobot_${dateFrom || 'all'}_${dateTo || 'all'}.xlsx`;
       a.click();
       URL.revokeObjectURL(url);
       toast.success('Excel fayl yuklab olindi!');

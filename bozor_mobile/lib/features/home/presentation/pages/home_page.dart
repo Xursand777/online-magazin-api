@@ -110,7 +110,7 @@ class HomeView extends StatelessWidget {
   PreferredSizeWidget _buildAppBar(ThemeData theme) {
     return AppBar(
       title: Text(
-        'Bozor',
+        '700Mobile',
         style: theme.textTheme.headlineMedium?.copyWith(
           color: theme.colorScheme.primary,
           fontWeight: FontWeight.w900,

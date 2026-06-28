@@ -1,4 +1,4 @@
-# Bozor — qidiruv tizimlari uchun
+# 700Mobile — qidiruv tizimlari uchun
 User-agent: *
 Allow: /
 
@@ -9,4 +9,4 @@ Disallow: /profile
 Disallow: /auth
 
 # TODO: domeningizni o'rnating
-Sitemap: https://bozor.uz/sitemap.xml
+Sitemap: https://700mobile.uz/sitemap.xml

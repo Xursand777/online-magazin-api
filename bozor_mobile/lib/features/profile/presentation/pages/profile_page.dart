@@ -262,7 +262,7 @@ void _showAboutDialog(BuildContext context) {
   HapticFeedback.lightImpact();
   showAboutDialog(
     context: context,
-    applicationName: 'Bozor',
+    applicationName: '700Mobile',
     applicationVersion: '1.0.0',
     applicationIcon: Container(
       width: 64,
@@ -277,11 +277,11 @@ void _showAboutDialog(BuildContext context) {
         size: 36,
       ),
     ),
-    applicationLegalese: '© 2026 Bozor. Barcha huquqlar himoyalangan.',
+    applicationLegalese: '© 2026 700Mobile. Barcha huquqlar himoyalangan.',
     children: [
       const SizedBox(height: 16),
       const Text(
-        "Bozor — O'zbekistondagi online savdo platformasi. "
+        "700Mobile — O'zbekistondagi online savdo platformasi. "
         "Mahsulotlar, chegirmalar va tezkor yetkazib berish "
         "imkoniyatlarini bir joyda taklif etamiz.",
         style: TextStyle(height: 1.5),

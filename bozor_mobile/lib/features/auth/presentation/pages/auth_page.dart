@@ -164,7 +164,7 @@ class _AuthViewState extends State<AuthView> {
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     Text(
-                      'Bozor',
+                      '700Mobile',
                       textAlign: TextAlign.center,
                       style: theme.textTheme.displayMedium?.copyWith(
                         color: theme.colorScheme.primary,

@@ -360,7 +360,7 @@ const Auth = () => {
         {/* Logo */}
         <div className="mb-10 text-center">
           <Link to="/" className="inline-block">
-            <h1 className="text-h1 font-h1 text-primary">Bozor</h1>
+            <h1 className="text-h1 font-h1 text-primary">700Mobile</h1>
           </Link>
           <p className="mt-3 text-body-md text-on-surface-variant">{t.auth.platformSlogan}</p>
         </div>

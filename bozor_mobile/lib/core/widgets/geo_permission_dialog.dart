@@ -249,13 +249,13 @@ class GeoPermissionDialog extends StatelessWidget {
                   'Quyidagi "Sozlamalarni ochish" tugmasini bosing',
                   '"Joylashuv" / "Location" qatorini toping',
                   '"Foydalanish payti" / "While Using the App" ni tanlang',
-                  'Bozor ilovasiga qaytib, qayta urinib ko\'ring',
+                  '700Mobile ilovasiga qaytib, qayta urinib ko\'ring',
                 ]
               : [
                   'Quyidagi "Sozlamalarni ochish" tugmasini bosing',
                   '"Ruxsatlar" / "Permissions" → "Joylashuv" / "Location"',
                   '"Foydalanish payti ruxsat" / "Allow while using app" ni tanlang',
-                  'Bozor ilovasiga qaytib, qayta urinib ko\'ring',
+                  '700Mobile ilovasiga qaytib, qayta urinib ko\'ring',
                 ],
           primaryActionLabel: 'Sozlamalarni ochish',
           canOpenSettings: true,
@@ -293,13 +293,13 @@ class GeoPermissionDialog extends StatelessWidget {
                   'Settings ilovasini oching',
                   'Privacy & Security → Location Services',
                   'Yuqoridagi togglni ON ga o\'tkazing',
-                  'Bozor ilovasiga qayting va qayta urinib ko\'ring',
+                  '700Mobile ilovasiga qayting va qayta urinib ko\'ring',
                 ]
               : const [
                   'Telefon status barini pastga torting',
                   'Location yoki GPS belgisini topib yoqing',
                   'Yoki Settings → Location → Use location ni ON qiling',
-                  'Bozor ilovasiga qayting va qayta urinib ko\'ring',
+                  '700Mobile ilovasiga qayting va qayta urinib ko\'ring',
                 ],
           primaryActionLabel: 'Joylashuv sozlamalari',
           canOpenSettings: true,

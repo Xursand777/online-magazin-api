@@ -185,7 +185,7 @@ const TopNavBar = () => {
 
       <header className="hidden md:flex bg-surface-container-lowest border-b border-outline-variant/50 shadow-sm justify-between items-center px-4 md:px-8 py-3 w-full sticky top-0 z-50">
         <Link to="/" className="text-[32px] font-black tracking-tight text-primary mr-8 shrink-0">
-          Bozor
+          700Mobile
         </Link>
 
         <div className="flex-1 max-w-[840px] px-4">

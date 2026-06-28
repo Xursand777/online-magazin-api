@@ -170,7 +170,7 @@ class BozorApp extends StatelessWidget {
               BlocProvider<CatalogBloc>.value(value: di.sl<CatalogBloc>()),
             ],
             child: MaterialApp.router(
-        title: 'Bozor Mobile',
+        title: '700Mobile',
         theme:      AppTheme.lightTheme,
         darkTheme:  AppTheme.darkTheme,
         themeMode:  ThemeMode.system,

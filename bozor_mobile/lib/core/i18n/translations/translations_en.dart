@@ -230,7 +230,7 @@ const Map<String, String> translationsEn = {
 
   // ─── About ───────────────────────────────────────────────────────────────
   'about.description':
-      'Bozor — online marketplace in Uzbekistan. '
+      '700Mobile — online marketplace in Uzbekistan. '
           'Products, deals, and fast delivery all in one place.',
-  'about.copyright': '© 2026 Bozor. All rights reserved.',
+  'about.copyright': '© 2026 700Mobile. All rights reserved.',
 };

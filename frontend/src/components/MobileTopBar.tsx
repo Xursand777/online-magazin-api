@@ -117,7 +117,7 @@ const MobileTopBar = () => {
     <div className="md:hidden sticky top-0 z-40 bg-surface-container-lowest border-b border-outline-variant/50 shadow-sm">
       <div className="flex items-center gap-2 px-3 py-2.5">
         <Link to="/" className="text-[22px] font-black tracking-tight text-primary shrink-0 mr-1">
-          Bozor
+          700Mobile
         </Link>
 
         <button

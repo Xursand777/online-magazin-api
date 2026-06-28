@@ -432,7 +432,7 @@ const AdminDashboard = () => {
           <span className='material-symbols-outlined fill-icon text-2xl text-primary'>
             admin_panel_settings
           </span>
-          <span className='text-base font-bold text-primary'>Bozor Admin</span>
+          <span className='text-base font-bold text-primary'>700Mobile Admin</span>
         </div>
 
         {/* Navigation */}

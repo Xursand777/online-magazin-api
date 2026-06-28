@@ -433,7 +433,7 @@ const ProductDetail = () => {
 
   useEffect(() => {
     if (displayTitle) {
-      document.title = `${displayTitle} | Bozor`;
+      document.title = `${displayTitle} | 700Mobile`;
     }
   }, [displayTitle]);
 

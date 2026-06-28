@@ -34,7 +34,7 @@ export type StoreInfo = {
 // Default qiymatlar — backend'dagi `SHOP_INFO_DEFAULTS` bilan TO'LIQ mos
 // kelishi shart. Aks holda offline rejimda nom mosligi buziladi.
 const DEFAULTS: StoreInfo = {
-  name: 'BOZOR UZ',
+  name: '700Mobile.uz',
   phone: '+998 71 000-00-00',
   address: 'Toshkent sh.',
 };

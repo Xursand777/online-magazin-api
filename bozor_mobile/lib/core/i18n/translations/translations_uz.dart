@@ -235,8 +235,8 @@ const Map<String, String> translationsUz = {
 
   // ─── About ────────────────────────────────────────────────────────────────
   'about.description':
-      "Bozor — O'zbekistondagi online savdo platformasi. "
+      "700Mobile — O'zbekistondagi online savdo platformasi. "
           "Mahsulotlar, chegirmalar va tezkor yetkazib berish "
           "imkoniyatlarini bir joyda taklif etamiz.",
-  'about.copyright': '© 2026 Bozor. Barcha huquqlar himoyalangan.',
+  'about.copyright': '© 2026 700Mobile. Barcha huquqlar himoyalangan.',
 };

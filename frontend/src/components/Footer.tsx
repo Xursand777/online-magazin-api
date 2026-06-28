@@ -67,7 +67,7 @@ const Footer = () => {
           {/* Column 1 — Brand (mobilda ham ko'rinib turadi) */}
           <div className="mb-6 md:mb-0">
             <Link to="/" className="inline-block mb-4">
-              <span className="text-[28px] font-black tracking-tight text-primary">Bozor</span>
+              <span className="text-[28px] font-black tracking-tight text-primary">700Mobile</span>
             </Link>
             <p className="text-sm text-on-surface-variant leading-relaxed mb-5">
               {t.footer.description}
@@ -133,7 +133,7 @@ const Footer = () => {
           <FooterAccordion title={t.footer.social}>
             <div className="flex flex-col gap-3">
               <a
-                href="https://t.me/bozoruz"
+                href="https://t.me/mobileserviceurganch"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="flex items-center gap-3 p-2.5 rounded-xl border border-outline-variant hover:border-primary/50 hover:bg-primary-container/10 transition-all group"
@@ -145,7 +145,7 @@ const Footer = () => {
               </a>
 
               <a
-                href="https://instagram.com/bozoruz"
+                href="https://instagram.com/_700_mobile"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="flex items-center gap-3 p-2.5 rounded-xl border border-outline-variant hover:border-primary/50 hover:bg-primary-container/10 transition-all group"
@@ -188,7 +188,7 @@ const Footer = () => {
       <div className="border-t border-outline-variant/40">
         <div className="max-w-container-max mx-auto px-margin-mobile md:px-margin-desktop py-4 flex flex-col sm:flex-row items-center justify-between gap-2">
           <p className="text-xs text-on-surface-variant text-center sm:text-left">
-            © {currentYear} Bozor. {t.footer.copyright}
+            © {currentYear} 700Mobile. {t.footer.copyright}
           </p>
           <div className="flex items-center gap-1.5">
             <svg width="18" height="12" viewBox="0 0 60 40" fill="none" xmlns="http://www.w3.org/2000/svg" className="rounded-sm border border-outline-variant/30">
