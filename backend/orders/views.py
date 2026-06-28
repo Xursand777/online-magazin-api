@@ -309,15 +309,16 @@ class CourierConfirmDeliveryView(views.APIView):
     """
     POST /api/orders/<pk>/courier-confirm/
 
-    Body (multipart/form-data):
+    Body (application/json):
       received_code: 6 xonali numerik
-      delivery_photo: rasm (majburiy)
-      latitude, longitude: ixtiyoriy (birga yuborilishi shart)
 
     Permissions: kuryer, admin yoki super admin.
 
+    DIQQAT: tasdiqlash uchun faqat qabul kodi yetarli — rasm/GPS so'ralmaydi.
+    Xavfsizlik to'liq kod tomonida (brute-force lockout, one-time-use, 24 soat TTL).
+
     Idempotency: DELIVERED holatida bo'lmagan order'ga qayta urinish 400 qaytaradi.
-    Noto'g'ri kod: 400 + audit yozuvi (rasm saqlanmaydi).
+    Noto'g'ri kod: 400 + audit yozuvi.
 
     Response:
       200 — { "status": "RECEIVED", "order": {...} }
@@ -340,9 +341,6 @@ class CourierConfirmDeliveryView(views.APIView):
             order=order,
             actor=request.user,
             received_code=data['received_code'],
-            delivery_photo=data['delivery_photo'],
-            latitude=data.get('latitude'),
-            longitude=data.get('longitude'),
         )
         return Response(
             {
@@ -522,6 +520,36 @@ class AdminOrderStatusUpdateView(views.APIView):
         serializer.is_valid(raise_exception=True)
 
         new_status = serializer.validated_data['status']
+
+        # ── XAVFSIZLIK GUARDRAIL: DELIVERED → RECEIVED ──────────────────────────
+        # Bu o'tish faqat /api/orders/<id>/courier-confirm/ endpoint orqali
+        # bo'lishi shart, chunki 5 qatlamli xavfsizlik (qabul kodi,
+        # brute-force lockout, one-time-use, TTL, photo+GPS) faqat o'sha
+        # yo'ldan o'tadi. Oddiy status endpoint orqali aylanib o'tish —
+        # KRITIK xavfsizlik teshigi:
+        #   • Kuryer mahsulotni yetkazmasa-da, statusni RECEIVED qilib qo'yadi
+        #   • Mijoz kod aytmagan bo'lsa-da, qabul "tasdiqlandi" bo'lib qoladi
+        #   • Brute-force lockout aylanib o'tiladi
+        #   • Delivery photo va GPS olinmaydi
+        #
+        # Hatto super_admin ham bu yo'l bilan o'ta olmaydi — emergency
+        # holatlarida /courier-confirm/ endpoint admin/super_admin uchun
+        # ham ochiq (CanConfirmDelivery permission), o'sha yerda kod + rasm
+        # bilan o'tishadi.
+        if (order.status == Order.STATUS_DELIVERED
+                and new_status == Order.STATUS_RECEIVED):
+            return Response(
+                {
+                    'error': (
+                        "Bu o'tish faqat qabul kodi, rasm va GPS bilan "
+                        "tasdiqlanishi mumkin. /api/orders/<id>/courier-confirm/ "
+                        "endpoint orqali davom eting."
+                    ),
+                    'code': 'courier_confirm_required',
+                    'required_endpoint': f'/api/orders/{order.id}/courier-confirm/',
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         if not can_transition(request.user, order.status, new_status):
             return Response(

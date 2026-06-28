@@ -544,38 +544,20 @@ class CourierConfirmDeliverySerializer(serializers.Serializer):
     """
     POST /api/orders/<id>/courier-confirm/ uchun input.
 
-    `received_code` — mijoz kuryerga ayttiradi (6 xonali).
-    `delivery_photo` — kuryer olgan rasm; multipart/form-data orqali yuboriladi.
-    `latitude`/`longitude` — ixtiyoriy (bino ichida GPS yo'q bo'lishi mumkin).
+    `received_code` — mijoz kuryerga ayttiradi (6 xonali). Buyurtmani
+    "Xaridorga topshirildi" (RECEIVED) holatiga o'tkazishning YAGONA yo'li.
+    `write_only` — javobga aks etmaydi (xavfsizlik).
 
-    `received_code` write_only — javobga aks etmaydi (xavfsizlik).
+    DIQQAT: rasm va GPS qabul qilinmaydi. Tasdiqlash uchun faqat kod yetarli —
+    biznes qarori (kuryer eshikda ortiqcha amal qilmasin). Xavfsizlik to'liq
+    kod tomonida: brute-force lockout, one-time-use, 24 soat TTL
+    (`courier_confirm_delivery` servisi, 6 qatlamli himoya).
     """
     received_code = serializers.RegexField(
         regex=r'^\d{6}$',
         write_only=True,
         error_messages={'invalid': "Qabul kodi aniq 6 xonali raqam bo'lishi shart."},
     )
-    delivery_photo = serializers.ImageField(required=True)
-    latitude = serializers.DecimalField(
-        max_digits=9, decimal_places=6,
-        required=False, allow_null=True,
-        min_value=-90, max_value=90,
-    )
-    longitude = serializers.DecimalField(
-        max_digits=10, decimal_places=6,
-        required=False, allow_null=True,
-        min_value=-180, max_value=180,
-    )
-
-    def validate(self, attrs):
-        # Latitude/longitude xor: birini yuborgan bo'lsa, ikkinchisi ham kerak.
-        lat = attrs.get('latitude')
-        lng = attrs.get('longitude')
-        if (lat is None) != (lng is None):
-            raise serializers.ValidationError(
-                {'gps': "Latitude va longitude birga yuborilishi shart."}
-            )
-        return attrs
 
 
 # ────────────────────────────────────────────────────────────────────────────

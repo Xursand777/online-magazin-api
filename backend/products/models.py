@@ -116,7 +116,7 @@ class GlobalSetting(models.Model):
     # cache bilan, faqat super_admin tahrir qila oladi.
     SHOP_INFO_KEYS = ('shop_name', 'shop_phone', 'shop_address')
     SHOP_INFO_DEFAULTS = {
-        'shop_name': 'BOZOR UZ',
+        'shop_name': '700Mobile.uz',
         'shop_phone': '+998 71 000-00-00',
         'shop_address': 'Toshkent sh.',
     }

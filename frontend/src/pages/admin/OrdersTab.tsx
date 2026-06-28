@@ -17,6 +17,7 @@ import { toast } from '../../utils/toast';
 import { formatMoney, ORDER_STATUS_COLORS, CreditPayConfirmDialog, _notNull } from './shared';
 import type { AdminOrder } from './shared';
 import { OrderHistoryTimeline } from './OrderHistoryTimeline';
+import { CourierConfirmDialog } from '../../components/CourierConfirmDialog';
 
 const AWAITING_PAYMENT_TIMEOUT_MS = 30 * 60 * 1000;
 
@@ -210,6 +211,9 @@ export const OrdersTab = () => {
 
   const [creditConfirmOrder, setCreditConfirmOrder] = useState<AdminOrder | null>(null);
 
+  // DELIVERED → RECEIVED — qabul kodi dialogi. orderId saqlanadi (null = yopiq).
+  const [confirmDeliveryOrderId, setConfirmDeliveryOrderId] = useState<number | null>(null);
+
   const updateDraft = (
     orderId: number,
     field: 'status' | 'note',
@@ -236,6 +240,13 @@ export const OrdersTab = () => {
           if (creditConfirmOrder) creditPayMutation.mutate(creditConfirmOrder.id);
         }}
         onCancel={() => !creditPayMutation.isPending && setCreditConfirmOrder(null)}
+      />
+
+      {/* Qabul kodi dialogi — DELIVERED → RECEIVED yagona yo'li */}
+      <CourierConfirmDialog
+        orderId={confirmDeliveryOrderId}
+        orderLabel={confirmDeliveryOrderId ? `#${confirmDeliveryOrderId}` : undefined}
+        onClose={() => setConfirmDeliveryOrderId(null)}
       />
 
 
@@ -820,38 +831,55 @@ export const OrdersTab = () => {
                                 placeholder="Izoh (ixtiyoriy): mahsulot tekshirildi, yig'ilish boshlandi..."
                               />
 
-                              {/* Cash → RECEIVED hint */}
-                              {nextFwdStatus === 'RECEIVED' && order.payment_method === 'cash' && (
-                                <div className='flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-2.5 text-xs text-amber-800 dark:border-amber-800/40 dark:bg-amber-950/20 dark:text-amber-400'>
-                                  <span className='material-symbols-outlined shrink-0 text-[13px] mt-0.5'>info</span>
-                                  <span><strong>Eslatma:</strong> Bu amal naqd to'lovni ham <strong>To'langan</strong> deb avtomatik belgilaydi.</span>
+                              {/* RECEIVED — qabul kodi orqali tasdiqlanadi (rasm/GPS yo'q).
+                                  Bu o'tish oddiy status update bilan EMAS, faqat
+                                  CourierConfirmDialog → /courier-confirm/ orqali bo'ladi
+                                  (backend AdminOrderStatusUpdateView 400 bilan rad etadi). */}
+                              {nextFwdStatus === 'RECEIVED' && (
+                                <div className='flex items-start gap-2 rounded-lg border border-blue-200 bg-blue-50 p-2.5 text-xs text-blue-800 dark:border-blue-800/40 dark:bg-blue-950/20 dark:text-blue-400'>
+                                  <span className='material-symbols-outlined shrink-0 text-[13px] mt-0.5'>lock</span>
+                                  <span>
+                                    Mijoz telefoniga SMS bilan kelgan <strong>6 xonali qabul kodi</strong> kiritiladi.
+                                    {order.payment_method === 'cash' && " Tasdiqlangach naqd to'lov ham To'langan deb belgilanadi."}
+                                  </span>
                                 </div>
                               )}
 
-                              <button
-                                type='button'
-                                disabled={statusMutation.isPending}
-                                onClick={() =>
-                                  statusMutation.mutate({
-                                    id: order.id,
-                                    status: nextFwdStatus,
-                                    note: draft.note.trim(),
-                                  })
-                                }
-                                className='flex w-full items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2.5 font-semibold text-sm text-on-primary transition-opacity hover:opacity-90 disabled:opacity-60'
-                              >
-                                {statusMutation.isPending ? (
-                                  <>
-                                    <span className='material-symbols-outlined animate-spin text-[16px]'>progress_activity</span>
-                                    Saqlanmoqda...
-                                  </>
-                                ) : (
-                                  <>
-                                    <span className='material-symbols-outlined text-[16px]'>arrow_forward</span>
-                                    {ADMIN_STATUS_LABEL[nextFwdStatus]} ga o'tkazish
-                                  </>
-                                )}
-                              </button>
+                              {nextFwdStatus === 'RECEIVED' ? (
+                                <button
+                                  type='button'
+                                  onClick={() => setConfirmDeliveryOrderId(order.id)}
+                                  className='flex w-full items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2.5 font-semibold text-sm text-on-primary transition-opacity hover:opacity-90'
+                                >
+                                  <span className='material-symbols-outlined text-[16px]'>password</span>
+                                  Qabul kodini kiritish
+                                </button>
+                              ) : (
+                                <button
+                                  type='button'
+                                  disabled={statusMutation.isPending}
+                                  onClick={() =>
+                                    statusMutation.mutate({
+                                      id: order.id,
+                                      status: nextFwdStatus,
+                                      note: draft.note.trim(),
+                                    })
+                                  }
+                                  className='flex w-full items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2.5 font-semibold text-sm text-on-primary transition-opacity hover:opacity-90 disabled:opacity-60'
+                                >
+                                  {statusMutation.isPending ? (
+                                    <>
+                                      <span className='material-symbols-outlined animate-spin text-[16px]'>progress_activity</span>
+                                      Saqlanmoqda...
+                                    </>
+                                  ) : (
+                                    <>
+                                      <span className='material-symbols-outlined text-[16px]'>arrow_forward</span>
+                                      {ADMIN_STATUS_LABEL[nextFwdStatus]} ga o'tkazish
+                                    </>
+                                  )}
+                                </button>
+                              )}
                             </div>
                           )}
 

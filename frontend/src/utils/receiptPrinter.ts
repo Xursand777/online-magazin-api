@@ -34,7 +34,7 @@ export interface StoreInfo {
 }
 
 const DEFAULT_STORE: StoreInfo = {
-  name: 'Bozor UZ',
+  name: '700Mobile.uz',
   phone: '+998 71 000-00-00',
   address: "Toshkent sh.",
 };

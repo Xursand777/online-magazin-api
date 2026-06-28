@@ -68,6 +68,21 @@ def on_order_history_created(sender, instance: OrderHistory, created: bool, **kw
     if not phone:
         return
 
+    # ── ESKIZ GUARDRAIL ──────────────────────────────────────────────────────
+    # Eskiz tasdiqlamagan status SMS shabloni uchun task queuega ham
+    # tushmasin — defense-in-depth. `send_order_status_sms` darajasida
+    # ham xuddi shu tekshiruv bor (`is_status_sms_approved`); bu yer
+    # qo'shimcha qatlam: Celery'ga keraksiz yuk yo'q, dedup keshi
+    # ifloslanmaydi, log'lar toza qoladi.
+    from .sms import is_status_sms_approved
+    if not is_status_sms_approved(instance.to_status):
+        logger.debug(
+            "SMS signal o'tkazib yuborildi — '%s' Eskiz tomonidan "
+            "tasdiqlanmagan (buyurtma=#%s)",
+            instance.to_status, order.id,
+        )
+        return
+
     # ── #24 FIX: Deduplication lock ──────────────────────────────────────────
     try:
         from django.core.cache import cache

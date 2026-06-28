@@ -169,6 +169,28 @@ export const adminUpdateOrderStatus = (
   id: number | string,
   data: { status: string; note?: string }
 ) => apiClient.post(`/orders/admin/${id}/status/`, data);
+
+/**
+ * Kuryer qabul kodi bilan yetkazib berishni tasdiqlaydi.
+ * Endpoint: POST /api/orders/<id>/courier-confirm/
+ *
+ * XAVFSIZLIK: bu yagona yo'l DELIVERED → RECEIVED ga o'tishi mumkin.
+ * Backend AdminOrderStatusUpdateView bu transition'ni rad etadi —
+ * faqat shu endpoint orqali, mijoz telefoniga SMS bilan kelgan 6 xonali
+ * qabul kodi bilan. Rasm/GPS so'ralmaydi.
+ *
+ * Backend xato kodlari (har biri bilan UX boshqa-boshqa ko'rsatiladi):
+ *   wrong_status          — buyurtma DELIVERED holatida emas
+ *   no_code               — buyurtma uchun kod hali yaratilmagan
+ *   wrong_code            — kod noto'g'ri (attempts_left bilan)
+ *   too_many_attempts     — 5 ta noto'g'ri = 1 soat blok
+ *   code_used             — kod allaqachon ishlatilgan (one-time-use)
+ *   code_expired          — kod muddati o'tdi (24 soat TTL)
+ */
+export const courierConfirmDelivery = (
+  id: number | string,
+  data: { received_code: string }
+) => apiClient.post(`/orders/${id}/courier-confirm/`, data);
 export const adminGetReport = (params?: {
   date_from?: string;
   date_to?: string;

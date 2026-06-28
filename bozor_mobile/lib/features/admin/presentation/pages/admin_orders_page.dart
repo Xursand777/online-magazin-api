@@ -12,6 +12,7 @@ import '../../data/models/order_status_helper.dart';
 import '../../data/repositories/admin_repository.dart';
 import '../bloc/admin_orders_bloc.dart';
 import '../widgets/admin_drawer.dart';
+import '../widgets/courier_confirm_sheet.dart';
 
 /// Buyurtmalar — saytdagi `OrdersTab` bilan bir xil mantiq.
 /// Ma'lumotlar `/api/orders/admin/` orqali olinadi (sahifalab, 20 tadan).
@@ -668,8 +669,13 @@ class _OrderCard extends StatelessWidget {
                 children: [
                   if (next != null)
                     _ActionButton(
-                      icon: Icons.arrow_forward_rounded,
-                      label: OrderStatusHelper.label(next),
+                      // RECEIVED — qabul kodi orqali tasdiqlanadi (kod kiritish oynasi).
+                      icon: next == 'RECEIVED'
+                          ? Icons.password_rounded
+                          : Icons.arrow_forward_rounded,
+                      label: next == 'RECEIVED'
+                          ? 'Qabul kodini kiritish'
+                          : OrderStatusHelper.label(next),
                       color: const Color(0xFF0A7C55),
                       filled: true,
                       onTap: isMutating
@@ -727,6 +733,25 @@ class _OrderCard extends StatelessWidget {
   }
 
   void _confirmAdvance(BuildContext context, AdminOrder order, String next) {
+    // ── DELIVERED → RECEIVED: qabul kodi orqali (rasm/GPS yo'q) ───────────────
+    // Bu o'tish oddiy status update bilan EMAS — backend uni rad etadi
+    // (courier_confirm_required). Faqat /courier-confirm/ kod bilan. Shuning
+    // uchun bu yerda maxsus kod kiritish oynasini ochamiz.
+    if (next == 'RECEIVED') {
+      final bloc = context.read<AdminOrdersBloc>();
+      showDialog<bool>(
+        context: context,
+        barrierDismissible: false,
+        builder: (_) => CourierConfirmSheet(orderId: order.id),
+      ).then((ok) {
+        if (ok == true) {
+          // Muvaffaqiyat — ro'yxatni jim yangilaymiz (status RECEIVED ko'rinadi)
+          bloc.add(const SilentReloadOrders());
+        }
+      });
+      return;
+    }
+
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(

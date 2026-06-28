@@ -29,46 +29,93 @@ _ESKIZ_BALANCE_TTL_SEC   = 30 * 60  # 30 daqiqa
 # Foydalanuvchi xohlasa ESKIZ_PRICE_PER_SMS env orqali aniqlashi mumkin.
 _DEFAULT_PRICE_PER_SMS_UZS = 50.0
 
+# ─────────────────────────────────────────────────────────────────────────────
+# SMS SHABLONLARI
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# DIQQAT: Eskiz.uz har bir SMS matnini OLDINDAN moderatsiyadan o'tkazib,
+# faqat tasdiqlangan matnlarni yuborishga ruxsat beradi. Matn aynan kabinetga
+# kiritilganga AYNAN mos kelishi shart (faqat o'zgaruvchi joylar — {order_id},
+# {code} — Eskiz tomonidan "maska" sifatida belgilanadi).
+#
+# QAYSI SHABLON HOZIRDA TASDIQLANGAN — pastdagi `ESKIZ_APPROVED_STATUSES`
+# setiga qarang. Tasdiqlanmagan statuslar uchun matn bu yerda saqlanadi
+# (kelajakda yuborish uchun tayyor), lekin yuborilmaydi.
 STATUS_SMS_MESSAGES: dict[str, str] = {
     'AWAITING_PAYMENT': (
         "Hurmatli mijoz, #{order_id}-buyurtmangiz qabul qilindi. "
-        "30 daqiqa ichida karta orqali to'lovni amalga oshiring. Bozor UZ"
+        "30 daqiqa ichida karta orqali to'lovni amalga oshiring. 700Mobile.uz"
     ),
     'CONFIRMED': (
         "Hurmatli mijoz, #{order_id}-buyurtmangiz tasdiqlandi. "
-        "Yig'ib jo'natishga tayyorlanmoqda. Bozor UZ"
+        "Yig'ib jo'natishga tayyorlanmoqda. 700Mobile.uz"
     ),
     'PACKING': (
         "Hurmatli mijoz, #{order_id}-buyurtmangiz yig'ilmoqda. "
-        "Tez orada kuryerga topshiriladi. Bozor UZ"
+        "Tez orada kuryerga topshiriladi. 700Mobile.uz"
     ),
     'SHIPPING': (
         "Hurmatli mijoz, #{order_id}-buyurtmangiz yo'lda! "
-        "Kuryer siz tomon kelmoqda. Bozor UZ"
+        "Kuryer siz tomon kelmoqda. 700Mobile.uz"
     ),
     'DELIVERED': (
-        # Phase 2.3 — Kuryer eshikda. Mijoz {code}'ni kuryerga ayttiradi,
-        # kuryer Phase 2.4 endpoint orqali tasdiqlaydi. Kod yo'q bo'lgan
-        # holatda (xato yoki backwards-compat) bo'sh joy qoladi.
-        "Hurmatli mijoz, #{order_id}-buyurtmangiz kuryer eshikda. "
-        "Qabul kodi: {code}. Buyurtmani olganingizda kuryerga ayting. Bozor UZ"
+        # ESKIZ-TEMPLATE: 700Mobile.uz: 00000-buyurtmangizni qabul qilish kodi:
+        #                 000000. Kodni faqat kuryerga ayting.
+        # Belgilar: 89 → 1 ta SMS. {order_id} → 00000, {code} → 000000 maska.
+        # OZGARTIRISH ESKIZDA QAYTA TASDIQLATISHNI TALAB QILADI.
+        "700Mobile.uz: {order_id}-buyurtmangizni qabul qilish kodi: {code}. "
+        "Kodni faqat kuryerga ayting."
     ),
     'RECEIVED': (
         "Hurmatli mijoz, #{order_id}-buyurtmangiz muvaffaqiyatli topshirildi. "
-        "Xaridingiz uchun rahmat! Bozor UZ"
+        "Xaridingiz uchun rahmat! 700Mobile.uz"
     ),
     'CANCELLED_BY_USER': (
-        "Hurmatli mijoz, #{order_id}-buyurtmangiz sizning so'rovingiz bilan bekor qilindi. Bozor UZ"
+        "Hurmatli mijoz, #{order_id}-buyurtmangiz sizning so'rovingiz bilan bekor qilindi. 700Mobile.uz"
     ),
     'CANCELLED_BY_ADMIN': (
         "Hurmatli mijoz, #{order_id}-buyurtmangiz bekor qilindi. "
-        "Batafsil ma'lumot uchun biz bilan bog'laning. Bozor UZ"
+        "Batafsil ma'lumot uchun biz bilan bog'laning. 700Mobile.uz"
     ),
     'SYSTEM_AUTO_CANCEL': (
         "Hurmatli mijoz, #{order_id}-buyurtmangiz to'lov muddati o'tganligi sababli "
-        "avtomatik bekor qilindi. Bozor UZ"
+        "avtomatik bekor qilindi. 700Mobile.uz"
     ),
 }
+
+# ─────────────────────────────────────────────────────────────────────────────
+# ESKIZ TASDIQLANGAN SHABLONLAR — PROD GUARDRAIL
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# Eskiz tasdiqlamagan matn yuborilsa API "message not allowed" (403/400) qaytaradi,
+# Celery task fail bo'lib 3 marta retry urinishi sodir bo'ladi — bu Eskiz token
+# limitiga zarba beradi va xatoliklarni log'larda to'plab qo'yadi.
+#
+# YECHIM: signal va `send_order_status_sms` darajasida ushbu setdan tashqari
+# statuslarni JIM o'tkazib yuboramiz (INFO log, success=True). Mijoz hozircha
+# SMS olmaydi — lekin admin panel + real-time order polling orqali xabardor.
+#
+# YANGI STATUS QO'SHISH (kelajakda Eskiz yana shablon tasdiqlasa):
+#   1. Eskiz kabinetida shablon yuborib tasdiqlatish (matn AYNAN
+#      STATUS_SMS_MESSAGES'dagiga mos kelishi shart)
+#   2. Tasdiqlangach, status nomini bu setga qo'shish
+#   3. Smoke test (`./manage.py shell` ichida send_order_status_sms ni chaqirish)
+#
+# Format: frozenset — mutable hujum vektoridan himoya.
+ESKIZ_APPROVED_STATUSES: frozenset = frozenset({
+    'DELIVERED',   # Eskiz shablon 2 — qabul kodi (kuryer bilan tasdiqlash)
+})
+
+
+def is_status_sms_approved(status: str) -> bool:
+    """
+    Ushbu order status SMS shabloni Eskiz tomonidan tasdiqlanganmi.
+
+    True qaytsa — `send_order_status_sms` haqiqiy Eskiz API'ga yuboradi.
+    False qaytsa — signal va `send_order_status_sms` ikkalasi ham yuborishni
+    jim o'tkazib yuboradi (Celery retry'siz, success=True).
+    """
+    return status in ESKIZ_APPROVED_STATUSES
 
 
 def _fetch_fresh_token() -> Optional[str]:
@@ -129,9 +176,19 @@ def _normalize_phone(phone: str) -> str:
     return normalized.lstrip('+')
 
 
-# DIQQAT: Eskiz.uz da SMS matn shablonlari oldindan tasdiqlanishi shart.
-# Quyidagi OTP shabloni Eskiz kabinetingizda ro'yxatdan o'tkazilgan bo'lishi kerak.
-OTP_SMS_TEMPLATE = "Bozor UZ. Tasdiqlash kodi: {code}. Bu kodni hech kimga bermang."
+# ─────────────────────────────────────────────────────────────────────────────
+# OTP — LOGIN SHABLONI (Eskiz tasdiqlaydi)
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# ESKIZ-TEMPLATE: 700Mobile.uz marketga kirish kodingiz: 000000
+# Belgilar: 47 (kod bilan) → 1 ta SMS. {code} → 000000 (6 xonali) maska.
+#
+# DIQQAT: aynan shu matn Eskiz kabinetiga kiritilgan. O'ZGARTIRISH ESKIZDA
+# QAYTA TASDIQLATISHNI TALAB QILADI — boshqa matn yuborilsa Eskiz rad etadi.
+#
+# OTP_DEBUG=True bo'lganda haqiqiy SMS yuborilmaydi (users/views.py:_use_debug_otp).
+# Production'da OTP_DEBUG=False qo'yilgach shu shablon avtomatik ishlatiladi.
+OTP_SMS_TEMPLATE = "700Mobile.uz marketga kirish kodingiz: {code}"
 
 
 def _post_sms(token: str, normalized_phone: str, message: str, sender: str) -> requests.Response:
@@ -198,7 +255,27 @@ def send_order_status_sms(
       statuslar uchun jim e'tibordan chetda qoldiriladi (template'da
       `{code}` belgisini ishlatmaydi). Bo'sh kelganda '' bilan format
       qilinadi — bu xavfsiz, format() KeyError chiqarmaydi.
+
+    ESKIZ GUARDRAIL:
+      `ESKIZ_APPROVED_STATUSES` ichida bo'lmagan statuslar uchun
+      jim ravishda True qaytariladi (yuborilmaydi). Sabab — Eskiz
+      tasdiqlamagan matn 'message not allowed' bilan rad etiladi va
+      Celery 3 marta retry qiladi. Yangi shablon tasdiqlangach setdan
+      qo'shilsa kifoya. Return True — Celery retry'ni boshlamaydi.
     """
+    # ── 0) ESKIZ GUARDRAIL ───────────────────────────────────────────────────
+    # Tasdiqlanmagan shablonlar yuborilsa Eskiz API rad etadi. Bu
+    # darajada o'tkazib yuborib, log'larga INFO yozamiz — Celery retry
+    # ishga tushmaydi, token limiti behuda sarflanmaydi.
+    if not is_status_sms_approved(status):
+        logger.info(
+            "SMS o'tkazib yuborildi — '%s' shabloni Eskiz tomonidan hozir "
+            "tasdiqlanmagan (telefon=%s, buyurtma=#%s). Tasdiqlangach "
+            "ESKIZ_APPROVED_STATUSES setiga qo'shing.",
+            status, phone, order_id,
+        )
+        return True
+
     template = STATUS_SMS_MESSAGES.get(status)
     if not template:
         return False
