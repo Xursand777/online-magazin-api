@@ -60,22 +60,6 @@ class BulkImportResultData {
   }
 }
 
-/// Kuryer qabul kodi tasdiqlashda backend qaytargan strukturali xato.
-/// `code` — barqaror xato identifikatori (dialog shu bo'yicha xabar tanlaydi);
-/// `attemptsLeft` — wrong_code holatida qolgan urinishlar soni.
-class CourierConfirmException implements Exception {
-  final String message;
-  final String? code;
-  final int? attemptsLeft;
-  const CourierConfirmException({
-    required this.message,
-    this.code,
-    this.attemptsLeft,
-  });
-  @override
-  String toString() => message;
-}
-
 class AdminRepository {
   final ApiClient apiClient;
 
@@ -299,39 +283,6 @@ class AdminRepository {
       data: {'status': status, 'note': note},
     );
     return AdminOrder.fromJson(response.data as Map<String, dynamic>);
-  }
-
-  /// Kuryer qabul kodi bilan yetkazib berishni tasdiqlaydi (DELIVERED → RECEIVED).
-  ///
-  /// XAVFSIZLIK: bu — RECEIVED'ga o'tishning yagona yo'li. Faqat 6 xonali kod
-  /// yuboriladi (rasm/GPS yo'q). Backend 6 qatlamli himoya bilan tekshiradi.
-  ///
-  /// Xato bo'lsa [CourierConfirmException] tashlaydi — `code` va `attemptsLeft`
-  /// bilan, shunda dialog aniq xabar ko'rsata oladi (wrong_code, code_expired,
-  /// too_many_attempts, code_used, no_code, wrong_status).
-  Future<AdminOrder> courierConfirmDelivery(int id, String receivedCode) async {
-    try {
-      final response = await apiClient.dio.post(
-        ApiConstants.courierConfirm(id),
-        data: {'received_code': receivedCode},
-      );
-      // Backend javobi: { "status": "RECEIVED", "order": {...} }
-      final body = response.data as Map<String, dynamic>;
-      final orderJson = (body['order'] ?? body) as Map<String, dynamic>;
-      return AdminOrder.fromJson(orderJson);
-    } on DioException catch (e) {
-      final data = e.response?.data;
-      if (data is Map<String, dynamic>) {
-        throw CourierConfirmException(
-          message: (data['error'] ?? "Tasdiqlab bo'lmadi.").toString(),
-          code: data['code']?.toString(),
-          attemptsLeft: (data['attempts_left'] as num?)?.toInt(),
-        );
-      }
-      throw CourierConfirmException(
-        message: "Tasdiqlab bo'lmadi. Internet aloqasini tekshiring.",
-      );
-    }
   }
 
   Future<AdminOrder> payCreditOrder(int id) async {

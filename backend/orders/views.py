@@ -521,36 +521,6 @@ class AdminOrderStatusUpdateView(views.APIView):
 
         new_status = serializer.validated_data['status']
 
-        # ── XAVFSIZLIK GUARDRAIL: DELIVERED → RECEIVED ──────────────────────────
-        # Bu o'tish faqat /api/orders/<id>/courier-confirm/ endpoint orqali
-        # bo'lishi shart, chunki 5 qatlamli xavfsizlik (qabul kodi,
-        # brute-force lockout, one-time-use, TTL, photo+GPS) faqat o'sha
-        # yo'ldan o'tadi. Oddiy status endpoint orqali aylanib o'tish —
-        # KRITIK xavfsizlik teshigi:
-        #   • Kuryer mahsulotni yetkazmasa-da, statusni RECEIVED qilib qo'yadi
-        #   • Mijoz kod aytmagan bo'lsa-da, qabul "tasdiqlandi" bo'lib qoladi
-        #   • Brute-force lockout aylanib o'tiladi
-        #   • Delivery photo va GPS olinmaydi
-        #
-        # Hatto super_admin ham bu yo'l bilan o'ta olmaydi — emergency
-        # holatlarida /courier-confirm/ endpoint admin/super_admin uchun
-        # ham ochiq (CanConfirmDelivery permission), o'sha yerda kod + rasm
-        # bilan o'tishadi.
-        if (order.status == Order.STATUS_DELIVERED
-                and new_status == Order.STATUS_RECEIVED):
-            return Response(
-                {
-                    'error': (
-                        "Bu o'tish faqat qabul kodi, rasm va GPS bilan "
-                        "tasdiqlanishi mumkin. /api/orders/<id>/courier-confirm/ "
-                        "endpoint orqali davom eting."
-                    ),
-                    'code': 'courier_confirm_required',
-                    'required_endpoint': f'/api/orders/{order.id}/courier-confirm/',
-                },
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
         if not can_transition(request.user, order.status, new_status):
             return Response(
                 {'detail': f"Sizning rolingiz '{order.status}' → '{new_status}' o'tishga ruxsat bermaydi."},

@@ -95,16 +95,19 @@ STATUS_SMS_MESSAGES: dict[str, str] = {
 # statuslarni JIM o'tkazib yuboramiz (INFO log, success=True). Mijoz hozircha
 # SMS olmaydi — lekin admin panel + real-time order polling orqali xabardor.
 #
-# YANGI STATUS QO'SHISH (kelajakda Eskiz yana shablon tasdiqlasa):
+# HOZIRGI HOLAT: bo'sh — hech qanday status SMS yuborilmaydi.
+#   DELIVERED (qabul kodi) shabloni Eskiz tomonidan RAD ETILDI, shuning uchun
+#   buyurtma holati o'zgarganda mijozga SMS yuborilmaydi. Login OTP bundan
+#   ALOHIDA (send_otp_sms orqali, STATUS_SMS_MESSAGES'dan emas) — u ishlayveradi.
+#
+# YANGI STATUS QO'SHISH (kelajakda Eskiz biror shablonni tasdiqlasa):
 #   1. Eskiz kabinetida shablon yuborib tasdiqlatish (matn AYNAN
 #      STATUS_SMS_MESSAGES'dagiga mos kelishi shart)
 #   2. Tasdiqlangach, status nomini bu setga qo'shish
 #   3. Smoke test (`./manage.py shell` ichida send_order_status_sms ni chaqirish)
 #
 # Format: frozenset — mutable hujum vektoridan himoya.
-ESKIZ_APPROVED_STATUSES: frozenset = frozenset({
-    'DELIVERED',   # Eskiz shablon 2 — qabul kodi (kuryer bilan tasdiqlash)
-})
+ESKIZ_APPROVED_STATUSES: frozenset = frozenset()
 
 
 def is_status_sms_approved(status: str) -> bool:

@@ -96,9 +96,6 @@ class ApiConstants {
   static String adminUserLiftCreditBan(int userId) =>
       '/api/admin/users/$userId/lift-credit-ban/';
   static String adminOrderStatus(int id) => '/api/orders/admin/$id/status/';
-  // Kuryer qabul kodi bilan yetkazib berishni tasdiqlaydi (DELIVERED → RECEIVED).
-  // Bu — RECEIVED'ga o'tishning YAGONA yo'li (adminOrderStatus uni rad etadi).
-  static String courierConfirm(int id) => '/api/orders/$id/courier-confirm/';
   static String adminPayCredit(int id) => '/api/orders/admin/$id/pay-credit/';
   static const String adminPosOrder = '/api/orders/admin/pos-order/';
   static const String adminCustomerHistory = '/api/orders/admin/customer-history/';
