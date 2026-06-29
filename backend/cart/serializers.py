@@ -35,16 +35,21 @@ class CartSerializer(serializers.ModelSerializer):
         fields = ('id', 'user', 'guest_session_id', 'items', 'total_price', 'created_at')
 
     def get_total_price(self, obj):
-        from orders.services import effective_master_percent, apply_master_discount
+        # Usta narxi — OPTOM asosida (optom + ustama%, faollikka ko'ra gradient).
+        # Daraja BIR marta hisoblanadi (master_pricing_context), keyin har qator
+        # `master_line_price` orqali — avtoritar, mijoz tomonida hisoblanmaydi.
+        from orders.services import master_pricing_context, master_line_price
         request = self.context.get('request')
         user = getattr(request, 'user', None) if request else None
-        master_pct = effective_master_percent(user)
+        ctx = master_pricing_context(user)
 
         total = Decimal('0.00')
         for item in obj.items.all():
-            price = get_cart_item_price(item)
-            if master_pct > 0:
-                price = apply_master_discount(price, master_pct)
+            price = get_cart_item_price(item)  # oddiy (retail) narx
+            if ctx[0]:
+                master = master_line_price(item.product, item.variant, ctx)
+                if master is not None:
+                    price = master
             total += price * item.quantity
         return total
 

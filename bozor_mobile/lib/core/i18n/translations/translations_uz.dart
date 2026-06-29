@@ -179,7 +179,7 @@ const Map<String, String> translationsUz = {
 
   // ─── Master + Credit ──────────────────────────────────────────────────────
   'master.title': 'Usta statusi',
-  'master.discountLabel': 'amaldagi chegirma',
+  'master.discountLabel': 'imtiyoz kuchi',
   'master.baseDiscount': 'Bazaviy',
   'master.lowActivity': '(faollik kamaygan)',
   'master.level': 'Daraja',

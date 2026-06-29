@@ -176,7 +176,7 @@ const Map<String, String> translationsRu = {
 
   // ─── Master + Credit ─────────────────────────────────────────────────────
   'master.title': 'Статус Мастера',
-  'master.discountLabel': 'действующая скидка',
+  'master.discountLabel': 'сила привилегии',
   'master.baseDiscount': 'Базовая',
   'master.lowActivity': '(активность снижена)',
   'master.level': 'Уровень',

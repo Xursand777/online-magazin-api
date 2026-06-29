@@ -69,6 +69,23 @@ def get_line_cost(product, variant=None) -> Decimal:
     return product.cost_price if product.cost_price is not None else Decimal('0.00')
 
 
+def get_line_optom(product, variant=None):
+    """Mahsulot (yoki variant) OPTOM (ulgurji) narxi — usta narxi bazasi.
+
+    Variant optomi ustunlik qiladi; aks holda mahsulotning o'zi. Optom
+    kiritilmagan bo'lsa None — bu holda usta uchun maxsus narx hisoblanmaydi
+    (oddiy sotuv narxi ko'rsatiladi). FAQAT admin/POS optom narxni kiritadi.
+    """
+    if variant is not None:
+        v_optom = getattr(variant, 'optom_price', None)
+        if v_optom is not None and v_optom > 0:
+            return v_optom
+    p_optom = getattr(product, 'optom_price', None)
+    if p_optom is not None and p_optom > 0:
+        return p_optom
+    return None
+
+
 # ────────────────────────────────────────────────────────────────────────────
 #  USTA (master) faollikka asoslangan dinamik chegirma — POG'ONALI (LEVEL) model
 #
@@ -203,52 +220,115 @@ def _master_standing_level(user) -> int:
     return max(0, _master_standing_from(level_after, gap_now))
 
 
-def effective_master_percent(user) -> Decimal:
+def _is_active_master(user) -> bool:
+    """Foydalanuvchi autentifikatsiyalangan usta-mi (narx imtiyozi uchun shart)."""
+    return bool(
+        user
+        and getattr(user, 'is_authenticated', False)
+        and getattr(user, 'is_master', False)
+    )
+
+
+def master_pricing_context(user):
     """
-    Joriy foydalanuvchi uchun AMALDAGI usta chegirma foizi.
-    = bazaviy foiz (admin kiritgan) × (joriy daraja / 4).
-    Usta bo'lmasa, autentifikatsiya qilinmagan bo'lsa yoki daraja 0 bo'lsa — 0.
+    Foydalanuvchi uchun BIR MARTALIK usta-narx konteksti: (active, level, markup).
+
+    Ro'yxat / savat kabi ko'p qatorli joylarda darajani (DB so'rovi) HAR
+    qatorda emas, BIR marta hisoblash uchun. `master_line_price` shu kortejni
+    qabul qiladi. `active=False` bo'lsa usta narxi umuman qo'llanmaydi.
     """
     from products.models import GlobalSetting
 
-    if user is None or not getattr(user, 'is_authenticated', False):
-        return Decimal('0')
-    if not getattr(user, 'is_master', False):
-        return Decimal('0')
-
-    base = GlobalSetting.get_master_discount_percent()
-    if base <= 0:
-        return Decimal('0')
-
+    if not _is_active_master(user):
+        return (False, 0, Decimal('0'))
     level = _master_standing_level(user)
-    if level <= 0:
-        return Decimal('0')
-
-    return (base * Decimal(level) / Decimal(_MASTER_MAX_LEVEL)).quantize(Decimal('0.01'))
+    markup = GlobalSetting.get_master_markup_percent()
+    return (True, level, markup)
 
 
-def apply_master_discount(price, percent: Decimal) -> Decimal:
-    """Narxga usta chegirma foizini qo'llaydi (butun so'mga yaxlitlanadi)."""
-    p = Decimal(str(price))
-    if percent and percent > 0:
-        return (p * (Decimal('100') - percent) / Decimal('100')).quantize(Decimal('1'))
-    return p
+def master_price_from(retail, optom, level: int, markup: Decimal):
+    """
+    USTA NARXI — OPTOM asosida, faollik darajasiga ko'ra GRADIENT (sof funksiya).
+
+    YANGI MODEL (optom + ustama):
+      Usta optom narxidan SuperAdmin kiritgan foiz miqdorida QIMMATROQ sotib
+      oladi (chegirma EMAS — optom ustiga ustama). Faollik darajasi (0..4) bu
+      imtiyozning qanchasini olishini belgilaydi:
+
+        • LEVEL 4 (to'liq faol) → optom × (1 + markup/100)   ← eng arzon
+        • LEVEL 0 (sust)        → retail (oddiy narx, imtiyoz YO'Q → None)
+        • oraliq                → retail va optom-narx orasida CHIZIQLI
+                                  interpolatsiya (har daraja imtiyozning
+                                  level/4 ulushini beradi)
+
+      master_price = retail − (retail − optomNarx) × level / 4
+
+    XAVFSIZLIK KAFOLATLARI (hech qachon buzilmaydi):
+      • optom kiritilmagan / retail yo'q / level ≤ 0  → None (oddiy narx)
+      • optom+ustama retaildan ARZON bo'lmasa          → None (imtiyoz yo'q)
+      • natija retaildan QIMMAT yoki ≤ 0 bo'lsa        → None
+      Ya'ni usta narxi DOIM 0 < master_price < retail oralig'ida bo'ladi yoki
+      umuman qaytarilmaydi. Butun so'mga yaxlitlanadi.
+    """
+    if optom is None or retail is None:
+        return None
+    try:
+        optom = Decimal(str(optom))
+        retail = Decimal(str(retail))
+    except (InvalidOperation, TypeError, ValueError):
+        return None
+    if optom <= 0 or retail <= 0 or level <= 0:
+        return None
+
+    markup = markup if (markup and markup > 0) else Decimal('0')
+    optom_price = optom * (Decimal('100') + markup) / Decimal('100')
+    # Optom+ustama retaildan arzon bo'lmasa — imtiyoz yo'q.
+    if optom_price >= retail:
+        return None
+
+    lvl = Decimal(min(max(int(level), 0), _MASTER_MAX_LEVEL))
+    price = retail - (retail - optom_price) * lvl / Decimal(_MASTER_MAX_LEVEL)
+    price = price.quantize(Decimal('1'))
+    # Yaxlitlashdan keyin ham qat'iy 0 < price < retail bo'lishini kafolatlaymiz.
+    if price <= 0 or price >= retail:
+        return None
+    return price
+
+
+def master_line_price(product, variant, ctx):
+    """
+    Mahsulot/variant uchun usta narxi (Decimal yoki None) — `ctx` = (active, level, markup).
+
+    Barcha serializerlar, savat va buyurtma yaratish AYNAN shu funksiyadan
+    foydalanadi (yagona avtoritar manba — narx hech qayerda mijoz tomonida
+    hisoblanmaydi). Optom yo'q yoki imtiyoz yo'q bo'lsa None.
+    """
+    active, level, markup = ctx
+    if not active:
+        return None
+    return master_price_from(
+        get_line_price(product, variant),
+        get_line_optom(product, variant),
+        level,
+        markup,
+    )
 
 
 def master_status(user) -> dict:
-    """UI uchun ustaning joriy holati: bazaviy/amaldagi foiz, daraja, faollik."""
+    """UI uchun ustaning joriy holati: bazaviy ustama %, daraja, faollik kuchi."""
     from products.models import GlobalSetting
 
-    is_master = bool(user and getattr(user, 'is_authenticated', False) and getattr(user, 'is_master', False))
-    base = GlobalSetting.get_master_discount_percent()
+    is_master = _is_active_master(user)
+    base = GlobalSetting.get_master_markup_percent()
 
     if not is_master:
         return {
             'is_master': False,
-            'base_percent': float(base),
-            'effective_percent': 0.0,
+            'base_percent': float(base),       # to'liq faollikdagi ustama %
+            'effective_percent': 0.0,          # (eski mosligi) hozirgi imtiyoz kuchi
             'level': 0,
             'max_level': _MASTER_MAX_LEVEL,
+            'benefit_fraction': 0.0,
             'days_since_last_purchase': None,
             'last_purchase_at': None,
         }
@@ -256,15 +336,19 @@ def master_status(user) -> dict:
     times = _master_purchase_times(user)
     last = times[-1] if times else None
     level = _master_standing_level(user)
-    eff = effective_master_percent(user)
     gap = (timezone.now() - last).days if last else None
+    # Imtiyoz kuchi = level/4 (optom imtiyozining hozir amaldagi ulushi).
+    fraction = (Decimal(level) / Decimal(_MASTER_MAX_LEVEL)).quantize(Decimal('0.01'))
 
     return {
         'is_master': True,
         'base_percent': float(base),
-        'effective_percent': float(eff),
+        # `effective_percent` — eski frontend mosligi uchun saqlanadi, ammo endi
+        # "imtiyoz kuchining foizi" (level/4 × 100), chegirma EMAS.
+        'effective_percent': float((fraction * Decimal('100')).quantize(Decimal('0.01'))),
         'level': level,
         'max_level': _MASTER_MAX_LEVEL,
+        'benefit_fraction': float(fraction),
         'days_since_last_purchase': gap,
         'last_purchase_at': last.isoformat() if last else None,
     }
@@ -453,11 +537,13 @@ def create_order_with_items(
         else Order.STATUS_PENDING
     )
 
-    # MUHIM: usta chegirmasini buyurtma YARATILISHIDAN OLDIN hisoblaymiz —
+    # MUHIM: usta narx imtiyozini buyurtma YARATILISHIDAN OLDIN hisoblaymiz —
     # aks holda yangi buyurtma "oxirgi xarid" (0 kun) bo'lib darajani buzadi.
     # Ustaning "kirib kelgandagi" holatiga ko'ra narx beriladi; bu xarid esa
     # darajani keyingi safar uchun +1 ko'taradi (sekin ko'tarilish).
-    master_pct = effective_master_percent(user)
+    # Endi imtiyoz OPTOM asosida: optom narxidan ustama%, faollik darajasiga
+    # ko'ra (master_line_price → optom×(1+markup/100) ↔ retail oralig'ida).
+    master_ctx = master_pricing_context(user)
 
     order = Order.objects.create(
         user=user,
@@ -493,8 +579,11 @@ def create_order_with_items(
         ensure_stock_available(product, quantity, variant)
         reserve_inventory(product, quantity, variant)
 
-        # Ko'rsatilgan (kelishuvsiz) narx — usta chegirmasi hisobga olingan holda.
-        normal_unit = apply_master_discount(get_line_price(product, variant), master_pct)
+        # Ko'rsatilgan (kelishuvsiz) narx — usta imtiyozi (optom+ustama, gradient)
+        # hisobga olingan holda. Optom yo'q yoki imtiyoz yo'q bo'lsa oddiy narx.
+        retail_unit = get_line_price(product, variant)
+        master_unit = master_line_price(product, variant, master_ctx)
+        normal_unit = master_unit if master_unit is not None else retail_unit
 
         # ── POS kelishuv narxi (faqat allow_price_override) ──────────────────
         # Admin POS'da har bir mahsulotning narxini qo'lda kiritishi mumkin

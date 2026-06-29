@@ -147,13 +147,16 @@ class MasterStatusCard extends StatelessWidget {
               ],
             ),
 
-            // Daraja kamaytirilgan bo'lsa, bazaviy ko'rsatish
-            if (!isFull && status.basePercent > 0)
+            // To'liq imtiyoz = optom + basePercent%. Faollik pasaysa narx
+            // oddiy narxga yaqinlashadi (imtiyoz kuchi yuqorida ko'rsatilgan).
+            if (status.basePercent > 0)
               Padding(
                 padding: const EdgeInsets.only(top: 4, left: 2),
                 child: Text(
-                  "Bazaviy: ${status.basePercent.toStringAsFixed(0)}% "
-                  "(faollik kamaygan)",
+                  isFull
+                      ? "To'liq imtiyoz: optom + ${status.basePercent.toStringAsFixed(0)}%"
+                      : "To'liq imtiyozda: optom + ${status.basePercent.toStringAsFixed(0)}% "
+                          "(har kungi xarid bilan)",
                   style: theme.textTheme.labelSmall?.copyWith(
                     color: Colors.white.withValues(alpha: 0.75),
                   ),

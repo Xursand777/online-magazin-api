@@ -236,10 +236,9 @@ class _ProductDetailView extends StatelessWidget {
     // Joriy variantning amaldagi narxi (chegirma bor bo'lsa chegirmali)
     final effectivePrice = discount ?? price;
 
-    // ── USTA NARXI — sayt bilan bir xil proportional logika ──────────────
-    // Backend FAQAT mahsulot darajasidagi masterPrice qaytaradi. Variantlar
-    // uchun foiz tutarli bo'lishi uchun: masterFactor = masterPrice / price
-    // hisoblanadi va joriy variant narxiga qo'llanadi. Bu sayt bilan IDENTIK.
+    // ── USTA NARXI — OPTOM asosida, backend HAR variant uchun alohida hisoblaydi ──
+    // Mijoz tomonida HECH narsa hisoblanmaydi: `currentMasterPrice` to'g'ridan-
+    // to'g'ri serverdan keladi (tanlangan variantniki yoki mahsulot darajasi).
     return BlocBuilder<AuthBloc, AuthState>(
       buildWhen: (prev, curr) {
         final prevMaster = prev is AuthAuthenticated && prev.isMaster;
@@ -248,26 +247,20 @@ class _ProductDetailView extends StatelessWidget {
       },
       builder: (context, authState) {
         final isMaster = authState is AuthAuthenticated && authState.isMaster;
-        final productMasterPrice = state.product.masterPrice;
-        final productEffective = state.product.isDiscount &&
-                state.product.discountPrice != null
-            ? state.product.discountPrice!
-            : state.product.price;
+        final masterPrice = state.currentMasterPrice;
 
-        // USTA narxi mavjudligi — mahsulot darajasida
+        // USTA narxi mavjudligi — joriy (variant/mahsulot) qiymatga ko'ra.
         final hasMaster = isMaster &&
-            productMasterPrice != null &&
-            productMasterPrice > 0 &&
-            productEffective > 0 &&
-            productMasterPrice < productEffective;
+            masterPrice != null &&
+            masterPrice > 0 &&
+            effectivePrice > 0 &&
+            masterPrice < effectivePrice;
 
         if (hasMaster) {
-          // masterFactor = nisbat (masalan 0.95 = 5% chegirma)
-          final masterFactor = productMasterPrice / productEffective;
-          // Joriy variant narxiga shu nisbatni qo'llaymiz
-          final variantMaster = (effectivePrice * masterFactor).round();
-          // Foiz (1 kasrli aniqlik — 3.75% kabi level proportional)
-          final pctNum = ((1 - masterFactor) * 1000).round() / 10;
+          final variantMaster = masterPrice.round();
+          // Imtiyoz foizi — joriy narxga nisbatan (1 kasrli aniqlik).
+          final pctNum =
+              ((1 - masterPrice / effectivePrice) * 1000).round() / 10;
           final pctText = pctNum == pctNum.roundToDouble()
               ? pctNum.toInt().toString()
               : pctNum.toStringAsFixed(1);
@@ -341,7 +334,7 @@ class _ProductDetailView extends StatelessWidget {
                         size: 16, color: theme.colorScheme.primary),
                     const SizedBox(width: 6),
                     Text(
-                      'Usta chegirmasi: ${f(savings)} tejaysiz',
+                      'Usta narxi: ${f(savings)} tejaysiz',
                       style: theme.textTheme.labelMedium?.copyWith(
                         color: theme.colorScheme.primary,
                         fontWeight: FontWeight.w700,

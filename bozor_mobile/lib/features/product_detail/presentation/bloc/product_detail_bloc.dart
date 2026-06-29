@@ -158,6 +158,15 @@ class ProductDetailLoaded extends ProductDetailState {
     return product.price;
   }
 
+  /// Hozirgi USTA narxi — tanlangan variantniki, bo'lmasa mahsulot darajasi.
+  /// Backend OPTOM asosida har variant uchun alohida hisoblaydi (mijoz tomonida
+  /// HECH narsa hisoblanmaydi). Imtiyoz yo'q bo'lsa null.
+  double? get currentMasterPrice {
+    final v = selectedVariant;
+    if (v != null && v.masterPrice != null) return v.masterPrice;
+    return product.masterPrice;
+  }
+
   /// Hozirgi chegirma narxi (yo'q bo'lsa null).
   double? get currentDiscountPrice {
     final v = selectedVariant;

@@ -26,6 +26,8 @@ interface ProductVariant {
   price_usd: string | null;
   discount_price: string | null;
   discount_price_usd: string | null;
+  // Usta narxi — har variant uchun alohida (optom asosida, backend hisoblaydi).
+  master_price?: string | null;
   stock: number;
 }
 interface CompatModel {
@@ -635,21 +637,18 @@ const ProductDetail = () => {
                       {t.product.startingFrom}
                     </div>
                   )}
-                  {isMaster && product.master_price ? (
-                    // Usta narxi — faollikka qarab amaldagi foiz (variantlarga ham qo'llanadi).
-                    // Foiz mahsulot darajasidagi master_price'dan olinadi va joriy
-                    // (variant) narxga qo'llanadi — server bilan bir xil natija.
+                  {isMaster && (currentVariant?.master_price ?? product.master_price) ? (
+                    // Usta narxi — OPTOM asosida, HAR variant uchun backend alohida
+                    // hisoblaydi (master_price). Variant tanlangan bo'lsa uniki,
+                    // aks holda mahsulot darajasidagi qiymat. Mijoz tomonida HECH
+                    // narsa hisoblanmaydi — to'g'ridan-to'g'ri serverdan keladi.
                     (() => {
-                      const productEffective = product.is_discount && product.discount_price
-                        ? Number(product.discount_price)
-                        : Number(product.price);
-                      const masterFactor = productEffective > 0
-                        ? Number(product.master_price) / productEffective
-                        : 1;
+                      const masterRaw = currentVariant?.master_price ?? product.master_price;
+                      const masterCurrent = Number(masterRaw);
                       const masterEffective = showDiscount ? variantDiscountPrice! : variantPrice;
-                      const masterCurrent = Math.round(masterEffective * masterFactor);
-                      // 2 kasr xonagacha aniqlik (3.75% kabi proporsional foizlarni to'g'ri ko'rsatadi)
-                      const masterPct = Math.round((1 - masterFactor) * 10000) / 100;
+                      const masterPct = masterEffective > 0
+                        ? Math.round((1 - masterCurrent / masterEffective) * 10000) / 100
+                        : 0;
                       return (
                     <div className="space-y-1">
                       <div className="flex items-baseline gap-2 flex-wrap">
@@ -664,7 +663,7 @@ const ProductDetail = () => {
                       <div className="flex items-center gap-1.5 rounded-lg bg-primary/10 px-3 py-1.5 w-fit">
                         <span className="material-symbols-outlined text-[15px] text-primary">construction</span>
                         <span className="text-xs font-semibold text-primary">
-                          Usta chegirmasi: {formatPrice(masterEffective - masterCurrent)} tejaysiz
+                          Usta narxi: {formatPrice(masterEffective - masterCurrent)} tejaysiz
                         </span>
                       </div>
                     </div>

@@ -174,7 +174,7 @@ const Map<String, String> translationsEn = {
 
   // ─── Master + Credit ─────────────────────────────────────────────────────
   'master.title': 'Master status',
-  'master.discountLabel': 'active discount',
+  'master.discountLabel': 'benefit strength',
   'master.baseDiscount': 'Base',
   'master.lowActivity': '(activity reduced)',
   'master.level': 'Level',

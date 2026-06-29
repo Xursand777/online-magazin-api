@@ -69,7 +69,7 @@ export const MastersTab = () => {
   const discountMut = useMutation({
     mutationFn: (percent: number) => adminSetMasterDiscount(percent),
     onSuccess: (res) => {
-      toast.success(res.data.detail || 'Chegirma foizi saqlandi');
+      toast.success(res.data.detail || 'Optom ustiga ustama foizi saqlandi');
       qc.invalidateQueries({ queryKey: ['admin-master-discount'] });
     },
     onError: (err: any) => {
@@ -103,19 +103,21 @@ export const MastersTab = () => {
       <div>
         <h2 className='text-h2 font-h2 text-on-surface'>Ustalar boshqaruvi</h2>
         <p className='text-body-sm text-on-surface-variant mt-1'>
-          Ustalar <span className='font-semibold text-primary'>{discountPct}% gacha chegirma</span> oladi
-          (chegirmadagi mahsulotlardan ham). Foiz ustaning xarid faolligiga qarab dinamik o'zgaradi.
+          Ustalar mahsulotni <span className='font-semibold text-primary'>optom narxiga {discountPct}% ustama</span> bilan
+          oladi (eng faol bo'lganda). Faollik pasaysa narx asta oddiy sotuv narxiga yaqinlashadi.
+          Optom narx kiritilmagan mahsulotda usta oddiy narxni ko'radi.
         </p>
       </div>
 
-      {/* Chegirma foizini sozlash */}
+      {/* Optom ustiga ustama foizini sozlash */}
       <div className='bg-surface-container-lowest rounded-2xl border border-outline-variant p-6'>
         <div className='flex items-center gap-2 mb-1'>
           <span className='material-symbols-outlined text-primary text-[20px]'>percent</span>
-          <h3 className='text-label-lg font-semibold text-on-surface'>Chegirma foizi</h3>
+          <h3 className='text-label-lg font-semibold text-on-surface'>Optom ustiga ustama (%)</h3>
         </div>
         <p className='text-body-sm text-on-surface-variant mb-4'>
-          Bu foiz barcha ustalarga qo'llaniladi. O'zgartirilsa, darhol kuchga kiradi.
+          Usta to'liq faol bo'lganda <span className='font-semibold text-on-surface'>optom narx × (1 + ustama/100)</span> to'laydi.
+          Barcha ustalarga qo'llaniladi; o'zgartirilsa darhol kuchga kiradi.
         </p>
         <form onSubmit={handleSaveDiscount} className='flex flex-col sm:flex-row gap-3 sm:items-center'>
           <div className='relative flex-1 max-w-[200px]'>
@@ -173,23 +175,23 @@ export const MastersTab = () => {
             <span className='material-symbols-outlined text-primary text-[20px]'>insights</span>
           </div>
           <div>
-            <p className='text-sm font-semibold text-on-surface mb-1'>Faollikka asoslangan chegirma (4 pog'onali)</p>
+            <p className='text-sm font-semibold text-on-surface mb-1'>Faollikka asoslangan optom imtiyozi (4 pog'onali)</p>
             <p className='text-xs text-on-surface-variant leading-relaxed'>
-              Bazaviy foiz ({fmtPct(discountPct)}%) ustaning xarid faolligiga qarab dinamik o'zgaradi —
-              qaysi foiz kiritsangiz ham (3%, 4%, 5%...) shunga proporsional moslashadi.
-              Quyidagi jadval <span className='font-medium text-on-surface'>"shift"</span> (eng yuqori
-              erishish mumkin bo'lgan daraja)ni ko'rsatadi.
+              To'liq faol usta optom narxiga <span className='font-medium text-on-surface'>{fmtPct(discountPct)}% ustama</span> bilan
+              oladi (eng arzon). Faollik pasaysa narx <span className='font-medium text-on-surface'>oddiy sotuv narxi</span> tomon
+              ko'tariladi (har daraja imtiyozning level/4 ulushini beradi). Quyidagi jadval
+              imtiyoz <span className='font-medium text-on-surface'>kuchini</span> ko'rsatadi.
             </p>
           </div>
         </div>
         <div className='grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs'>
           {[
-            ['Har kuni (0–1 kun)', `${fmtPct(discountPct)}%`, '100%'],
-            ['2 kunda bir', `${fmtPct(discountPct * 0.75)}%`, '¾'],
-            ['3–4 kunda bir', `${fmtPct(discountPct * 0.5)}%`, '½'],
-            ['5–6 kun sust', `${fmtPct(discountPct * 0.25)}%`, '¼'],
-            ['Haftada bir / 10 kun', "oddiy narx", '0'],
-            ['Yangi usta', `${fmtPct(discountPct)}%`, 'xush kelibsiz'],
+            ['Har kuni (0–1 kun)', `optom + ${fmtPct(discountPct)}%`, '100%'],
+            ['2 kunda bir', "optom↔oddiy oralig'i", '¾'],
+            ['3–4 kunda bir', "optom↔oddiy oralig'i", '½'],
+            ['5–6 kun sust', "optom↔oddiy oralig'i", '¼'],
+            ['Haftada bir / 10 kun', 'oddiy narx', '0'],
+            ['Yangi usta', `optom + ${fmtPct(discountPct)}%`, 'xush kelibsiz'],
           ].map(([label, val, ratio]) => (
             <div key={label} className='flex items-center justify-between gap-2 bg-surface-container-lowest/60 rounded-lg px-3 py-2 border border-outline-variant/40'>
               <span className='text-on-surface-variant'>{label}</span>
@@ -204,15 +206,17 @@ export const MastersTab = () => {
         <div className='mt-3 flex items-start gap-2 text-xs text-on-surface-variant bg-surface-container-lowest/60 rounded-lg px-3 py-2.5 border border-outline-variant/40'>
           <span className='material-symbols-outlined text-[16px] text-primary mt-px'>trending_up</span>
           <p className='leading-relaxed'>
-            <span className='font-medium text-on-surface'>Adolatli tiklanish:</span> sustlikda chegirma
-            tez pasayadi, lekin <span className='font-medium text-on-surface'>bir zumda qaytmaydi</span> —
+            <span className='font-medium text-on-surface'>Adolatli tiklanish:</span> sustlikda imtiyoz
+            tez pasayadi (narx oddiy narxga yaqinlashadi), lekin <span className='font-medium text-on-surface'>bir zumda qaytmaydi</span> —
             har kungi xarid darajani bittadan ko'taradi.
             <br />
             <span className='font-medium text-on-surface'>Yumshoq qo'nish:</span> ilgari sodiq bo'lgan usta
             hafta/10 kun tanaffusdan keyin <span className='font-medium text-on-surface'>0 ga emas, avvalgi darajasining yarmidan</span> qaytadi
-            (≤14 kun → ½, 15–28 kun → ¼, keyin noldan). Masalan to'liq {fmtPct(discountPct)}% edi →
-            qaytishda {fmtPct(discountPct / 2)}% → {fmtPct(discountPct * 0.75)}% → {fmtPct(discountPct)}% (2 kunda to'liq).
-            Tasodifiy (¾ darajaga chiqmagan) xaridor esa oddiy 0% dan tiklanadi.
+            (≤14 kun → ½, 15–28 kun → ¼, keyin noldan). Tasodifiy (¾ darajaga chiqmagan) xaridor esa
+            oddiy narxdan tiklanadi.
+            <br />
+            <span className='font-medium text-on-surface'>Eslatma:</span> imtiyoz faqat <span className='font-medium text-on-surface'>optom narx kiritilgan</span> mahsulotlarga
+            tegishli — aks holda usta oddiy narxni ko'radi.
           </p>
         </div>
       </div>

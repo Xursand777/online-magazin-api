@@ -31,10 +31,13 @@ class MasterStatusModel extends Equatable {
     this.lastPurchaseAt,
   });
 
-  /// Chegirma foizi NORMALDA berilayaptimi? (effective >= base ning yarmidan)
-  /// UI'da "daraja kamaymoqda" ogohlantirishi uchun.
-  bool get isAtFullDiscount =>
-      basePercent > 0 && effectivePercent >= basePercent;
+  /// To'liq imtiyozdami? YANGI MODEL: imtiyoz kuchi darajaga bog'liq
+  /// (level/maxLevel). To'liq daraja = optom + basePercent% (eng arzon).
+  /// (`effectivePercent` endi "imtiyoz kuchi" %, chegirma EMAS.)
+  bool get isAtFullDiscount => maxLevel > 0 && level >= maxLevel;
+
+  /// Imtiyoz qisman (faol, lekin to'liq emas) — narx optom va oddiy oralig'ida.
+  bool get isPartialBenefit => level > 0 && level < maxLevel;
 
   /// Foydalanuvchi sotib olishni kechiktiryaptimi?
   /// 30 kun va undan ko'p bo'lsa, daraja avtomatik kamayadi.

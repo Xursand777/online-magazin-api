@@ -1040,15 +1040,20 @@ class MasterStatusView(views.APIView):
 
 class AdminMasterDiscountView(views.APIView):
     """
-    GET  /api/admin/masters/discount/  — joriy usta chegirma foizini qaytaradi.
-    POST /api/admin/masters/discount/  — { percent } — foizni o'rnatadi (0–90).
+    GET  /api/admin/masters/discount/  — usta OPTOM ustiga USTAMA foizini qaytaradi.
+    POST /api/admin/masters/discount/  — { percent } — ustamani o'rnatadi (0–90).
     Faqat Super Admin.
+
+    YANGI MODEL: foiz endi "sotuv narxidan chegirma" emas, balki usta to'laydigan
+    OPTOM ustiga ustama (master_price = optom × (1 + percent/100), faollikka ko'ra
+    gradient). Endpoint yo'li va so'rov maydoni (`percent`) backward-compat uchun
+    o'zgarmaydi.
     """
     permission_classes = (IsAuthenticated, IsSuperAdmin)
 
     def get(self, request):
         from products.models import GlobalSetting
-        pct = GlobalSetting.get_master_discount_percent()
+        pct = GlobalSetting.get_master_markup_percent()
         return Response({'percent': float(pct)})
 
     def post(self, request):
@@ -1074,12 +1079,15 @@ class AdminMasterDiscountView(views.APIView):
 
         setting, _ = GlobalSetting.objects.get_or_create(key='master_discount_percent')
         setting.value = str(stored)
-        setting.description = "Ustalar uchun chegirma foizi (%)"
+        setting.description = "Usta narxi: optom ustiga ustama foizi (%)"
         setting.save()
+        # 5 daqiqalik keshni darhol bekor qilamiz — yangi ustama zudlik bilan amal qilsin.
+        from django.core.cache import cache
+        cache.delete(f'{GlobalSetting._CACHE_PREFIX}master_discount_percent')
 
         return Response({
             'percent': float(pct),
-            'detail':  f"Usta chegirmasi {stored}% ga o'rnatildi.",
+            'detail':  f"Usta ustamasi optom narx ustiga {stored}% ga o'rnatildi.",
         })
 
 

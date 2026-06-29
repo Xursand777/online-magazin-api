@@ -33,48 +33,36 @@ def localized(obj, field, lang):
     return translated or getattr(obj, field, '') or ''
 
 
-def _master_effective_percent(context):
+def _master_ctx(context):
     """
-    Joriy foydalanuvchining AMALDAGI usta chegirma foizi (faollikka qarab).
-    Bir serializatsiya bo'yicha bir marta hisoblanadi (context'da memoizatsiya) —
-    ro'yxatdagi har bir mahsulot uchun qayta-qayta DB so'rovi yubormaydi.
+    Joriy foydalanuvchining usta-narx konteksti (active, level, markup).
+    Bir serializatsiya bo'yicha BIR marta hisoblanadi (context'da memoizatsiya) —
+    ro'yxatdagi har bir mahsulot uchun qayta-qayta DB so'rovi (daraja) yubormaydi.
     """
-    cached = context.get('_master_pct')
+    cached = context.get('_master_ctx')
     if cached is not None:
         return cached
-    from orders.services import effective_master_percent
+    from orders.services import master_pricing_context
     request = context.get('request')
     user = getattr(request, 'user', None) if request else None
-    pct = effective_master_percent(user)
-    context['_master_pct'] = pct
-    return pct
+    ctx = master_pricing_context(user)
+    context['_master_ctx'] = ctx
+    return ctx
 
 
 def get_master_price(obj, context):
     """
-    Usta uchun narx: faollikka qarab amaldagi foiz amaldagi narxdan chegiriladi.
-    Amaldagi narx = is_discount bo'lsa discount_price, aks holda price.
-    Faqat is_master=True va FAOL (amaldagi foiz > 0) ustalarga qaytariladi —
-    sust usta oddiy narxni ko'radi (master_price = None).
+    Usta uchun narx — OPTOM asosida (optom + ustama%, faollikka ko'ra gradient).
+    Avtoritar hisoblash `orders.services.master_line_price`'da; bu yer faqat shuni
+    chaqiradi (narx HECH QACHON mijoz tomonida hisoblanmaydi). Optom yo'q yoki
+    imtiyoz yo'q (sust usta / daraja 0) bo'lsa None → oddiy narx ko'rsatiladi.
     """
-    request = context.get('request')
-    if not request:
+    ctx = _master_ctx(context)
+    if not ctx[0]:
         return None
-    user = getattr(request, 'user', None)
-    if not user or not user.is_authenticated or not getattr(user, 'is_master', False):
-        return None
-    pct = _master_effective_percent(context)
-    if pct <= 0:
-        return None  # sust usta — oddiy narx ko'rsatiladi
-    effective = (
-        obj.discount_price
-        if (getattr(obj, 'is_discount', False) and obj.discount_price)
-        else obj.price
-    )
-    if not effective:
-        return None
-    master = (effective * (Decimal('100') - pct) / Decimal('100')).quantize(Decimal('1'))
-    return str(master)
+    from orders.services import master_line_price
+    master = master_line_price(obj, None, ctx)
+    return str(master) if master is not None else None
 
 
 class CategorySerializer(serializers.ModelSerializer):
@@ -123,6 +111,9 @@ class ProductImageSerializer(serializers.ModelSerializer):
 class ProductVariantSerializer(serializers.ModelSerializer):
     image_url = serializers.SerializerMethodField()
     images = serializers.SerializerMethodField()
+    # Usta narxi — HAR VARIANT uchun alohida (optom variant'niki bo'lishi
+    # mumkin). Avtoritar hisoblash backendda; non-master uchun null.
+    master_price = serializers.SerializerMethodField()
 
     class Meta:
         model = ProductVariant
@@ -139,9 +130,19 @@ class ProductVariantSerializer(serializers.ModelSerializer):
             'price_usd',
             'discount_price',
             'discount_price_usd',
+            'master_price',
             'stock',
             'sku',
         )
+
+    def get_master_price(self, obj):
+        """Variantning usta narxi (optom+ustama, gradient) yoki None."""
+        ctx = _master_ctx(self.context)
+        if not ctx[0] or not obj.product_id:
+            return None
+        from orders.services import master_line_price
+        master = master_line_price(obj.product, obj, ctx)
+        return str(master) if master is not None else None
 
     def get_image_url(self, obj):
         request = self.context.get('request')
@@ -579,27 +580,22 @@ class ProductCardSerializer(serializers.Serializer):
 
     def get_master_price(self, obj):
         """
-        Usta narxi — variantning o'z amaldagi narxidan (discount yoki price)
-        usta foizini chegiradi. Variantsiz kartalar uchun mahsulot narxi.
+        Usta narxi — OPTOM asosida (optom + ustama%, faollikka ko'ra gradient).
+        Variant/mahsulot obyektlari kartada (`_product_obj`/`_variant_obj`)
+        saqlangan — avtoritar narx aynan ulardan `master_line_price` orqali
+        hisoblanadi (optom variant'niki yoki product fallback). Optom yo'q yoki
+        imtiyoz yo'q bo'lsa None → oddiy narx.
         """
-        request = self.context.get('request')
-        if not request:
+        ctx = _master_ctx(self.context)
+        if not ctx[0]:
             return None
-        user = getattr(request, 'user', None)
-        if not user or not user.is_authenticated or not getattr(user, 'is_master', False):
+        product = obj.get('_product_obj')
+        if product is None:
             return None
-        pct = _master_effective_percent(self.context)
-        if pct <= 0:
-            return None  # sust usta — oddiy narx
-        effective_raw = obj.get('discount_price') if obj.get('is_discount') else obj.get('price')
-        if effective_raw is None:
-            return None
-        try:
-            effective = Decimal(str(effective_raw))
-        except (ValueError, TypeError):
-            return None
-        master = (effective * (Decimal('100') - pct) / Decimal('100')).quantize(Decimal('1'))
-        return str(master)
+        variant = obj.get('_variant_obj')
+        from orders.services import master_line_price
+        master = master_line_price(product, variant, ctx)
+        return str(master) if master is not None else None
 
     def to_representation(self, instance):
         # Privat field'larni (_product_obj, _variant_obj) javobga chiqarmaymiz

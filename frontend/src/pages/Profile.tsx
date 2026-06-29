@@ -84,22 +84,23 @@ const MasterStatusCard = () => {
 
   if (!data || !data.is_master) return null;
 
+  // YANGI MODEL: usta optom narxiga `base_percent`% ustama bilan oladi (eng
+  // faol bo'lganda). `effective_percent` endi "imtiyoz kuchi" (level/4×100),
+  // chegirma EMAS. Faollik pasaysa narx oddiy narxga yaqinlashadi.
   const { base_percent, effective_percent, level, max_level, days_since_last_purchase } = data;
   const isFull = level >= max_level;
   const isActive = level > 0;
-  // Keyingi pog'onadagi foiz (har kungi xarid bilan erishiladi)
-  const nextPct = Math.round((base_percent * Math.min(level + 1, max_level) / max_level) * 100) / 100;
 
   let message: string;
   let tone: 'full' | 'partial' | 'none';
   if (isFull) {
-    message = `Ajoyib! Siz eng yuqori pog'onadasiz — to'liq ${base_percent}% chegirma. Har kuni xarid qilib turing.`;
+    message = `Ajoyib! Eng yuqori pog'onadasiz — mahsulotlarni optom narxiga atigi ${base_percent}% ustama bilan olasiz. Har kuni xarid qilib turing.`;
     tone = 'full';
   } else if (isActive) {
-    message = `Har kungi xarid sizni bir pog'ona ko'taradi — keyingi xaridda ${nextPct}%, va asta-sekin to'liq ${base_percent}% gacha.`;
+    message = `Faollik oshgani sari narx optomga yaqinlashadi. Har kungi xarid sizni bir pog'ona ko'taradi — to'liq imtiyoz: optom + ${base_percent}%.`;
     tone = 'partial';
   } else {
-    message = `Chegirma to'xtadi. Har kuni xarid qilsangiz, daraja asta-sekin ko'tarilib, to'liq ${base_percent}% gacha qaytadi.`;
+    message = `Hozir oddiy narxdasiz. Har kuni xarid qilsangiz, daraja ko'tarilib, optom narx imtiyozi (optom + ${base_percent}%) qaytadi.`;
     tone = 'none';
   }
 
@@ -116,7 +117,7 @@ const MasterStatusCard = () => {
             <span className="material-symbols-outlined text-primary text-[24px]">construction</span>
           </div>
           <div>
-            <p className="text-label-lg font-bold text-on-surface">Usta chegirmasi</p>
+            <p className="text-label-lg font-bold text-on-surface">Usta narxi</p>
             <p className="text-xs text-on-surface-variant">
               {days_since_last_purchase === null
                 ? "Hali xarid qilmagansiz"
@@ -125,13 +126,11 @@ const MasterStatusCard = () => {
           </div>
         </div>
         <div className="text-right">
-          <div className="flex items-baseline gap-1.5">
+          <div className="flex items-baseline gap-1.5 justify-end">
             <span className="text-3xl font-bold text-primary">{effective_percent}%</span>
-            {effective_percent < base_percent && (
-              <span className="text-sm text-on-surface-variant line-through">{base_percent}%</span>
-            )}
           </div>
-          <p className="text-[11px] text-on-surface-variant">amaldagi chegirma</p>
+          <p className="text-[11px] text-on-surface-variant">imtiyoz kuchi</p>
+          <p className="text-[11px] text-on-surface-variant">optom + {base_percent}% (to'liq)</p>
         </div>
       </div>
 

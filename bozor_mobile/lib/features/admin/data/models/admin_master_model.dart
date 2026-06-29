@@ -114,4 +114,33 @@ class DiscountTier {
   });
 
   String get percentText => '${percent.toStringAsFixed(percent == percent.roundToDouble() ? 0 : 1)}%';
+
+  /// YANGI MODEL: tier narxining ma'nosi (optom asosida).
+  ///   level 4 → "optom + base%" (eng arzon)
+  ///   0<level<4 → optom↔oddiy oralig'i
+  ///   level 0 → oddiy narx (imtiyoz yo'q)
+  String get benefitText {
+    if (level <= 0) return 'oddiy narx';
+    if (level >= 4) {
+      final p = percent.toStringAsFixed(percent == percent.roundToDouble() ? 0 : 1);
+      return 'optom + $p%';
+    }
+    return "optom↔oddiy";
+  }
+
+  /// Imtiyoz kuchi (level/4): 100% / ¾ / ½ / ¼ / 0.
+  String get strengthText {
+    switch (level) {
+      case 4:
+        return '100%';
+      case 3:
+        return '¾';
+      case 2:
+        return '½';
+      case 1:
+        return '¼';
+      default:
+        return '0';
+    }
+  }
 }

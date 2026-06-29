@@ -185,9 +185,10 @@ class _AdminMastersPageState extends State<AdminMastersPage> {
         ),
         const SizedBox(height: 8),
         Text(
-          'Ustalar ${discount.toStringAsFixed(discount == discount.roundToDouble() ? 0 : 1)}%'
-          ' gacha chegirma oladi (chegirmadagi mahsulotlardan ham). '
-          'Foiz ustaning xarid faolligiga qarab dinamik o\'zgaradi.',
+          'Ustalar mahsulotni optom narxiga '
+          '${discount.toStringAsFixed(discount == discount.roundToDouble() ? 0 : 1)}% ustama bilan oladi '
+          '(eng faol bo\'lganda). Faollik pasaysa narx oddiy narxga yaqinlashadi. '
+          'Optom narx kiritilmagan mahsulotda usta oddiy narxni ko\'radi.',
           style: theme.textTheme.bodyMedium
               ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
         ),
@@ -241,14 +242,15 @@ class _AdminMastersPageState extends State<AdminMastersPage> {
                 Icon(Icons.percent_rounded,
                     color: _masterColor, size: 22),
                 const SizedBox(width: 10),
-                Text('Chegirma foizi',
+                Text('Optom ustiga ustama (%)',
                     style: theme.textTheme.titleMedium
                         ?.copyWith(fontWeight: FontWeight.w700)),
               ],
             ),
             const SizedBox(height: 8),
             Text(
-              'Bu foiz barcha ustalarga qo\'llaniladi. O\'zgartirilsa, darhol kuchga kiradi.',
+              'To\'liq faol usta optom narx × (1 + ustama/100) to\'laydi. '
+              'Barcha ustalarga qo\'llaniladi; o\'zgartirilsa darhol kuchga kiradi.',
               style: theme.textTheme.bodySmall
                   ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
             ),
@@ -419,7 +421,7 @@ class _AdminMastersPageState extends State<AdminMastersPage> {
                 const SizedBox(width: 10),
                 Expanded(
                   child: Text(
-                    'Faollikka asoslangan chegirma (4 pog\'onali)',
+                    'Faollikka asoslangan optom imtiyozi (4 pog\'onali)',
                     style: theme.textTheme.titleMedium?.copyWith(
                       fontWeight: FontWeight.w700,
                       color: _masterColor,
@@ -430,7 +432,8 @@ class _AdminMastersPageState extends State<AdminMastersPage> {
             ),
             const SizedBox(height: 12),
             Text(
-              'Bazaviy foiz ustaning xarid chastotasiga qarab dinamik moslashadi:',
+              'To\'liq faol usta optom + ustama oladi; faollik pasaysa narx oddiy '
+              'narxga yaqinlashadi (har daraja imtiyozning level/4 ulushini beradi):',
               style: theme.textTheme.bodySmall
                   ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
             ),
@@ -458,14 +461,27 @@ class _AdminMastersPageState extends State<AdminMastersPage> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(
-                          tier.percentText,
-                          style: theme.textTheme.titleMedium?.copyWith(
-                            fontWeight: FontWeight.w800,
-                            color: tier.percent > 0
-                                ? _masterColor
-                                : theme.colorScheme.onSurfaceVariant,
-                          ),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                tier.benefitText,
+                                style: theme.textTheme.titleSmall?.copyWith(
+                                  fontWeight: FontWeight.w800,
+                                  color: tier.level > 0
+                                      ? _masterColor
+                                      : theme.colorScheme.onSurfaceVariant,
+                                ),
+                              ),
+                            ),
+                            Text(
+                              tier.strengthText,
+                              style: theme.textTheme.labelSmall?.copyWith(
+                                color: theme.colorScheme.onSurfaceVariant
+                                    .withValues(alpha: 0.7),
+                              ),
+                            ),
+                          ],
                         ),
                         const SizedBox(height: 2),
                         Text(
@@ -497,8 +513,8 @@ class _AdminMastersPageState extends State<AdminMastersPage> {
               icon: Icons.auto_graph_rounded,
               title: 'Adolatli tiklanish',
               description:
-                  'Chegirma harakatsizlik paytida tez tushadi, lekin har xaridda '
-                  'faqat +1 daraja ko\'tariladi (bir zumda yuqoriga emas).',
+                  'Imtiyoz harakatsizlik paytida tez tushadi (narx oddiy narxga '
+                  'yaqinlashadi), lekin har xaridda faqat +1 daraja ko\'tariladi.',
             ),
             const SizedBox(height: 10),
             _buildExplanationItem(
@@ -630,7 +646,7 @@ class _AdminMastersPageState extends State<AdminMastersPage> {
           mainAxisSize: MainAxisSize.min,
           children: [
             Text(
-              'Chegirma huquqi bekor qilinadi',
+              'Optom narx imtiyozi bekor qilinadi',
               style: theme.textTheme.bodySmall?.copyWith(
                   color: theme.colorScheme.error,
                   fontWeight: FontWeight.w600),
@@ -670,7 +686,7 @@ class _AdminMastersPageState extends State<AdminMastersPage> {
             const SizedBox(height: 16),
             Text(
               '${master.phone} ni usta ro\'yxatidan olib tashlaysizmi?\n'
-              'Keyingi xaridlarida $discountText chegirma qo\'llanilmaydi.',
+              'Keyingi xaridlarida optom narx imtiyozi (optom + $discountText) qo\'llanilmaydi.',
               textAlign: TextAlign.center,
               style: theme.textTheme.bodySmall?.copyWith(
                   color: theme.colorScheme.onSurfaceVariant),
@@ -765,7 +781,7 @@ class _MasterCard extends StatelessWidget {
                       borderRadius: BorderRadius.circular(8),
                     ),
                     child: Text(
-                      '$discountText chegirma',
+                      'optom + $discountText',
                       style: const TextStyle(
                         color: color,
                         fontSize: 12,

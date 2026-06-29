@@ -124,6 +124,8 @@ class ProductVariant {
   final String? size;
   final double? price;
   final double? discountPrice;
+  // Usta narxi — HAR variant uchun backend alohida hisoblaydi (optom asosida).
+  final double? masterPrice;
   final int stock;
   final String? sku;
 
@@ -138,6 +140,7 @@ class ProductVariant {
     this.size,
     this.price,
     this.discountPrice,
+    this.masterPrice,
     this.stock = 0,
     this.sku,
   });
@@ -179,6 +182,7 @@ class ProductVariant {
       size: json['size'] as String?,
       price: ProductDetailModel._toDoubleOrNull(json['price']),
       discountPrice: ProductDetailModel._toDoubleOrNull(json['discount_price']),
+      masterPrice: ProductDetailModel._toDoubleOrNull(json['master_price']),
       stock: ProductDetailModel._toInt(json['stock']),
       sku: json['sku'] as String?,
     );

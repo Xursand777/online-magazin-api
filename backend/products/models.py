@@ -77,9 +77,27 @@ class GlobalSetting(models.Model):
         return rate
 
     @classmethod
+    def get_master_markup_percent(cls) -> Decimal:
+        """
+        Usta narxi uchun OPTOM ustiga USTAMA foizi (0–90). Default: 5%.
+
+        YANGI MODEL: usta optom (ulgurji) narxidan shu foiz miqdorida QIMMATROQ
+        sotib oladi (master_price = optom × (1 + ustama/100), faollik darajasiga
+        ko'ra retailgacha gradient — `orders.services.master_price_from`). Eski
+        "sotuv narxidan chegirma" modeli o'rnini bosadi. Saqlash kaliti
+        (`master_discount_percent`) backward-compat uchun o'zgarmaydi.
+        """
+        return cls.get_master_discount_percent()
+
+    @classmethod
     def get_master_discount_percent(cls) -> Decimal:
         """
-        Ustalar uchun chegirma foizi (0–90). Default: 5%. Keshlanadi — 5 daqiqa.
+        Usta narx imtiyozi foizi (0–90). Default: 5%. Keshlanadi — 5 daqiqa.
+
+        Eslatma: kalit nomi tarixiy ("...discount..."), lekin qiymat endi
+        OPTOM ustiga USTAMA foizi sifatida talqin qilinadi
+        (`get_master_markup_percent` — semantik nom). Yangi kodda markup nomini
+        ishlating.
         """
         from django.core.cache import cache
 
