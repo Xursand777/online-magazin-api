@@ -1113,25 +1113,38 @@ class AdminExchangeRateView(views.APIView):
             setting.value = str(new_rate_dec)
             setting.save()
 
-            # ── Mahsulotlar: price + discount_price (cost_price'ga tegmaymiz) ──
-            products = list(Product.objects.filter(price_usd__gt=0))
+            # ── Mahsulotlar: price + discount_price + optom_price ──────────────
+            # (cost_price'ga TEGMAYMIZ — u kursdan mustaqil). Optom narx ham
+            # sotuv narxi kabi USD asosida, shuning uchun kurs bilan birga
+            # qayta hisoblanadi.
+            products = list(Product.objects.filter(
+                Q(price_usd__gt=0) | Q(optom_price_usd__gt=0)
+            ))
             for p in products:
-                p.price = (p.price_usd * new_rate_dec).quantize(Decimal('1'))
-                if p.discount_price_usd:
-                    p.discount_price = (p.discount_price_usd * new_rate_dec).quantize(Decimal('1'))
+                if p.price_usd:
+                    p.price = (p.price_usd * new_rate_dec).quantize(Decimal('1'))
+                    if p.discount_price_usd:
+                        p.discount_price = (p.discount_price_usd * new_rate_dec).quantize(Decimal('1'))
+                if p.optom_price_usd:
+                    p.optom_price = (p.optom_price_usd * new_rate_dec).quantize(Decimal('1'))
 
             if products:
-                Product.objects.bulk_update(products, ['price', 'discount_price'])
+                Product.objects.bulk_update(products, ['price', 'discount_price', 'optom_price'])
 
-            # ── Variantlar: price + discount_price (cost_price'ga tegmaymiz) ──
-            variants = list(ProductVariant.objects.filter(price_usd__gt=0))
+            # ── Variantlar: price + discount_price + optom_price ───────────────
+            variants = list(ProductVariant.objects.filter(
+                Q(price_usd__gt=0) | Q(optom_price_usd__gt=0)
+            ))
             for v in variants:
-                v.price = (v.price_usd * new_rate_dec).quantize(Decimal('1'))
-                if v.discount_price_usd:
-                    v.discount_price = (v.discount_price_usd * new_rate_dec).quantize(Decimal('1'))
+                if v.price_usd:
+                    v.price = (v.price_usd * new_rate_dec).quantize(Decimal('1'))
+                    if v.discount_price_usd:
+                        v.discount_price = (v.discount_price_usd * new_rate_dec).quantize(Decimal('1'))
+                if v.optom_price_usd:
+                    v.optom_price = (v.optom_price_usd * new_rate_dec).quantize(Decimal('1'))
 
             if variants:
-                ProductVariant.objects.bulk_update(variants, ['price', 'discount_price'])
+                ProductVariant.objects.bulk_update(variants, ['price', 'discount_price', 'optom_price'])
 
         return Response({
             'message': (

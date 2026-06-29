@@ -43,6 +43,9 @@ export interface AdminProductVariant {
   discount_price_usd?: string | number | null;
   cost_price?: string | number | null;
   cost_price_usd?: string | number | null;
+  // Optom (ulgurji) narx — faqat admin/POS. Public API qaytarmaydi.
+  optom_price?: string | number | null;
+  optom_price_usd?: string | number | null;
   stock?: number;
   sku?: string | null;
   barcode?: string | null;
@@ -69,6 +72,8 @@ export interface AdminProduct {
   discount_price_usd: number | null;
   cost_price: string;
   cost_price_usd: number | null;
+  optom_price: string | null;
+  optom_price_usd: number | null;
   stock: number;
   is_active: boolean;
   is_popular: boolean;
@@ -99,6 +104,8 @@ export interface ProductFormState {
   discount_price_usd: string;
   cost_price: string;
   cost_price_usd: string;
+  optom_price: string;
+  optom_price_usd: string;
   stock: string;
   category: string;
   is_active: boolean;
@@ -129,6 +136,8 @@ export interface VariantFormState {
   discount_price_usd: string;
   cost_price: string;
   cost_price_usd: string;
+  optom_price: string;
+  optom_price_usd: string;
   stock: string;
   sku: string;
   barcode: string;
@@ -264,6 +273,8 @@ export const emptyProductForm = (): ProductFormState => ({
   discount_price_usd: '',
   cost_price: '',
   cost_price_usd: '',
+  optom_price: '',
+  optom_price_usd: '',
   stock: '0',
   category: '',
   is_active: true,
@@ -292,6 +303,8 @@ export const emptyVariant = (groupId?: string): VariantFormState => ({
   discount_price_usd: '',
   cost_price: '',
   cost_price_usd: '',
+  optom_price: '',
+  optom_price_usd: '',
   stock: '0',
   sku: '',
   barcode: '',
@@ -324,6 +337,17 @@ export const formatMoney = (value: string | number | null | undefined) => {
 };
 
 export const stripNumberFormatting = (value: string) => value.replace(/\s+/g, '').replace(/,/g, '.');
+
+// ── So'm → USD aylantirish (6 o'nlik, YO'QOTISHSIZ) ─────────────────────────
+// MUHIM: avval bu yer `.toFixed(2)` ishlatardi. Natijada admin 70 000 so'm
+// kiritsa, USD = 5.83 bo'lib, backend uni so'mga qaytarganda 5.83*12000 =
+// 69 960 chiqardi — ya'ni kiritilgan narx O'ZGARIB ketardi. 6 o'nlik aniqlik
+// aylanishni yo'qotishsiz qiladi: 70000/12000 = 5.833333 → 5.833333*12000 =
+// 70 000. `Number(...).toString()` ortiqcha nollarni olib tashlaydi (7.5).
+export const somToUsd = (som: number, rate: number): string => {
+  if (!(rate > 0) || !(som > 0) || !Number.isFinite(som)) return '';
+  return String(Number((som / rate).toFixed(6)));
+};
 
 export const formatPriceInput = (value: string | number | null | undefined) => {
   if (value === null || value === undefined || value === '') return '';
@@ -436,6 +460,8 @@ export const mapProductToForm = (product?: AdminProduct): ProductFormState => {
     discount_price_usd: product.discount_price_usd ? String(product.discount_price_usd) : '',
     cost_price: product.cost_price ? formatPriceInput(product.cost_price) : '',
     cost_price_usd: product.cost_price_usd ? String(product.cost_price_usd) : '',
+    optom_price: product.optom_price ? formatPriceInput(product.optom_price) : '',
+    optom_price_usd: product.optom_price_usd ? String(product.optom_price_usd) : '',
     stock: String(product.stock ?? 0),
     category: product.category ? String(product.category) : '',
     is_active: product.is_active,
@@ -471,6 +497,8 @@ export const mapProductVariants = (product?: AdminProduct): VariantFormState[] =
     discount_price_usd: v.discount_price_usd ? String(v.discount_price_usd) : '',
     cost_price: v.cost_price ? formatPriceInput(v.cost_price) : '',
     cost_price_usd: v.cost_price_usd ? String(v.cost_price_usd) : '',
+    optom_price: v.optom_price ? formatPriceInput(v.optom_price) : '',
+    optom_price_usd: v.optom_price_usd ? String(v.optom_price_usd) : '',
     stock: String(v.stock ?? 0),
     sku: v.sku || '',
     barcode: v.barcode || '',
@@ -577,6 +605,7 @@ export const hasVariantContent = (v: VariantFormState) =>
     v.barcode.trim() ||
     Number(stripNumberFormatting(v.price || '0')) > 0 ||
     Number(stripNumberFormatting(v.cost_price || '0')) > 0 ||
+    Number(stripNumberFormatting(v.optom_price || '0')) > 0 ||
     Number(v.stock || 0) > 0,
   );
 

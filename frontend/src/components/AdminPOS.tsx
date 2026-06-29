@@ -31,6 +31,7 @@ interface POSItem {
   price: number;       // mahsulotda KO'RSATILGAN narx (chegirma bazasi)
   soldPrice: number;   // kelishuv (sotiladigan) narx — admin tahrirlaydi
   costPrice: number;   // tannarx — sotuv narxi bundan past bo'la olmaydi
+  optomPrice: number;  // optom (ulgurji) narx — 0 bo'lsa kiritilmagan. Faqat admin/POS.
   quantity: number;
   stock: number;
   sku: string;
@@ -487,6 +488,8 @@ const AdminPOS = () => {
             price: Number(v.discount_price || v.price || p.discount_price || p.price),
             soldPrice: Number(v.discount_price || v.price || p.discount_price || p.price),
             costPrice: Number(v.cost_price || p.cost_price),
+            // Optom narx: variantniki, bo'lmasa mahsulotnikiga fallback (0 = yo'q).
+            optomPrice: Number(v.optom_price || p.optom_price || 0),
             quantity: 1,
             stock: v.stock,
             sku: v.sku || '',
@@ -512,6 +515,7 @@ const AdminPOS = () => {
           shelfLocation: (p.shelf_location || '').trim(),
           soldPrice: Number(p.discount_price || p.price),
           costPrice: Number(p.cost_price),
+          optomPrice: Number(p.optom_price || 0),
           quantity: 1, stock: p.stock, sku: '',
         });
       }
@@ -556,6 +560,19 @@ const AdminPOS = () => {
     setCart((p) => p.map((i) => i.cartId === cartId ? { ...i, soldPrice: i.price } : i));
   };
 
+  // ── Optom (ulgurji) narxda sotish ────────────────────────────────────────
+  // Admin xohlasa mahsulotni optom narxda sotadi. Bir bosishda soldPrice optom
+  // narxga o'rnatiladi; qayta bossa oddiy (ko'rsatilgan) narxga qaytadi.
+  // Optom narxi 0 (kiritilmagan) bo'lsa hech narsa qilinmaydi — himoya.
+  const setItemOptomPrice = (cartId: string) => {
+    setCart((p) => p.map((i) =>
+      i.cartId === cartId && i.optomPrice > 0 ? { ...i, soldPrice: i.optomPrice } : i
+    ));
+  };
+  const sellAllAtOptom = () => {
+    setCart((p) => p.map((i) => i.optomPrice > 0 ? { ...i, soldPrice: i.optomPrice } : i));
+  };
+
   // "Jami'dan qaytarib berish": umumiy chegirma summasini har bir mahsulotga
   // KO'RSATILGAN narx ulushiga proporsional taqsimlaydi (butun so'mga
   // yaxlitlanadi). Natija har bir item.soldPrice'iga yoziladi — keyin admin
@@ -581,6 +598,11 @@ const AdminPOS = () => {
   // Tannarxdan past narxli mahsulot bormi — bo'lsa sotishni bloklaymiz.
   const hasBelowCost = cart.some((i) => i.soldPrice < i.costPrice);
   const belowCostCount = cart.filter((i) => i.soldPrice < i.costPrice).length;
+  // Optom narx holati: savatda optom narxli mahsulot bormi va hammasi
+  // (optom narxi bor bo'lganlari) hozir optomda turibdimi — global toggle uchun.
+  const optomItems = cart.filter((i) => i.optomPrice > 0);
+  const cartHasOptom = optomItems.length > 0;
+  const allAtOptom = cartHasOptom && optomItems.every((i) => i.soldPrice === i.optomPrice);
 
   // Phone lookup (debounced)
   useEffect(() => {
@@ -900,6 +922,13 @@ const AdminPOS = () => {
                               {item.stock} ta
                             </span>
                           </div>
+                          {/* Optom narx hinti — faqat admin/POS, oddiy mijoz ko'rmaydi */}
+                          {item.optomPrice > 0 && (
+                            <div className="mt-1 flex items-center gap-1 text-[11px] font-semibold text-secondary">
+                              <span className="material-symbols-outlined text-[13px]">sell</span>
+                              Optom: {fmt(item.optomPrice)} so'm
+                            </div>
+                          )}
                           {/* SKU — har doim joy reservasiya (bo'sh bo'lsa ham bir
                               qatorli `min-h` saqlanadi → kartochkalar bir xil bo'ladi). */}
                           <p className="mt-1.5 min-h-[14px] text-[10px] font-mono text-on-surface-variant opacity-70">
@@ -948,6 +977,8 @@ const AdminPOS = () => {
                   {cart.map((item) => {
                     const itemBelowCost = item.soldPrice < item.costPrice;
                     const itemEdited = item.soldPrice !== item.price;
+                    // Mahsulot hozir optom narxda sotilyaptimi (soldPrice === optom).
+                    const itemIsOptom = item.optomPrice > 0 && item.soldPrice === item.optomPrice;
                     const itemDiscount = Math.max(0, (item.price - item.soldPrice)) * item.quantity;
                     const itemDiscPct = item.price > 0
                       ? Math.max(0, ((item.price - item.soldPrice) / item.price) * 100)
@@ -1019,6 +1050,34 @@ const AdminPOS = () => {
                         )}
                       </div>
 
+                      {/* ── OPTOM (ulgurji) NARX TOGGLE — faqat optom narxi bor mahsulotda ── */}
+                      {item.optomPrice > 0 && (
+                        <div className="mt-1.5 flex items-center justify-between gap-2">
+                          <span className="text-[11px] text-on-surface-variant shrink-0">
+                            Optom: <b className="text-secondary">{fmt(item.optomPrice)}</b> so'm
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              itemIsOptom
+                                ? resetItemSoldPrice(item.cartId)
+                                : setItemOptomPrice(item.cartId)
+                            }
+                            title={itemIsOptom ? 'Oddiy narxga qaytarish' : 'Shu mahsulotni optom narxda sotish'}
+                            className={`shrink-0 inline-flex items-center gap-1 rounded-md px-2.5 py-1 text-[11px] font-bold transition-all active:scale-95 ${
+                              itemIsOptom
+                                ? 'bg-secondary text-on-secondary shadow-sm'
+                                : 'border border-secondary/40 text-secondary hover:bg-secondary/10'
+                            }`}
+                          >
+                            <span className="material-symbols-outlined text-[14px]">
+                              {itemIsOptom ? 'check_circle' : 'sell'}
+                            </span>
+                            {itemIsOptom ? 'Optom narxda' : 'Optom narxda sotish'}
+                          </button>
+                        </div>
+                      )}
+
                       {/* Pastki qator: chegirma + qator jami / tannarx ogohlantirish */}
                       <div className="mt-1.5 flex items-center justify-between gap-2">
                         <div className="flex items-center gap-1.5 min-w-0">
@@ -1051,6 +1110,27 @@ const AdminPOS = () => {
             </div>
 
             <div className="mt-3 border-t border-outline-variant pt-3 space-y-2">
+              {/* ── HAMMASINI OPTOM NARXDA SOTISH — global toggle ──────────────
+                  Savatda optom narxli mahsulot bo'lsa ko'rinadi. Bir bosishda
+                  barcha (optom narxi bor) mahsulotlar optom narxga o'tadi;
+                  qayta bossa oddiy narxga qaytadi. */}
+              {cartHasOptom && (
+                <button
+                  type="button"
+                  onClick={() => (allAtOptom ? resetAllPrices() : sellAllAtOptom())}
+                  className={`w-full flex items-center justify-center gap-2 rounded-lg px-3 py-2.5 text-sm font-bold transition-all active:scale-[0.98] ${
+                    allAtOptom
+                      ? 'bg-secondary text-on-secondary shadow-sm'
+                      : 'border border-secondary/50 text-secondary hover:bg-secondary/10'
+                  }`}
+                >
+                  <span className="material-symbols-outlined text-[19px]">
+                    {allAtOptom ? 'undo' : 'inventory_2'}
+                  </span>
+                  {allAtOptom ? 'Oddiy narxga qaytarish' : 'Hammasini optom narxda sotish'}
+                </button>
+              )}
+
               {/* Jami'dan qaytarib berish — umumiy chegirmani taqsimlash */}
               {cart.length > 0 && (
                 <div className="flex items-center gap-2">

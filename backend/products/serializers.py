@@ -176,6 +176,8 @@ class AdminProductVariantSerializer(ProductVariantSerializer):
         fields = ProductVariantSerializer.Meta.fields + (
             'cost_price',
             'cost_price_usd',
+            'optom_price',       # admin/POS — ulgurji narx (mijozga ko'rinmaydi)
+            'optom_price_usd',
             'barcode',
             'is_active',
             'position',
@@ -925,11 +927,17 @@ class AdminProductVariantInputSerializer(serializers.Serializer):
     model = serializers.CharField(required=False, allow_blank=True, allow_null=True)
     size = serializers.CharField(required=False, allow_blank=True, allow_null=True)
     price = serializers.DecimalField(max_digits=12, decimal_places=2, required=False, allow_null=True)
-    price_usd = serializers.DecimalField(max_digits=12, decimal_places=2, required=False, allow_null=True)
+    # USD maydonlari 6 o'nlik — frontend so'm→USD aylanishini yo'qotishsiz
+    # yuboradi (5.833333). 2 o'nlik bo'lsa DRF uni 5.83 ga yaxlitlab, narxni
+    # yana buzar edi. Model ham 6 o'nlikda.
+    price_usd = serializers.DecimalField(max_digits=12, decimal_places=6, required=False, allow_null=True)
     discount_price = serializers.DecimalField(max_digits=12, decimal_places=2, required=False, allow_null=True)
-    discount_price_usd = serializers.DecimalField(max_digits=12, decimal_places=2, required=False, allow_null=True)
+    discount_price_usd = serializers.DecimalField(max_digits=12, decimal_places=6, required=False, allow_null=True)
     cost_price = serializers.DecimalField(max_digits=12, decimal_places=2, required=False, allow_null=True)
-    cost_price_usd = serializers.DecimalField(max_digits=12, decimal_places=2, required=False, allow_null=True)
+    cost_price_usd = serializers.DecimalField(max_digits=12, decimal_places=6, required=False, allow_null=True)
+    # Optom (ulgurji) narx — USD asosida (kursga bog'liq), faqat admin/POS.
+    optom_price = serializers.DecimalField(max_digits=12, decimal_places=2, required=False, allow_null=True)
+    optom_price_usd = serializers.DecimalField(max_digits=12, decimal_places=6, required=False, allow_null=True)
     stock = serializers.IntegerField(required=False, min_value=0, default=0, allow_null=True)
     sku = serializers.CharField(required=False, allow_blank=True, allow_null=True)
     barcode = serializers.CharField(required=False, allow_blank=True, allow_null=True)
@@ -976,7 +984,8 @@ class AdminProductSerializer(serializers.ModelSerializer):
         model = Product
         fields = (
             'id', 'name', 'slug', 'description', 'category', 'category_name',
-            'price', 'price_usd', 'discount_price', 'discount_price_usd', 'cost_price', 'cost_price_usd', 'stock',
+            'price', 'price_usd', 'discount_price', 'discount_price_usd', 'cost_price', 'cost_price_usd',
+            'optom_price', 'optom_price_usd', 'stock',
             'is_active', 'is_popular', 'is_new', 'is_discount',
             # Phase 4.2 — product darajasidagi polka (variantsiz mahsulot
             # uchun yoki barcha variantlar uchun default fallback).
@@ -997,6 +1006,7 @@ class AdminProductSerializer(serializers.ModelSerializer):
         nullable_fields = (
             'category', 'price_usd', 'discount_price',
             'discount_price_usd', 'cost_price_usd',
+            'optom_price', 'optom_price_usd',
         )
         for nullable_field in nullable_fields:
             if data.get(nullable_field) in ('', 'null'):
@@ -1091,6 +1101,8 @@ class AdminProductSerializer(serializers.ModelSerializer):
             'discount_price_usd': variant_data.get('discount_price_usd'),
             'cost_price': variant_data.get('cost_price'),
             'cost_price_usd': variant_data.get('cost_price_usd'),
+            'optom_price': variant_data.get('optom_price'),
+            'optom_price_usd': variant_data.get('optom_price_usd'),
             'stock': stock_raw if isinstance(stock_raw, int) and stock_raw >= 0 else 0,
             'sku': variant_data.get('sku') or None,
             'barcode': variant_data.get('barcode') or None,

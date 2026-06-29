@@ -498,11 +498,22 @@ class Product(models.Model):
     description_ru = models.TextField(blank=True, default='')
     description_en = models.TextField(blank=True, default='')
     price = models.DecimalField(max_digits=12, decimal_places=2)
-    price_usd = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
+    # ── USD narxlari 6 o'nlik aniqlikda saqlanadi ─────────────────────────────
+    # SABAB: admin so'mda narx kiritganda (masalan 70 000), u USD'ga aylanadi
+    # (70000/12000 = 5.833333…). Eski 2 o'nlik (5.83) so'mga qaytarilganda
+    # 5.83*12000 = 69 960 — ya'ni KIRITILGAN narx O'ZGARIB ketardi. 6 o'nlik
+    # bilan aylanish YO'QOTISHSIZ: 5.833333*12000 = 69999.996 → 70 000.
+    price_usd = models.DecimalField(max_digits=12, decimal_places=6, null=True, blank=True)
     discount_price = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
-    discount_price_usd = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
+    discount_price_usd = models.DecimalField(max_digits=12, decimal_places=6, null=True, blank=True)
     cost_price = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
-    cost_price_usd = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
+    cost_price_usd = models.DecimalField(max_digits=12, decimal_places=6, null=True, blank=True)
+    # ── OPTOM (ulgurji) NARX — faqat admin/POS uchun, mijozga ko'rinmaydi ─────
+    # Sotuv narxi kabi USD asosida saqlanadi: kurs o'zgarsa avtomatik qayta
+    # hisoblanadi (`save()` + `AdminExchangeRateView` bulk_update). Public
+    # serializer'larda ATAYIN yo'q — sayt/mobil oddiy foydalanuvchi ko'rmaydi.
+    optom_price = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
+    optom_price_usd = models.DecimalField(max_digits=12, decimal_places=6, null=True, blank=True)
     stock = models.PositiveIntegerField(default=0)
 
     # ── PHASE 4.2 — DO'KON POLKASI (variantsiz mahsulot uchun, faqat admin)
@@ -557,11 +568,15 @@ class Product(models.Model):
         # Eslatma: Bu faqat individual save() da ishlaydi. Global kurs
         # o'zgarganda AdminExchangeRateView bulk_update qiladi (faqat
         # price + discount_price).
-        if self.price_usd:
+        if self.price_usd or self.optom_price_usd:
             rate = GlobalSetting.get_usd_rate()
-            self.price = (self.price_usd * rate).quantize(Decimal('1'))
-            if self.discount_price_usd:
-                self.discount_price = (self.discount_price_usd * rate).quantize(Decimal('1'))
+            if self.price_usd:
+                self.price = (self.price_usd * rate).quantize(Decimal('1'))
+                if self.discount_price_usd:
+                    self.discount_price = (self.discount_price_usd * rate).quantize(Decimal('1'))
+            # Optom narx ham sotuv narxi kabi kursdan hisoblanadi.
+            if self.optom_price_usd:
+                self.optom_price = (self.optom_price_usd * rate).quantize(Decimal('1'))
 
         # ── #N2 FIX: tarjima ENDI SINXRON EMAS ───────────────────────────────
         # Avval bu yerda 4 ta Google Translate HTTP chaqirilardi — admin formani
@@ -652,11 +667,16 @@ class ProductVariant(models.Model):
     model = models.CharField(max_length=100, null=True, blank=True)
     size = models.CharField(max_length=100, null=True, blank=True)
     price = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
-    price_usd = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
+    # USD narxlari 6 o'nlik aniqlikda — so'm↔USD aylanishi yo'qotishsiz bo'lishi
+    # uchun (Product modelidagi izohga qarang).
+    price_usd = models.DecimalField(max_digits=12, decimal_places=6, null=True, blank=True)
     discount_price = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
-    discount_price_usd = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
+    discount_price_usd = models.DecimalField(max_digits=12, decimal_places=6, null=True, blank=True)
     cost_price = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
-    cost_price_usd = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
+    cost_price_usd = models.DecimalField(max_digits=12, decimal_places=6, null=True, blank=True)
+    # Optom (ulgurji) narx — faqat admin/POS. USD asosida (kursga bog'liq).
+    optom_price = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
+    optom_price_usd = models.DecimalField(max_digits=12, decimal_places=6, null=True, blank=True)
     stock = models.PositiveIntegerField(default=0)
     sku = models.CharField(max_length=100, null=True, blank=True)
     barcode = models.CharField(max_length=100, null=True, blank=True)
@@ -711,11 +731,14 @@ class ProductVariant(models.Model):
         # o'zgarsa ham tannarx hech qachon qayta hisoblanmaydi — admin tovarni
         # qancha so'mga olganini aniq bilib turishi uchun. (Product.save() ham
         # aynan shunday ishlaydi.)
-        if self.price_usd:
+        if self.price_usd or self.optom_price_usd:
             rate = GlobalSetting.get_usd_rate()
-            self.price = (self.price_usd * rate).quantize(Decimal('1'))
-            if self.discount_price_usd:
-                self.discount_price = (self.discount_price_usd * rate).quantize(Decimal('1'))
+            if self.price_usd:
+                self.price = (self.price_usd * rate).quantize(Decimal('1'))
+                if self.discount_price_usd:
+                    self.discount_price = (self.discount_price_usd * rate).quantize(Decimal('1'))
+            if self.optom_price_usd:
+                self.optom_price = (self.optom_price_usd * rate).quantize(Decimal('1'))
         apply_webp(self.image, max_dimension=1600)
         super().save(*args, **kwargs)
 

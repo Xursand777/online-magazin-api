@@ -341,6 +341,11 @@ export const ProductsTab = ({
                             <span className='font-bold text-primary'>
                               {formatMoney(product.price)} so'm
                             </span>
+                            {product.optom_price && (
+                              <span className='text-secondary' title='Optom narx — faqat admin'>
+                                Optom: {formatMoney(product.optom_price)}
+                              </span>
+                            )}
                             <span className='text-on-surface-variant'>
                               {product.stock} dona
                             </span>
@@ -418,6 +423,11 @@ export const ProductsTab = ({
                                 <span className='font-bold text-primary'>
                                   {formatMoney(v.price ?? product.price)} so'm
                                 </span>
+                                {v.optom_price && (
+                                  <span className='text-secondary' title='Optom narx — faqat admin'>
+                                    Optom: {formatMoney(v.optom_price)}
+                                  </span>
+                                )}
                                 <span className='text-on-surface-variant'>
                                   {v.stock ?? 0} dona
                                 </span>
@@ -632,6 +642,11 @@ const ProductRowGroup = ({
               Chegirma: {formatMoney(product.discount_price)} so'm
             </div>
           )}
+          {!hasVariants && product.optom_price && (
+            <div className='text-xs text-secondary' title='Optom (ulgurji) narx — faqat admin'>
+              Optom: {formatMoney(product.optom_price)} so'm
+            </div>
+          )}
         </td>
         <td className='px-4 py-4 text-body-sm text-on-surface'>
           {totalStock} dona
@@ -744,6 +759,11 @@ const ProductRowGroup = ({
                 {v.discount_price && (
                   <div className='text-xs text-secondary-container'>
                     Chegirma: {formatMoney(v.discount_price)} so'm
+                  </div>
+                )}
+                {v.optom_price && (
+                  <div className='text-xs text-secondary' title='Optom (ulgurji) narx — faqat admin'>
+                    Optom: {formatMoney(v.optom_price)} so'm
                   </div>
                 )}
               </td>

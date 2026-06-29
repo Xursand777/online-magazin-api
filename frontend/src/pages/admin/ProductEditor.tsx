@@ -13,7 +13,7 @@ import { compressImage, compressImages } from '../../utils/imageCompress';
 import {
   COLOR_PRESETS, QUALITY_PRESETS, categoryLabel, emptyProductForm, emptyVariant,
   extractErrorMessage, formatPriceInput, generateVariantSku, hasVariantContent,
-  mapProductToForm, mapVariantsForEditor, stripNumberFormatting,
+  mapProductToForm, mapVariantsForEditor, stripNumberFormatting, somToUsd,
 } from './shared';
 import type { AdminProduct, AdminCategory, ProductFormState, VariantFormState } from './shared';
 
@@ -196,7 +196,7 @@ export const ProductEditor = ({
   const usdRate = rateData?.usd_rate || 0;
 
   const handlePriceChange = (
-    field: 'price' | 'discount_price' | 'cost_price',
+    field: 'price' | 'discount_price' | 'cost_price' | 'optom_price',
     value: string,
     isUsd: boolean,
   ) => {
@@ -221,8 +221,9 @@ export const ProductEditor = ({
       } else {
         next[field] = formatPriceInput(value);
         if (usdRate > 0) {
-          const uv = (numericValue / usdRate).toFixed(2);
-          (next as any)[`${field}_usd`] = uv === '0.00' || isNaN(Number(uv)) ? '' : uv;
+          // 6 o'nlikli YO'QOTISHSIZ aylantirish — kiritilgan so'm narxi
+          // backend'da o'zgarib ketmasligi uchun (somToUsd izohiga qarang).
+          (next as any)[`${field}_usd`] = somToUsd(numericValue, usdRate);
         }
       }
       return next;
@@ -343,17 +344,24 @@ export const ProductEditor = ({
       .map((v) => Number(stripNumberFormatting(v.cost_price)))
       .filter((p) => p > 0);
     const minCost = validCosts.length > 0 ? Math.min(...validCosts) : 0;
+    const validOptom = variants
+      .map((v) => Number(stripNumberFormatting(v.optom_price)))
+      .filter((p) => p > 0);
+    const minOptom = validOptom.length > 0 ? Math.min(...validOptom) : 0;
     setForm((prev) => ({
       ...prev,
       price: formatPriceInput(String(minPrice)),
-      price_usd: usdRate > 0 ? (minPrice / usdRate).toFixed(2) : prev.price_usd,
+      price_usd: usdRate > 0 ? somToUsd(minPrice, usdRate) : prev.price_usd,
       // Haqiqiy chegirma yo'q bo'lsa — maydon BO'SH qoladi (avtomatik to'ldirilmaydi).
       discount_price: minDiscount > 0 ? formatPriceInput(String(minDiscount)) : '',
       discount_price_usd:
-        minDiscount > 0 && usdRate > 0 ? (minDiscount / usdRate).toFixed(2) : '',
+        minDiscount > 0 && usdRate > 0 ? somToUsd(minDiscount, usdRate) : '',
       cost_price: minCost > 0 ? formatPriceInput(String(minCost)) : prev.cost_price,
       // Tannarx kursdan mustaqil — cost_price_usd kursdan QAYTA hisoblanmaydi.
       cost_price_usd: prev.cost_price_usd,
+      // Optom narx — variantlardagi eng kichik optom narx (sotuv narxi kabi).
+      optom_price: minOptom > 0 ? formatPriceInput(String(minOptom)) : '',
+      optom_price_usd: minOptom > 0 && usdRate > 0 ? somToUsd(minOptom, usdRate) : '',
     }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [variants, hasVariants]);
@@ -410,7 +418,7 @@ export const ProductEditor = ({
 
   const handleVariantPriceChange = (
     index: number,
-    field: 'price' | 'discount_price' | 'cost_price',
+    field: 'price' | 'discount_price' | 'cost_price' | 'optom_price',
     value: string,
     isUsd: boolean,
   ) => {
@@ -432,8 +440,7 @@ export const ProductEditor = ({
         } else {
           next[field] = formatPriceInput(value);
           if (usdRate > 0) {
-            const uv = (numericValue / usdRate).toFixed(2);
-            (next as any)[`${field}_usd`] = uv === '0.00' || isNaN(Number(uv)) ? '' : uv;
+            (next as any)[`${field}_usd`] = somToUsd(numericValue, usdRate);
           }
         }
         return next;
@@ -628,6 +635,10 @@ export const ProductEditor = ({
     payload.append('discount_price_usd', stripNumberFormatting(form.discount_price_usd.trim()));
     payload.append('cost_price', stripNumberFormatting(form.cost_price.trim()) || '0');
     payload.append('cost_price_usd', stripNumberFormatting(form.cost_price_usd.trim()) || '0');
+    // Optom (ulgurji) narx — USD asosida (kursga bog'liq). Bo'sh bo'lsa '' →
+    // backend `to_internal_value` uni None'ga aylantiradi.
+    payload.append('optom_price', stripNumberFormatting(form.optom_price.trim()));
+    payload.append('optom_price_usd', stripNumberFormatting(form.optom_price_usd.trim()));
     payload.append('stock', form.stock || '0');
     payload.append('category', form.category);
     payload.append('is_active', String(form.is_active));
@@ -666,6 +677,8 @@ export const ProductEditor = ({
         discount_price_usd: stripNumberFormatting(v.discount_price_usd) || null,
         cost_price: stripNumberFormatting(v.cost_price) || null,
         cost_price_usd: stripNumberFormatting(v.cost_price_usd) || null,
+        optom_price: stripNumberFormatting(v.optom_price) || null,
+        optom_price_usd: stripNumberFormatting(v.optom_price_usd) || null,
         stock: safeInt(v.stock, 0),
         sku: v.sku.trim(),
         barcode: v.barcode.trim(),
@@ -684,6 +697,8 @@ export const ProductEditor = ({
           discount_price_usd: v.discount_price_usd ? String(v.discount_price_usd) : '',
           cost_price: v.cost_price ? String(v.cost_price) : '',
           cost_price_usd: v.cost_price_usd ? String(v.cost_price_usd) : '',
+          optom_price: v.optom_price ? String(v.optom_price) : '',
+          optom_price_usd: v.optom_price_usd ? String(v.optom_price_usd) : '',
           stock: String(v.stock),
           position: String(v.position),
         } as VariantFormState),
@@ -952,7 +967,39 @@ export const ProductEditor = ({
                     placeholder='800'
                   />
                 </div>
+                {/* ── OPTOM (ulgurji) NARX — faqat admin, mijozga ko'rinmaydi ── */}
+                <div>
+                  <label className='mb-1 block text-label-md font-label-md text-on-surface-variant'>
+                    Optom narx (so'm)
+                  </label>
+                  <input
+                    type='text'
+                    inputMode='decimal'
+                    value={form.optom_price}
+                    onChange={(e) => handlePriceChange('optom_price', e.target.value, false)}
+                    className='w-full rounded-lg border border-outline-variant bg-surface-bright px-3 py-2 text-sm font-bold text-secondary outline-none focus:border-primary'
+                    placeholder='12 000 000'
+                  />
+                </div>
+                <div>
+                  <label className='mb-1 block text-label-md font-label-md text-on-surface-variant'>
+                    Optom narx (USD)
+                  </label>
+                  <input
+                    type='text'
+                    inputMode='decimal'
+                    value={form.optom_price_usd}
+                    onChange={(e) => handlePriceChange('optom_price', e.target.value, true)}
+                    className='w-full rounded-lg border border-outline-variant bg-surface-bright px-3 py-2 text-sm font-bold text-secondary outline-none focus:border-primary'
+                    placeholder='1000'
+                  />
+                </div>
               </div>
+              <p className='mt-2 text-[11px] text-on-surface-variant'>
+                🏷️ Optom (ulgurji) narx — faqat admin va do'kon (POS) uchun. Sotuv narxi
+                kabi dollar kursiga bog'liq: kurs o'zgarsa avtomatik qayta hisoblanadi.
+                Mijozga (sayt/ilova) ko'rinmaydi.
+              </p>
               {productBelowCost && (
                 <p className='mt-2 flex items-center gap-1 text-xs font-semibold text-error'>
                   <span className='material-symbols-outlined text-[15px]'>warning</span>
@@ -1320,7 +1367,7 @@ const ColorGroupVariantEditor = ({
   onVariantChange: (index: number, field: keyof VariantFormState, value: string) => void;
   onVariantPriceChange: (
     index: number,
-    field: 'price' | 'discount_price' | 'cost_price',
+    field: 'price' | 'discount_price' | 'cost_price' | 'optom_price',
     value: string,
     isUsd: boolean,
   ) => void;
@@ -1684,6 +1731,30 @@ const ColorGroupVariantEditor = ({
                                   onVariantPriceChange(idx, 'cost_price', e.target.value, true)
                                 }
                                 className='w-20 rounded-lg border border-outline-variant bg-surface-bright px-2 py-2 text-sm font-medium outline-none focus:border-primary'
+                                placeholder='$'
+                              />
+                            </div>
+                          </div>
+                          {/* OPTOM (ulgurji) NARX — faqat admin/POS, USD asosida */}
+                          <div className='col-span-12 sm:col-span-6 lg:col-span-3'>
+                            <label className='mb-1.5 block text-[11px] font-bold uppercase tracking-wide text-secondary'>
+                              Optom (so'm / $)
+                            </label>
+                            <div className='flex gap-1.5'>
+                              <input
+                                value={variant.optom_price}
+                                onChange={(e) =>
+                                  onVariantPriceChange(idx, 'optom_price', e.target.value, false)
+                                }
+                                className='min-w-0 flex-1 rounded-lg border border-outline-variant bg-surface-bright px-3 py-2 text-sm font-medium text-secondary outline-none focus:border-primary'
+                                placeholder="so'm"
+                              />
+                              <input
+                                value={variant.optom_price_usd}
+                                onChange={(e) =>
+                                  onVariantPriceChange(idx, 'optom_price', e.target.value, true)
+                                }
+                                className='w-20 rounded-lg border border-outline-variant bg-surface-bright px-2 py-2 text-sm font-medium text-secondary outline-none focus:border-primary'
                                 placeholder='$'
                               />
                             </div>
