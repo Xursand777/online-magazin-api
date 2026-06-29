@@ -195,7 +195,11 @@ const Checkout = () => {
 
   const items = cart?.items || [];
   const itemsTotalPrice = Number(cart?.total_price || 0);
-  const deliveryCost = itemsTotalPrice > 500_000 ? 0 : 30_000;
+  // Yetkazib berish DOIM BEPUL — barcha foydalanuvchilarga (usta ham, oddiy
+  // mijoz ham). Backend buyurtma jami'siga yetkazib berish QO'SHMAYDI
+  // (total_price = Σ mahsulot narxi), shuning uchun bu yer ham 0 — savat va
+  // checkout "Jami"si bir xil bo'lishi uchun.
+  const deliveryCost = 0;
   const finalPrice = itemsTotalPrice + deliveryCost;
 
   if (!isAuthenticated) {

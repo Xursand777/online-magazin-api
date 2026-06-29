@@ -105,67 +105,12 @@ class MasterStatusCard extends StatelessWidget {
                 _statusPill(context, theme, isFull, isInactive, hasNeverPurchased),
               ],
             ),
-            const SizedBox(height: 20),
-
-            // ── Chegirma % — markaziy katta ko'rinish ──────────────────────
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: [
-                Text(
-                  status.effectivePercent.toStringAsFixed(
-                      status.effectivePercent.truncateToDouble() ==
-                              status.effectivePercent
-                          ? 0
-                          : 1),
-                  style: theme.textTheme.displayMedium?.copyWith(
-                    color: Colors.white,
-                    fontWeight: FontWeight.w900,
-                    height: 0.95,
-                  ),
-                ),
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 8, left: 4),
-                  child: Text(
-                    "%",
-                    style: theme.textTheme.titleLarge?.copyWith(
-                      color: Colors.white.withValues(alpha: 0.85),
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 14),
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 8),
-                  child: Text(
-                    context.tr('master.discountLabel'),
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: Colors.white.withValues(alpha: 0.85),
-                      height: 1.2,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-
-            // To'liq imtiyoz = optom + basePercent%. Faollik pasaysa narx
-            // oddiy narxga yaqinlashadi (imtiyoz kuchi yuqorida ko'rsatilgan).
-            if (status.basePercent > 0)
-              Padding(
-                padding: const EdgeInsets.only(top: 4, left: 2),
-                child: Text(
-                  isFull
-                      ? "To'liq imtiyoz: optom + ${status.basePercent.toStringAsFixed(0)}%"
-                      : "To'liq imtiyozda: optom + ${status.basePercent.toStringAsFixed(0)}% "
-                          "(har kungi xarid bilan)",
-                  style: theme.textTheme.labelSmall?.copyWith(
-                    color: Colors.white.withValues(alpha: 0.75),
-                  ),
-                ),
-              ),
-
             const SizedBox(height: 16),
 
             // ── Daraja progress bar ────────────────────────────────────────
+            // Eslatma: "imtiyoz kuchi %" va "optom + ustama%" matnlari ATAYIN
+            // olib tashlandi — ichki narx mantig'i mijozga oshkor qilinmaydi.
+            // Faqat faollik pog'onasi va sarlavha qoladi.
             _levelProgressBar(theme, status.level, status.maxLevel),
             const SizedBox(height: 12),
 

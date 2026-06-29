@@ -84,26 +84,14 @@ const MasterStatusCard = () => {
 
   if (!data || !data.is_master) return null;
 
-  // YANGI MODEL: usta optom narxiga `base_percent`% ustama bilan oladi (eng
-  // faol bo'lganda). `effective_percent` endi "imtiyoz kuchi" (level/4×100),
-  // chegirma EMAS. Faollik pasaysa narx oddiy narxga yaqinlashadi.
-  const { base_percent, effective_percent, level, max_level, days_since_last_purchase } = data;
+  // Faqat faollik pog'onasi ko'rsatiladi — usta ko'radigan "imtiyoz kuchi %"
+  // va "optom + ustama%" matnlari ATAYIN olib tashlandi (ichki narx mantig'i
+  // mijozga oshkor qilinmaydi). Pog'ona indikatori va sarlavha qoladi.
+  const { level, max_level, days_since_last_purchase } = data;
   const isFull = level >= max_level;
   const isActive = level > 0;
 
-  let message: string;
-  let tone: 'full' | 'partial' | 'none';
-  if (isFull) {
-    message = `Ajoyib! Eng yuqori pog'onadasiz — mahsulotlarni optom narxiga atigi ${base_percent}% ustama bilan olasiz. Har kuni xarid qilib turing.`;
-    tone = 'full';
-  } else if (isActive) {
-    message = `Faollik oshgani sari narx optomga yaqinlashadi. Har kungi xarid sizni bir pog'ona ko'taradi — to'liq imtiyoz: optom + ${base_percent}%.`;
-    tone = 'partial';
-  } else {
-    message = `Hozir oddiy narxdasiz. Har kuni xarid qilsangiz, daraja ko'tarilib, optom narx imtiyozi (optom + ${base_percent}%) qaytadi.`;
-    tone = 'none';
-  }
-
+  const tone: 'full' | 'partial' | 'none' = isFull ? 'full' : isActive ? 'partial' : 'none';
   const accent =
     tone === 'full' ? 'from-primary/15 to-primary/5 border-primary/25'
     : tone === 'partial' ? 'from-amber-500/15 to-amber-500/5 border-amber-500/25'
@@ -125,13 +113,6 @@ const MasterStatusCard = () => {
             </p>
           </div>
         </div>
-        <div className="text-right">
-          <div className="flex items-baseline gap-1.5 justify-end">
-            <span className="text-3xl font-bold text-primary">{effective_percent}%</span>
-          </div>
-          <p className="text-[11px] text-on-surface-variant">imtiyoz kuchi</p>
-          <p className="text-[11px] text-on-surface-variant">optom + {base_percent}% (to'liq)</p>
-        </div>
       </div>
 
       {/* Pog'ona indikatori (level / max_level) */}
@@ -149,8 +130,6 @@ const MasterStatusCard = () => {
           ))}
         </div>
       </div>
-
-      <p className="mt-3 text-sm text-on-surface">{message}</p>
     </div>
   );
 };

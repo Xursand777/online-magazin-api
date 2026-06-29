@@ -92,9 +92,17 @@ class CartState extends Equatable {
   }
 
   double get totalAmount {
+    // Usta narxi mavjud bo'lsa (usta foydalanuvchi + optom narxli mahsulot) —
+    // o'shandan hisoblanadi, aks holda oddiy narx. Server `total_price` bilan
+    // AYNAN mos (ikkalasi ham bir xil per-variant usta narxini ishlatadi).
     return items.fold(
       0,
-      (sum, item) => sum + (item.product.price * item.quantity),
+      (sum, item) =>
+          sum +
+          ((item.product.hasMasterPrice
+                  ? item.product.masterPrice!
+                  : item.product.price) *
+              item.quantity),
     );
   }
 

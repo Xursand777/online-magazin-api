@@ -348,6 +348,14 @@ class CartRepository {
           productData['stock'] = vStock;
         }
 
+        // Variant USTA narxi — product darajasidagi master_price'ni OVERRIDE
+        // qiladi (har variant o'z optomiga ega). Faqat usta foydalanuvchiga
+        // keladi; oddiy mijozda null → savatda oddiy narx ko'rinadi.
+        final vMaster = variantDetails['master_price'];
+        if (vMaster != null) {
+          productData['master_price'] = vMaster;
+        }
+
         // Variant rasmi — variant gallery'dan birinchi yoki variant.image_url
         String? variantImage;
         final variantImages = variantDetails['images'];

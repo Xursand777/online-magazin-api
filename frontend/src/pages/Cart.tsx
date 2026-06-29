@@ -11,8 +11,10 @@ const formatPrice = (v: string | number) =>
 const CartItemRow = ({ item }: { item: CartItem }) => {
   const { updateItem, removeItem } = useCartStore();
   const { t } = useTranslation();
+  const isMaster = useAuthStore((s) => !!s.user?.is_master);
   const imgSrc = item.product_details?.main_image;
-  const price =
+  // Oddiy (retail) narx — variant chegirma/narxi, bo'lmasa mahsulot.
+  const retailPrice =
     item.variant_details?.discount_price && Number(item.variant_details.discount_price) > 0
       ? Number(item.variant_details.discount_price)
       : item.variant_details?.price && Number(item.variant_details.price) > 0
@@ -20,7 +22,14 @@ const CartItemRow = ({ item }: { item: CartItem }) => {
       : item.product_details?.is_discount && item.product_details?.discount_price
         ? Number(item.product_details.discount_price)
         : Number(item.product_details?.price || 0);
+  // Usta narxi — variant'niki ustun, bo'lmasa mahsulot darajasi. FAQAT usta
+  // foydalanuvchiga va master_price > 0 bo'lganda. Bu savat "Jami"si (backend
+  // total_price) bilan AYNAN mos bo'lishini ta'minlaydi (homedagi kabi).
+  const masterRaw = item.variant_details?.master_price ?? item.product_details?.master_price;
+  const masterPrice = isMaster && masterRaw != null && Number(masterRaw) > 0 ? Number(masterRaw) : null;
+  const price = masterPrice ?? retailPrice;
   const total = price * item.quantity;
+  const showMaster = masterPrice != null && masterPrice < retailPrice;
 
   return (
     <div className="bg-surface-container-lowest p-md rounded-xl border border-outline-variant flex flex-col sm:flex-row gap-md shadow-sm hover:shadow-md transition-shadow">
@@ -81,7 +90,19 @@ const CartItemRow = ({ item }: { item: CartItem }) => {
 
           {/* Price */}
           <div className="text-right">
-            <div className="font-price text-price text-on-background">{formatPrice(total)}</div>
+            <div className="flex items-center justify-end gap-1.5">
+              {showMaster && (
+                <span className="text-[9px] font-bold bg-primary/15 text-primary rounded-full px-1.5 py-0.5 leading-none">
+                  USTA
+                </span>
+              )}
+              <div className="font-price text-price text-on-background">{formatPrice(total)}</div>
+            </div>
+            {showMaster && (
+              <div className="font-body-sm text-body-sm text-outline line-through">
+                {formatPrice(retailPrice * item.quantity)}
+              </div>
+            )}
             {item.quantity > 1 && (
               <div className="font-body-sm text-body-sm text-outline">{formatPrice(price)} × {item.quantity}</div>
             )}

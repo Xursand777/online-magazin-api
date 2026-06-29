@@ -22,6 +22,9 @@ export interface CartItemProduct {
   is_discount: boolean;
   main_image: string | null;
   stock?: number;
+  // Usta narxi — faqat usta foydalanuvchiga keladi (optom asosida, backend
+  // hisoblaydi). Variantsiz mahsulot uchun mahsulot darajasidagi qiymat.
+  master_price?: string | number | null;
 }
 
 export interface CartItemVariant {
@@ -32,6 +35,8 @@ export interface CartItemVariant {
   model: string;
   price?: string | number | null;
   discount_price?: string | number | null;
+  // Usta narxi — HAR variant uchun alohida (backend hisoblaydi).
+  master_price?: string | number | null;
 }
 
 export interface CartItem {

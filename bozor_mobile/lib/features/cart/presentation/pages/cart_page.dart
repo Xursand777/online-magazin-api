@@ -118,13 +118,54 @@ class CartPage extends StatelessWidget {
                             overflow: TextOverflow.ellipsis,
                           ),
                           const SizedBox(height: 8),
-                          Text(
-                            '${NumberFormat('#,###', 'uz_UZ').format(item.product.price).replaceAll(',', ' ')} so\'m',
-                            style: theme.textTheme.titleMedium?.copyWith(
-                              color: theme.colorScheme.primary,
-                              fontWeight: FontWeight.bold,
+                          // Usta narxi mavjud bo'lsa — primary rangda usta narxi
+                          // + oddiy narx tagiga chizilgan (line-through) + USTA
+                          // belgisi. Aks holda oddiy narx (homedagi kabi).
+                          if (item.product.hasMasterPrice) ...[
+                            Row(
+                              children: [
+                                Text(
+                                  '${NumberFormat('#,###', 'uz_UZ').format(item.product.masterPrice).replaceAll(',', ' ')} so\'m',
+                                  style: theme.textTheme.titleMedium?.copyWith(
+                                    color: theme.colorScheme.primary,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                                const SizedBox(width: 6),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 6, vertical: 2),
+                                  decoration: BoxDecoration(
+                                    color: theme.colorScheme.primary
+                                        .withValues(alpha: 0.15),
+                                    borderRadius: BorderRadius.circular(6),
+                                  ),
+                                  child: Text(
+                                    'USTA',
+                                    style: theme.textTheme.labelSmall?.copyWith(
+                                      color: theme.colorScheme.primary,
+                                      fontWeight: FontWeight.w800,
+                                      fontSize: 9,
+                                    ),
+                                  ),
+                                ),
+                              ],
                             ),
-                          ),
+                            Text(
+                              '${NumberFormat('#,###', 'uz_UZ').format(item.product.price).replaceAll(',', ' ')} so\'m',
+                              style: theme.textTheme.bodySmall?.copyWith(
+                                color: theme.colorScheme.outline,
+                                decoration: TextDecoration.lineThrough,
+                              ),
+                            ),
+                          ] else
+                            Text(
+                              '${NumberFormat('#,###', 'uz_UZ').format(item.product.price).replaceAll(',', ' ')} so\'m',
+                              style: theme.textTheme.titleMedium?.copyWith(
+                                color: theme.colorScheme.primary,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
                         ],
                       ),
                     ),
