@@ -351,6 +351,15 @@ class OrderItem(models.Model):
         """Hali qaytarish mumkin bo'lgan miqdor."""
         return max(0, self.quantity - self.returned_qty)
 
+    class Meta:
+        # BARQAROR TARTIB — buyurtma elementlari QO'SHILGAN TARTIBDA (id o'sish)
+        # ko'rinadi: buyurtma tafsilotlari, chek (receipt), admin ko'rinishi va
+        # hisobotlar doim bir xil tartibda chiqadi (savatdagi tartib bilan mos).
+        # Aks holda PostgreSQL tartibi noaniq bo'lib, qator yangilanganda
+        # (masalan returned_qty) o'rni o'zgarib qolardi — savatdagi bilan bir xil
+        # xatolik.
+        ordering = ['id']
+
     def __str__(self):
         product_name = self.product.name if self.product else 'Unknown'
         return f"{self.quantity} x {product_name} for Order #{self.order.id}"

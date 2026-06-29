@@ -18,9 +18,18 @@ class CartItem(models.Model):
     product = models.ForeignKey(Product, on_delete=models.CASCADE)
     variant = models.ForeignKey(ProductVariant, on_delete=models.SET_NULL, null=True, blank=True)
     quantity = models.PositiveIntegerField(default=1)
-    
+
     # We store the price snapshot mostly at checkout, but keeping it here if needed
     price_snapshot = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
-    
+
+    class Meta:
+        # BARQAROR TARTIB — savat elementlari QO'SHILGAN TARTIBDA (id o'sish)
+        # qaytadi. Aks holda PostgreSQL miqdor (+/−) yangilanganda qatorni
+        # boshqa joyga ko'chiradi va elementlar o'rni "o'zidan o'zi almashib"
+        # qoladi (UpdateCartItemView to'liq savatni qaytaradi → frontend shu
+        # tartibda chizadi). `id` monoton (auto-increment) → hech qachon
+        # o'zgarmaydi, qo'shilish tartibini aniq saqlaydi.
+        ordering = ['id']
+
     def __str__(self):
         return f"{self.quantity} x {self.product.name} in Cart"
