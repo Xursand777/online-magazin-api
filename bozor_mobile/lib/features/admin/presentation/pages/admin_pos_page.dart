@@ -744,12 +744,29 @@ class _CartItemRow extends StatelessWidget {
                     ? bloc.add(PosUpdateQty(item.cartId, -1))
                     : bloc.add(PosRemoveFromCart(item.cartId)),
               ),
-              SizedBox(
-                width: 32,
-                child: Text('${item.quantity}',
-                    textAlign: TextAlign.center,
-                    style: theme.textTheme.titleMedium
-                        ?.copyWith(fontWeight: FontWeight.w800)),
+              // Raqam ustiga bosib QO'LDA kiritiladi (optom uchun — masalan 100).
+              // Primary rang + tag chiziq tahrirlanishini bildiradi.
+              InkWell(
+                onTap: () => _editQty(context, bloc),
+                borderRadius: BorderRadius.circular(6),
+                child: Container(
+                  width: 44,
+                  padding: const EdgeInsets.symmetric(vertical: 3),
+                  decoration: BoxDecoration(
+                    border: Border(
+                      bottom: BorderSide(
+                        color: theme.colorScheme.primary.withValues(alpha: 0.4),
+                        width: 1.5,
+                      ),
+                    ),
+                  ),
+                  child: Text('${item.quantity}',
+                      textAlign: TextAlign.center,
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w800,
+                        color: theme.colorScheme.primary,
+                      )),
+                ),
               ),
               _QtyButton(
                 icon: Icons.add,
@@ -993,6 +1010,65 @@ class _CartItemRow extends StatelessWidget {
     );
     if (result != null) {
       bloc.add(PosSetItemPrice(item.cartId, result));
+    }
+  }
+
+  /// Miqdorni QO'LDA kiritish dialogi — raqam ustiga bosilganda ochiladi.
+  /// Optom sotuvda +/− ni ko'p bosib o'tirmasdan aniq son (masalan 100) yoziladi.
+  Future<void> _editQty(BuildContext context, AdminPosBloc bloc) async {
+    final controller = TextEditingController(text: '${item.quantity}');
+    final result = await showDialog<int>(
+      context: context,
+      builder: (ctx) {
+        return AlertDialog(
+          title: Text(item.name, maxLines: 2, overflow: TextOverflow.ellipsis),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                "Omborda: ${item.stock} ta mavjud",
+                style: Theme.of(ctx).textTheme.bodySmall?.copyWith(
+                    color: Theme.of(ctx).colorScheme.onSurfaceVariant),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: controller,
+                autofocus: true,
+                keyboardType: TextInputType.number,
+                textInputAction: TextInputAction.done,
+                onSubmitted: (_) {
+                  final v = int.tryParse(
+                      controller.text.replaceAll(RegExp(r'[^0-9]'), ''));
+                  Navigator.pop(ctx, v ?? item.quantity);
+                },
+                decoration: const InputDecoration(
+                  labelText: 'Miqdor',
+                  suffixText: 'dona',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Bekor'),
+            ),
+            FilledButton(
+              onPressed: () {
+                final v = int.tryParse(
+                    controller.text.replaceAll(RegExp(r'[^0-9]'), ''));
+                Navigator.pop(ctx, v ?? item.quantity);
+              },
+              child: const Text('Saqlash'),
+            ),
+          ],
+        );
+      },
+    );
+    if (result != null) {
+      bloc.add(PosSetItemQty(item.cartId, result));
     }
   }
 }

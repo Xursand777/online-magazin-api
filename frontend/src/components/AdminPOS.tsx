@@ -547,6 +547,20 @@ const AdminPOS = () => {
     }));
   };
 
+  // ── Miqdorni QO'LDA kiritish (optom uchun qulay) ──────────────────────────
+  // Admin raqam ustiga bosib aniq sonni yozadi (masalan 100) — +/− ni ko'p
+  // bosib o'tirmaydi. Doim [1, stock] oralig'ida cheklanadi; stokdan oshsa
+  // ogohlantirib stokka tenglashtiradi (xavfsiz — ortiqcha sotuv yo'q).
+  const setItemQty = (cartId: string, value: number) => {
+    setCart((p) => p.map((i) => {
+      if (i.cartId !== cartId) return i;
+      let nq = Math.floor(Number(value) || 0);
+      if (nq < 1) nq = 1;
+      if (nq > i.stock) { toast.error(`Omborda ${i.stock} ta mavjud`); nq = i.stock; }
+      return { ...i, quantity: nq };
+    }));
+  };
+
   // ── Kelishuv narxi (chegirma / qaytarib berish) ──────────────────────────
   // Har bir mahsulotning SOTILADIGAN narxini admin qo'lda tahrirlaydi.
   // `soldPrice` — yakuniy narx; `price` — mahsulotda ko'rsatilgan narx (baza).
@@ -1014,7 +1028,18 @@ const AdminPOS = () => {
                         </div>
                         <div className="flex items-center rounded-lg bg-surface-container overflow-hidden border border-outline-variant shrink-0">
                           <button onClick={() => updateQty(item.cartId, -1)} className="w-7 h-7 flex items-center justify-center hover:bg-outline-variant text-on-surface font-bold">−</button>
-                          <span className="w-8 text-center text-sm font-bold text-on-surface">{item.quantity}</span>
+                          {/* Raqam ustiga bosib qo'lda kiritiladi (optom uchun) */}
+                          <input
+                            type="text"
+                            inputMode="numeric"
+                            value={item.quantity}
+                            onChange={(e) => setItemQty(item.cartId, Number(onlyDigits(e.target.value)))}
+                            onFocus={(e) => e.target.select()}
+                            onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
+                            title="Miqdorni qo'lda kiriting"
+                            aria-label="Miqdor"
+                            className="w-10 text-center text-sm font-bold text-on-surface bg-transparent outline-none focus:bg-surface-bright"
+                          />
                           <button onClick={() => updateQty(item.cartId, 1)} className="w-7 h-7 flex items-center justify-center hover:bg-outline-variant text-on-surface font-bold">+</button>
                         </div>
                         <button onClick={() => removeFromCart(item.cartId)} className="text-error hover:opacity-70 p-1 shrink-0">

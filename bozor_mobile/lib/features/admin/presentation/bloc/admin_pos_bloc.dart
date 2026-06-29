@@ -48,6 +48,16 @@ class PosUpdateQty extends AdminPosEvent {
   List<Object?> get props => [cartId, delta];
 }
 
+/// Miqdorni QO'LDA (aniq son) o'rnatish — optom sotuvda qulay (masalan 100).
+/// [1, stock] oralig'ida cheklanadi.
+class PosSetItemQty extends AdminPosEvent {
+  final String cartId;
+  final int quantity;
+  const PosSetItemQty(this.cartId, this.quantity);
+  @override
+  List<Object?> get props => [cartId, quantity];
+}
+
 /// Bitta mahsulotning kelishuv (sotiladigan) narxini o'rnatish.
 class PosSetItemPrice extends AdminPosEvent {
   final String cartId;
@@ -243,6 +253,7 @@ class AdminPosBloc extends Bloc<AdminPosEvent, AdminPosState> {
     on<PosAddToCart>(_onAdd);
     on<PosRemoveFromCart>(_onRemove);
     on<PosUpdateQty>(_onUpdateQty);
+    on<PosSetItemQty>(_onSetItemQty);
     on<PosSetItemPrice>(_onSetItemPrice);
     on<PosToggleItemOptom>(_onToggleItemOptom);
     on<PosSellAllOptom>(_onSellAllOptom);
@@ -352,6 +363,23 @@ class AdminPosBloc extends Bloc<AdminPosEvent, AdminPosState> {
         updated.add(i.copyWith(quantity: nq));
       }
     }
+    emit(state.copyWith(cart: updated, warning: warning));
+  }
+
+  /// Miqdorni aniq songa o'rnatadi (qo'lda kiritish). [1, stock] da cheklanadi;
+  /// stokdan oshsa ogohlantirib stokka tenglashtiradi (ortiqcha sotuv yo'q).
+  void _onSetItemQty(PosSetItemQty event, Emitter<AdminPosState> emit) {
+    String? warning;
+    final updated = state.cart.map((i) {
+      if (i.cartId != event.cartId) return i;
+      var nq = event.quantity;
+      if (nq < 1) nq = 1;
+      if (nq > i.stock) {
+        warning = "Omborda ${i.stock} ta mavjud";
+        nq = i.stock;
+      }
+      return i.copyWith(quantity: nq);
+    }).toList();
     emit(state.copyWith(cart: updated, warning: warning));
   }
 

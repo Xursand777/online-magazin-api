@@ -613,7 +613,10 @@ const Home = () => {
         </section>
       )}
 
-      {/* Chegirmadagi mahsulotlar */}
+      {/* Chegirmadagi mahsulotlar — FAQAT chegirmali mahsulot bo'lsa ko'rinadi.
+          Bo'sh bo'lsa butun bo'lim (sarlavha + quti) yashiriladi. Yuklash
+          paytida skeleton ko'rsatiladi (sahifa sakramasligi uchun). */}
+      {(isLoading || discountProducts.length > 0) && (
       <section className="mb-2xl">
         <div className="flex justify-between items-center mb-md">
           <h2 className="font-h2 text-h2 text-on-background text-xl md:text-2xl flex items-center gap-2">
@@ -626,21 +629,18 @@ const Home = () => {
         </div>
         {isLoading ? (
           <ProductSectionSkeleton />
-        ) : discountProducts.length > 0 ? (
+        ) : (
           <div className="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
             {discountProducts.slice(0, 10).map(p => (
               <ProductCard key={p.card_id ?? p.id} product={p} />
             ))}
           </div>
-        ) : (
-          <div className="text-on-surface-variant text-center py-8 bg-surface-container rounded-xl">
-            <span className="material-symbols-outlined text-4xl block mb-2">inventory_2</span>
-            {t.home.noDiscountProducts}
-          </div>
         )}
       </section>
+      )}
 
-      {/* Yangi mahsulotlar */}
+      {/* Yangi mahsulotlar — faqat yangi mahsulot bo'lsa ko'rinadi. */}
+      {(isLoading || newProducts.length > 0) && (
       <section className="mb-2xl">
         <div className="flex justify-between items-center mb-md">
           <h2 className="font-h2 text-h2 text-on-background text-xl md:text-2xl flex items-center gap-2">
@@ -653,21 +653,18 @@ const Home = () => {
         </div>
         {isLoading ? (
           <ProductSectionSkeleton />
-        ) : newProducts.length > 0 ? (
+        ) : (
           <div className="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
             {newProducts.slice(0, 10).map(p => (
               <ProductCard key={p.card_id ?? p.id} product={p} />
             ))}
           </div>
-        ) : (
-          <div className="text-on-surface-variant text-center py-8 bg-surface-container rounded-xl">
-            <span className="material-symbols-outlined text-4xl block mb-2">inventory_2</span>
-            {t.home.noNewProducts}
-          </div>
         )}
       </section>
+      )}
 
-      {/* Ommabop mahsulotlar */}
+      {/* Ommabop mahsulotlar — faqat ommabop mahsulot bo'lsa ko'rinadi. */}
+      {(isLoading || popularProducts.length > 0) && (
       <section className="mb-2xl">
         <div className="flex justify-between items-center mb-md">
           <h2 className="font-h2 text-h2 text-on-background text-xl md:text-2xl flex items-center gap-2">
@@ -680,19 +677,15 @@ const Home = () => {
         </div>
         {isLoading ? (
           <ProductSectionSkeleton />
-        ) : popularProducts.length > 0 ? (
+        ) : (
           <div className="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
             {popularProducts.slice(0, 10).map(p => (
               <ProductCard key={p.card_id ?? p.id} product={p} />
             ))}
           </div>
-        ) : (
-          <div className="text-on-surface-variant text-center py-8 bg-surface-container rounded-xl">
-            <span className="material-symbols-outlined text-4xl block mb-2">inventory_2</span>
-            {t.home.noPopularProducts}
-          </div>
         )}
       </section>
+      )}
     </div>
   );
 };
