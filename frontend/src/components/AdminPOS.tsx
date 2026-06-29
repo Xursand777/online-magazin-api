@@ -1038,7 +1038,7 @@ const AdminPOS = () => {
                             onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
                             title="Miqdorni qo'lda kiriting"
                             aria-label="Miqdor"
-                            className="w-10 text-center text-sm font-bold text-on-surface bg-transparent outline-none focus:bg-surface-bright"
+                            className="w-14 text-center text-sm font-bold text-on-surface bg-transparent outline-none focus:bg-surface-bright"
                           />
                           <button onClick={() => updateQty(item.cartId, 1)} className="w-7 h-7 flex items-center justify-center hover:bg-outline-variant text-on-surface font-bold">+</button>
                         </div>
