@@ -6,6 +6,8 @@ class PosProduct {
   final double price;
   final double? discountPrice;
   final double costPrice;
+  // Optom (ulgurji) narx — faqat admin/POS (0/null = kiritilmagan).
+  final double? optomPrice;
   final int stock;
   final String? mainImage;
   final List<PosVariant> variants;
@@ -20,6 +22,7 @@ class PosProduct {
     required this.price,
     required this.discountPrice,
     required this.costPrice,
+    this.optomPrice,
     required this.stock,
     required this.mainImage,
     required this.variants,
@@ -44,6 +47,7 @@ class PosProduct {
       price: _double(json['price']),
       discountPrice: _doubleOrNull(json['discount_price']),
       costPrice: _double(json['cost_price']),
+      optomPrice: _doubleOrNull(json['optom_price']),
       stock: _int(json['stock']),
       mainImage: mainImg,
       shelfLocation: (json['shelf_location'] as String? ?? '').trim(),
@@ -72,6 +76,7 @@ class PosProduct {
           image: mainImage,
           price: discountPrice ?? price,
           costPrice: costPrice,
+          optomPrice: optomPrice ?? 0,
           quantity: 1,
           stock: stock,
           sku: '',
@@ -109,6 +114,8 @@ class PosProduct {
         image: v.imageUrl ?? colorImg ?? mainImage,
         price: v.discountPrice ?? v.price ?? discountPrice ?? price,
         costPrice: v.costPrice ?? costPrice,
+        // Optom: variantniki, bo'lmasa mahsulotnikiga fallback (0 = yo'q).
+        optomPrice: v.optomPrice ?? optomPrice ?? 0,
         quantity: 1,
         stock: v.stock,
         sku: v.sku,
@@ -128,6 +135,8 @@ class PosVariant {
   final double? price;
   final double? discountPrice;
   final double? costPrice;
+  // Optom (ulgurji) narx — faqat admin/POS (null = kiritilmagan).
+  final double? optomPrice;
   final int stock;
   final String? imageUrl;
   // Phase 4.0 — do'kondagi polka manzili (admin/POS uchun). Backend
@@ -144,6 +153,7 @@ class PosVariant {
     required this.price,
     required this.discountPrice,
     required this.costPrice,
+    this.optomPrice,
     required this.stock,
     required this.imageUrl,
     this.shelfLocation = '',
@@ -175,6 +185,7 @@ class PosVariant {
       price: _doubleOrNull(json['price']),
       discountPrice: _doubleOrNull(json['discount_price']),
       costPrice: _doubleOrNull(json['cost_price']),
+      optomPrice: _doubleOrNull(json['optom_price']),
       stock: _int(json['stock']),
       imageUrl: img,
     );
@@ -194,6 +205,7 @@ class PosCartItem {
   final double price; // mahsulotda KO'RSATILGAN narx (chegirma bazasi)
   final double soldPrice; // kelishuv (sotiladigan) narx — admin tahrirlaydi
   final double costPrice; // tannarx — narx bundan past bo'la olmaydi
+  final double optomPrice; // optom (ulgurji) narx — 0 = kiritilmagan
   final int quantity;
   final int stock;
   final String sku;
@@ -214,6 +226,7 @@ class PosCartItem {
     required this.price,
     double? soldPrice,
     required this.costPrice,
+    this.optomPrice = 0,
     required this.quantity,
     required this.stock,
     required this.sku,
@@ -246,6 +259,12 @@ class PosCartItem {
   /// Tannarxdan past sotilyaptimi — bo'lsa sotuv bloklanadi.
   bool get belowCost => soldPrice < costPrice;
 
+  /// Optom narxi kiritilganmi (mavjudmi).
+  bool get hasOptom => optomPrice > 0;
+
+  /// Hozir aynan optom narxda sotilyaptimi (soldPrice === optomPrice).
+  bool get isOptom => optomPrice > 0 && soldPrice == optomPrice;
+
   PosCartItem copyWith({int? quantity, double? soldPrice}) => PosCartItem(
         cartId: cartId,
         productId: productId,
@@ -259,6 +278,7 @@ class PosCartItem {
         price: price,
         soldPrice: soldPrice ?? this.soldPrice,
         costPrice: costPrice,
+        optomPrice: optomPrice,
         quantity: quantity ?? this.quantity,
         stock: stock,
         sku: sku,

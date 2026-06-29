@@ -31,6 +31,9 @@ class AdminProductVariantModel {
   final double? discountPriceUsd;
   final double? costPrice;
   final double? costPriceUsd;
+  // Optom (ulgurji) narx — faqat admin/POS. Public API qaytarmaydi.
+  final double? optomPrice;
+  final double? optomPriceUsd;
   final int stock;
   final String? sku;
   final String? barcode;
@@ -59,6 +62,8 @@ class AdminProductVariantModel {
     this.discountPriceUsd,
     this.costPrice,
     this.costPriceUsd,
+    this.optomPrice,
+    this.optomPriceUsd,
     required this.stock,
     this.sku,
     this.barcode,
@@ -83,6 +88,8 @@ class AdminProductVariantModel {
       discountPriceUsd: _toDoubleOrNull(json['discount_price_usd']),
       costPrice: _toDoubleOrNull(json['cost_price']),
       costPriceUsd: _toDoubleOrNull(json['cost_price_usd']),
+      optomPrice: _toDoubleOrNull(json['optom_price']),
+      optomPriceUsd: _toDoubleOrNull(json['optom_price_usd']),
       stock: json['stock'] as int? ?? 0,
       sku: json['sku'] as String?,
       barcode: json['barcode'] as String?,
@@ -118,6 +125,9 @@ class AdminProductModel {
   final double? discountPriceUsd;
   final double? costPrice;
   final double? costPriceUsd;
+  // Optom (ulgurji) narx — faqat admin/POS. Public API qaytarmaydi.
+  final double? optomPrice;
+  final double? optomPriceUsd;
   final int stock;
   final bool isActive;
   final bool isPopular;
@@ -144,6 +154,8 @@ class AdminProductModel {
     this.discountPriceUsd,
     this.costPrice,
     this.costPriceUsd,
+    this.optomPrice,
+    this.optomPriceUsd,
     required this.stock,
     required this.isActive,
     required this.isPopular,
@@ -169,6 +181,8 @@ class AdminProductModel {
       discountPriceUsd: _toDoubleOrNull(json['discount_price_usd']),
       costPrice: _toDoubleOrNull(json['cost_price']),
       costPriceUsd: _toDoubleOrNull(json['cost_price_usd']),
+      optomPrice: _toDoubleOrNull(json['optom_price']),
+      optomPriceUsd: _toDoubleOrNull(json['optom_price_usd']),
       stock: json['stock'] as int? ?? 0,
       isActive: json['is_active'] as bool? ?? true,
       isPopular: json['is_popular'] as bool? ?? false,

@@ -440,6 +440,17 @@ class _ProductTile extends StatelessWidget {
                                 fontSize: 13,
                               ),
                             ),
+                            // Optom (ulgurji) narx — faqat admin (mijozga ko'rinmaydi).
+                            if (product.optomPrice != null &&
+                                product.optomPrice! > 0)
+                              Text(
+                                "Optom: ${fmt.format(product.optomPrice).replaceAll(',', ' ')} so'm",
+                                style: theme.textTheme.bodySmall?.copyWith(
+                                  color: theme.colorScheme.secondary,
+                                  fontWeight: FontWeight.w700,
+                                  fontSize: 12,
+                                ),
+                              ),
                             _Badge(
                               label: hasVariants
                                   ? 'Jami: $totalStock'

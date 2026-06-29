@@ -29,6 +29,35 @@ const Color _genGreen = Color(0xFF0A7C55);
 String _stripNum(String value) =>
     value.replaceAll(RegExp(r'\s+'), '').replaceAll(',', '.');
 
+/// USD qiymatdagi ortiqcha nollarni olib tashlaydi: "5.833330" → "5.83333",
+/// "7.500000" → "7.5", "5.000000" → "5". (Web: Number(...).toString() bilan bir xil.)
+String _trimUsd(String s) {
+  if (!s.contains('.')) return s;
+  s = s.replaceFirst(RegExp(r'0+$'), '');
+  s = s.replaceFirst(RegExp(r'\.$'), '');
+  return s;
+}
+
+/// So'm → USD, 6 o'nlik aniqlikda (YO'QOTISHSIZ).
+///
+/// MUHIM: avval bu yer 2 o'nlik (`toStringAsFixed(2)`) ishlatardi. Natijada
+/// admin 70 000 so'm kiritsa, USD = 5.83 bo'lib, backend uni so'mga
+/// qaytarganda 5.83×12000 = 69 960 chiqardi — kiritilgan narx O'ZGARIB
+/// ketardi. 6 o'nlik aylanishni yo'qotishsiz qiladi: 70000/12000 = 5.833333 →
+/// 5.833333×12000 = 70 000. (Web: `somToUsd` bilan AYNAN bir xil mantiq.)
+String _somToUsd(double som, double rate) {
+  if (rate <= 0 || som <= 0 || !som.isFinite) return '';
+  return _trimUsd((som / rate).toStringAsFixed(6));
+}
+
+/// Serverdan kelgan USD qiymatni maydonga to'ldirish uchun (6 o'nlik, trim).
+/// Yuklashda aniqlikni saqlaydi — aks holda 5.833333 → "5.83" bo'lib,
+/// hech narsa o'zgartirmay saqlasa ham narx 69 960 ga buzilardi.
+String _fmtUsdValue(double? v) {
+  if (v == null || v == 0) return '';
+  return _trimUsd(v.toStringAsFixed(6));
+}
+
 /// Butun UZS qiymatni "15 000 000" ko'rinishida probel bilan ajratadi.
 /// (Web: formatPriceInput — minglik ajratuvchi.)
 String _formatUzsDigits(String raw) {
@@ -144,6 +173,9 @@ class _VariantData {
   String? discountPriceUsd;
   String? costPrice;
   String? costPriceUsd;
+  // Optom (ulgurji) narx — USD asosida (sotuv narxi kabi), faqat admin/POS.
+  String? optomPrice;
+  String? optomPriceUsd;
   String? stock;
   File? imageFile;
   String? existingImageUrl;
@@ -165,6 +197,8 @@ class _VariantData {
   late final TextEditingController discountUsdCtrl;
   late final TextEditingController costCtrl;
   late final TextEditingController costUsdCtrl;
+  late final TextEditingController optomCtrl;
+  late final TextEditingController optomUsdCtrl;
 
   _VariantData({
     this.groupId,
@@ -183,6 +217,8 @@ class _VariantData {
     this.discountPriceUsd,
     this.costPrice,
     this.costPriceUsd,
+    this.optomPrice,
+    this.optomPriceUsd,
     this.stock,
     this.imageFile,
     this.existingImageUrl,
@@ -197,12 +233,16 @@ class _VariantData {
     discountUsdCtrl = TextEditingController(text: discountPriceUsd ?? '');
     costCtrl = TextEditingController(text: _formatUzsDigits(costPrice ?? ''));
     costUsdCtrl = TextEditingController(text: costPriceUsd ?? '');
+    optomCtrl = TextEditingController(text: _formatUzsDigits(optomPrice ?? ''));
+    optomUsdCtrl = TextEditingController(text: optomPriceUsd ?? '');
     price = _stripNum(price ?? '');
     priceUsd = _stripNum(priceUsd ?? '');
     discountPrice = _stripNum(discountPrice ?? '');
     discountPriceUsd = _stripNum(discountPriceUsd ?? '');
     costPrice = _stripNum(costPrice ?? '');
     costPriceUsd = _stripNum(costPriceUsd ?? '');
+    optomPrice = _stripNum(optomPrice ?? '');
+    optomPriceUsd = _stripNum(optomPriceUsd ?? '');
   }
 
   void disposeControllers() {
@@ -212,6 +252,8 @@ class _VariantData {
     discountUsdCtrl.dispose();
     costCtrl.dispose();
     costUsdCtrl.dispose();
+    optomCtrl.dispose();
+    optomUsdCtrl.dispose();
   }
 }
 
@@ -234,6 +276,9 @@ class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
   final _discountPriceUsd = TextEditingController();
   final _costPrice = TextEditingController();
   final _costPriceUsd = TextEditingController();
+  // Optom (ulgurji) narx — USD asosida (sotuv narxi kabi), faqat admin/POS.
+  final _optomPrice = TextEditingController();
+  final _optomPriceUsd = TextEditingController();
   final _stock = TextEditingController();
   // Phase 4.2 — product darajasidagi polka (variantsiz mahsulot yoki
   // variantli mahsulot uchun default fallback).
@@ -278,15 +323,23 @@ class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
       _name.text = p.name;
       _description.text = p.description;
       _price.text = _formatUzsDigits(p.price.toStringAsFixed(0));
-      _priceUsd.text = p.priceUsd?.toStringAsFixed(2) ?? '';
+      // USD aniqligini SAQLAB yuklaymiz (6 o'nlik, trim) — aks holda
+      // 5.833333 → "5.83" bo'lib, hech narsa o'zgartirmay saqlasa ham narx
+      // 69 960 ga buzilardi.
+      _priceUsd.text = _fmtUsdValue(p.priceUsd);
       _discountPrice.text = p.discountPrice != null
           ? _formatUzsDigits(p.discountPrice!.toStringAsFixed(0))
           : '';
-      _discountPriceUsd.text = p.discountPriceUsd?.toStringAsFixed(2) ?? '';
+      _discountPriceUsd.text = _fmtUsdValue(p.discountPriceUsd);
       _costPrice.text = p.costPrice != null
           ? _formatUzsDigits(p.costPrice!.toStringAsFixed(0))
           : '';
-      _costPriceUsd.text = p.costPriceUsd?.toStringAsFixed(2) ?? '';
+      _costPriceUsd.text = _fmtUsdValue(p.costPriceUsd);
+      // Optom (ulgurji) narx — USD asosida (sotuv narxi kabi), faqat admin.
+      _optomPrice.text = p.optomPrice != null
+          ? _formatUzsDigits(p.optomPrice!.toStringAsFixed(0))
+          : '';
+      _optomPriceUsd.text = _fmtUsdValue(p.optomPriceUsd);
       _stock.text = p.stock.toString();
       // Phase 4.2 — product polkasi (variantsiz mahsulot uchun yoki default)
       _shelfLocation.text = (p.shelfLocation ?? '').trim();
@@ -316,12 +369,16 @@ class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
             // takrorlanmasligi mumkin, lekin admin keyin o'zgartiradi).
             shelfLocation: widget.clone ? null : v.shelfLocation,
             price: v.price?.toStringAsFixed(0),
-            priceUsd: v.priceUsd?.toStringAsFixed(2),
+            // USD aniqligini saqlash (6 o'nlik) — narx buzilmasligi uchun.
+            priceUsd: _fmtUsdValue(v.priceUsd),
             // Chegirma/tannarx — klonда ham saqlanadi (iqtisod, SKU emas).
             discountPrice: v.discountPrice?.toStringAsFixed(0),
-            discountPriceUsd: v.discountPriceUsd?.toStringAsFixed(2),
+            discountPriceUsd: _fmtUsdValue(v.discountPriceUsd),
             costPrice: v.costPrice?.toStringAsFixed(0),
-            costPriceUsd: v.costPriceUsd?.toStringAsFixed(2),
+            costPriceUsd: _fmtUsdValue(v.costPriceUsd),
+            // Optom (ulgurji) narx — USD asosida, faqat admin/POS.
+            optomPrice: v.optomPrice?.toStringAsFixed(0),
+            optomPriceUsd: _fmtUsdValue(v.optomPriceUsd),
             stock: v.stock.toString(),
             // Swatch = `image_url` (galereya birinchi rasmidan ALOHIDA).
             existingImageUrl: widget.clone ? null : v.imageUrl,
@@ -418,6 +475,8 @@ class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
         _discountPriceUsd,
         _costPrice,
         _costPriceUsd,
+        _optomPrice,
+        _optomPriceUsd,
         _stock,
       ]) {
         c.addListener(_scheduleSaveDraft);
@@ -437,6 +496,8 @@ class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
     _discountPriceUsd.dispose();
     _costPrice.dispose();
     _costPriceUsd.dispose();
+    _optomPrice.dispose();
+    _optomPriceUsd.dispose();
     _stock.dispose();
     _shelfLocation.dispose();
     for (final v in _variants) {
@@ -472,6 +533,8 @@ class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
     'discount_price_usd': _discountPriceUsd.text,
     'cost_price': _costPrice.text,
     'cost_price_usd': _costPriceUsd.text,
+    'optom_price': _optomPrice.text,
+    'optom_price_usd': _optomPriceUsd.text,
     'stock': _stock.text,
     // Phase 4.2 — product polkasi qoralama saqlash
     'shelf_location': _shelfLocation.text,
@@ -498,6 +561,8 @@ class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
             'discount_usd': v.discountUsdCtrl.text,
             'cost': v.costCtrl.text,
             'cost_usd': v.costUsdCtrl.text,
+            'optom': v.optomCtrl.text,
+            'optom_usd': v.optomUsdCtrl.text,
             'stock': v.stock,
             'image_path': v.imageFile?.path,
             // #11: galereya fayl yo'llari (qoralamada ham saqlanadi).
@@ -559,6 +624,8 @@ class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
       _discountPriceUsd.text = s(d['discount_price_usd']);
       _costPrice.text = s(d['cost_price']);
       _costPriceUsd.text = s(d['cost_price_usd']);
+      _optomPrice.text = s(d['optom_price']);
+      _optomPriceUsd.text = s(d['optom_price_usd']);
       _stock.text = s(d['stock']);
       _shelfLocation.text = s(d['shelf_location']);
       _selectedCategoryId = d['category'] as int?;
@@ -589,6 +656,8 @@ class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
           discountPriceUsd: m['discount_usd'] as String?,
           costPrice: m['cost'] as String?,
           costPriceUsd: m['cost_usd'] as String?,
+          optomPrice: m['optom'] as String?,
+          optomPriceUsd: m['optom_usd'] as String?,
           stock: m['stock'] as String?,
         );
         final vip = m['image_path'] as String?;
@@ -616,17 +685,12 @@ class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
     setState(() => _pendingDraft = null);
   }
 
-  /// UZS yozildi → USD ni to'ldiradi. (Web: numericValue / usdRate, 2 xona;
-  /// 0 yoki noto'g'ri bo'lsa bo'sh.)
+  /// UZS yozildi → USD ni to'ldiradi (6 o'nlik, YO'QOTISHSIZ). 0/noto'g'ri →
+  /// bo'sh. (Web: `somToUsd` — kiritilgan so'm narxi buzilmasligi uchun.)
   void _syncUsd(String uzsRaw, TextEditingController usdCtrl) {
     if (_usdRate <= 0) return;
     final n = double.tryParse(_stripNum(uzsRaw)) ?? 0;
-    if (n <= 0) {
-      usdCtrl.text = '';
-      return;
-    }
-    final s = (n / _usdRate).toStringAsFixed(2);
-    usdCtrl.text = (s == '0.00') ? '' : s;
+    usdCtrl.text = _somToUsd(n, _usdRate);
   }
 
   /// USD yozildi → UZS ni to'ldiradi. (Web: round(numericValue * usdRate),
@@ -885,14 +949,17 @@ class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
         .map((v) => parse(v.costCtrl.text))
         .where((p) => p > 0)
         .fold<double>(double.infinity, (a, b) => a < b ? a : b);
+    final minOptom = _variants
+        .map((v) => parse(v.optomCtrl.text))
+        .where((p) => p > 0)
+        .fold<double>(double.infinity, (a, b) => a < b ? a : b);
     _recomputing = true;
     try {
-      // Narx
+      // Narx — USD 6 o'nlik YO'QOTISHSIZ (somToUsd) → narx buzilmaydi.
       final newPrice = _formatUzsDigits(minPrice.toStringAsFixed(0));
       if (_price.text != newPrice) _price.text = newPrice;
       if (_usdRate > 0) {
-        final usd = (minPrice / _usdRate).toStringAsFixed(2);
-        final newPriceUsd = usd == '0.00' ? '' : usd;
+        final newPriceUsd = _somToUsd(minPrice, _usdRate);
         if (_priceUsd.text != newPriceUsd) _priceUsd.text = newPriceUsd;
       }
       // Chegirma — faqat HAQIQIY chegirma (narxdan kichik) bo'lsa to'ldiriladi.
@@ -900,8 +967,7 @@ class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
         final s = _formatUzsDigits(minDisc.toStringAsFixed(0));
         if (_discountPrice.text != s) _discountPrice.text = s;
         if (_usdRate > 0) {
-          final usd = (minDisc / _usdRate).toStringAsFixed(2);
-          final s2 = usd == '0.00' ? '' : usd;
+          final s2 = _somToUsd(minDisc, _usdRate);
           if (_discountPriceUsd.text != s2) _discountPriceUsd.text = s2;
         }
       } else {
@@ -915,6 +981,18 @@ class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
         final s = _formatUzsDigits(minCost.toStringAsFixed(0));
         if (_costPrice.text != s) _costPrice.text = s;
       }
+      // Optom — variantlarning eng kichik optom narxi (sotuv narxi kabi, USD).
+      if (minOptom.isFinite && minOptom > 0) {
+        final s = _formatUzsDigits(minOptom.toStringAsFixed(0));
+        if (_optomPrice.text != s) _optomPrice.text = s;
+        if (_usdRate > 0) {
+          final s2 = _somToUsd(minOptom, _usdRate);
+          if (_optomPriceUsd.text != s2) _optomPriceUsd.text = s2;
+        }
+      } else {
+        if (_optomPrice.text.isNotEmpty) _optomPrice.text = '';
+        if (_optomPriceUsd.text.isNotEmpty) _optomPriceUsd.text = '';
+      }
     } finally {
       _recomputing = false;
     }
@@ -927,6 +1005,7 @@ class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
     v.priceCtrl.addListener(_recomputeProductPrices);
     v.discountCtrl.addListener(_recomputeProductPrices);
     v.costCtrl.addListener(_recomputeProductPrices);
+    v.optomCtrl.addListener(_recomputeProductPrices);
   }
 
   // ── #N(bulk-gen): Tez variant generator — rang×sifat×model×o'lcham ─────────
@@ -1191,6 +1270,8 @@ class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
       _discountPriceUsd.clear();
       _costPrice.clear();
       _costPriceUsd.clear();
+      _optomPrice.clear();
+      _optomPriceUsd.clear();
       _stock.clear();
       _selectedCategoryId = null;
       _isActive = true;
@@ -1300,6 +1381,13 @@ class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
     if (_costPriceUsd.text.trim().isNotEmpty) {
       fields['cost_price_usd'] = _stripNum(_costPriceUsd.text);
     }
+    // Optom (ulgurji) narx — USD asosida, faqat admin/POS.
+    if (_optomPrice.text.trim().isNotEmpty) {
+      fields['optom_price'] = _stripNum(_optomPrice.text);
+    }
+    if (_optomPriceUsd.text.trim().isNotEmpty) {
+      fields['optom_price_usd'] = _stripNum(_optomPriceUsd.text);
+    }
 
     final swatchPaths = <int, String>{};
     final galleryPaths = <int, List<String>>{};
@@ -1341,6 +1429,10 @@ class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
         if (v.costPrice?.isNotEmpty == true) vMap['cost_price'] = v.costPrice;
         if (v.costPriceUsd?.isNotEmpty == true) {
           vMap['cost_price_usd'] = v.costPriceUsd;
+        }
+        if (v.optomPrice?.isNotEmpty == true) vMap['optom_price'] = v.optomPrice;
+        if (v.optomPriceUsd?.isNotEmpty == true) {
+          vMap['optom_price_usd'] = v.optomPriceUsd;
         }
         if (v.removeImage) vMap['remove_image'] = true;
         // #11: o'chirilgan galereya rasm id'lari (faqat tahrirda bo'ladi).
@@ -1663,6 +1755,62 @@ class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
                                 Expanded(
                                   child: Text(
                                     "Tannarx kursga bog'liq emas — qo'lda kiritiladi",
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      color: Colors.grey[500],
+                                      fontStyle: FontStyle.italic,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          // ── OPTOM (ulgurji) NARX — USD asosida, faqat admin/POS ──
+                          // Sotuv narxi kabi kursga bog'liq (kurs o'zgarsa avtomatik
+                          // qayta hisoblanadi). Mijozga (sayt/ilova) ko'rinmaydi.
+                          Row(
+                            children: [
+                              Expanded(
+                                child: _FormField(
+                                  label: _variants.isEmpty
+                                      ? "Optom narx (UZS)"
+                                      : "Optom narx (UZS) — avto",
+                                  controller: _optomPrice,
+                                  keyboardType: TextInputType.number,
+                                  textInputAction: TextInputAction.next,
+                                  inputFormatters: [_ThousandsFormatter()],
+                                  onChanged: (v) => _syncUsd(v, _optomPriceUsd),
+                                ),
+                              ),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: _FormField(
+                                  label: "Optom narx (USD)",
+                                  controller: _optomPriceUsd,
+                                  keyboardType:
+                                      const TextInputType.numberWithOptions(
+                                        decimal: true,
+                                      ),
+                                  textInputAction: TextInputAction.next,
+                                  inputFormatters: _usdFormatters,
+                                  onChanged: (v) => _syncUzs(v, _optomPrice),
+                                ),
+                              ),
+                            ],
+                          ),
+                          Padding(
+                            padding: const EdgeInsets.only(top: 6, bottom: 12),
+                            child: Row(
+                              children: [
+                                Icon(
+                                  Icons.sell_outlined,
+                                  size: 13,
+                                  color: Colors.grey[500],
+                                ),
+                                const SizedBox(width: 5),
+                                Expanded(
+                                  child: Text(
+                                    "Optom narx — faqat admin/POS, dollar kursiga bog'liq",
                                     style: TextStyle(
                                       fontSize: 11,
                                       color: Colors.grey[500],
@@ -2708,6 +2856,45 @@ class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
                   inputFormatters: _usdFormatters,
                   decoration: _inputDeco('Tannarx (USD)'),
                   onChanged: (val) => v.costPriceUsd = _stripNum(val),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          // Optom (ulgurji) narx — UZS↔USD avtomatik sinxron (sotuv narxi kabi).
+          // Faqat admin/POS uchun — mijozga ko'rinmaydi.
+          Row(
+            children: [
+              Expanded(
+                child: TextFormField(
+                  controller: v.optomCtrl,
+                  keyboardType: TextInputType.number,
+                  textInputAction: TextInputAction.next,
+                  onFieldSubmitted: (_) => FocusScope.of(context).nextFocus(),
+                  inputFormatters: [_ThousandsFormatter()],
+                  decoration: _inputDeco('Optom narx (UZS)'),
+                  onChanged: (val) {
+                    v.optomPrice = _stripNum(val);
+                    _syncUsd(val, v.optomUsdCtrl);
+                    v.optomPriceUsd = _stripNum(v.optomUsdCtrl.text);
+                  },
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: TextFormField(
+                  controller: v.optomUsdCtrl,
+                  keyboardType: const TextInputType.numberWithOptions(
+                    decimal: true,
+                  ),
+                  textInputAction: TextInputAction.done,
+                  inputFormatters: _usdFormatters,
+                  decoration: _inputDeco('Optom narx (USD)'),
+                  onChanged: (val) {
+                    v.optomPriceUsd = _stripNum(val);
+                    _syncUzs(val, v.optomCtrl);
+                    v.optomPrice = _stripNum(v.optomCtrl.text);
+                  },
                 ),
               ),
             ],

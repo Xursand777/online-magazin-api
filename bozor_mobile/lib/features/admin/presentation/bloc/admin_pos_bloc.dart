@@ -57,6 +57,20 @@ class PosSetItemPrice extends AdminPosEvent {
   List<Object?> get props => [cartId, soldPrice];
 }
 
+/// Bitta mahsulotni optom narxda sotish ↔ oddiy narxga qaytarish (toggle).
+/// Optom narxi kiritilmagan (0) mahsulotda hech narsa qilmaydi.
+class PosToggleItemOptom extends AdminPosEvent {
+  final String cartId;
+  const PosToggleItemOptom(this.cartId);
+  @override
+  List<Object?> get props => [cartId];
+}
+
+/// Savatdagi BARCHA (optom narxi bor) mahsulotlarni optom narxda sotishga o'tkazadi.
+class PosSellAllOptom extends AdminPosEvent {
+  const PosSellAllOptom();
+}
+
 /// "Jamidan chegirma" — umumiy summani har bir mahsulotga proporsional taqsimlaydi.
 class PosApplyOrderDiscount extends AdminPosEvent {
   final double amount;
@@ -143,6 +157,13 @@ class AdminPosState extends Equatable {
   // Tannarxdan past narxli mahsulot bormi — bo'lsa sotuv bloklanadi.
   bool get hasBelowCost => cart.any((i) => i.belowCost);
   int get belowCostCount => cart.where((i) => i.belowCost).length;
+  // Optom narx holati — savatda optom narxli mahsulot bormi va hammasi
+  // (optom narxi bor bo'lganlari) hozir optomda turibdimi (global toggle uchun).
+  bool get cartHasOptom => cart.any((i) => i.hasOptom);
+  bool get allAtOptom {
+    final optom = cart.where((i) => i.hasOptom);
+    return optom.isNotEmpty && optom.every((i) => i.isOptom);
+  }
 
   List<PosCartItem> get filteredUnits {
     // API orqali filtrlangan bo'lsa ham, ba'zi xususiyatlar uchun (masalan color/size) 
@@ -223,6 +244,8 @@ class AdminPosBloc extends Bloc<AdminPosEvent, AdminPosState> {
     on<PosRemoveFromCart>(_onRemove);
     on<PosUpdateQty>(_onUpdateQty);
     on<PosSetItemPrice>(_onSetItemPrice);
+    on<PosToggleItemOptom>(_onToggleItemOptom);
+    on<PosSellAllOptom>(_onSellAllOptom);
     on<PosApplyOrderDiscount>(_onApplyOrderDiscount);
     on<PosResetPrices>(_onResetPrices);
     on<PosClearCart>(_onClear);
@@ -337,6 +360,29 @@ class AdminPosBloc extends Bloc<AdminPosEvent, AdminPosState> {
     emit(state.copyWith(
       cart: state.cart
           .map((i) => i.cartId == event.cartId ? i.copyWith(soldPrice: v) : i)
+          .toList(),
+      warning: null,
+    ));
+  }
+
+  /// Bitta mahsulotni optom narxda sotish ↔ oddiy narxga qaytarish (toggle).
+  /// Optom narxi yo'q (0) mahsulot o'zgarmaydi.
+  void _onToggleItemOptom(PosToggleItemOptom event, Emitter<AdminPosState> emit) {
+    emit(state.copyWith(
+      cart: state.cart.map((i) {
+        if (i.cartId != event.cartId || !i.hasOptom) return i;
+        // Hozir optomda bo'lsa — oddiy narxga, aks holda optom narxga.
+        return i.copyWith(soldPrice: i.isOptom ? i.price : i.optomPrice);
+      }).toList(),
+      warning: null,
+    ));
+  }
+
+  /// Savatdagi BARCHA optom narxi bor mahsulotlarni optom narxga o'tkazadi.
+  void _onSellAllOptom(PosSellAllOptom event, Emitter<AdminPosState> emit) {
+    emit(state.copyWith(
+      cart: state.cart
+          .map((i) => i.hasOptom ? i.copyWith(soldPrice: i.optomPrice) : i)
           .toList(),
       warning: null,
     ));

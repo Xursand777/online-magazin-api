@@ -500,6 +500,28 @@ class _ProductUnitCard extends StatelessWidget {
                 color: const Color(0xFF0A7C55),
               ),
             ),
+            // Optom narx hinti — faqat admin/POS (oddiy mijoz ko'rmaydi).
+            if (unit.optomPrice > 0)
+              Padding(
+                padding: const EdgeInsets.only(top: 2),
+                child: Row(
+                  children: [
+                    Icon(Icons.sell_rounded,
+                        size: 12, color: theme.colorScheme.secondary),
+                    const SizedBox(width: 3),
+                    Flexible(
+                      child: Text(
+                        "Optom: ${formatSom(unit.optomPrice)}",
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.labelSmall?.copyWith(
+                          color: theme.colorScheme.secondary,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             const SizedBox(height: 4),
             Row(
               children: [
@@ -808,6 +830,67 @@ class _CartItemRow extends StatelessWidget {
               ),
             ],
           ),
+          // ── OPTOM (ulgurji) narx toggle — faqat optom narxi bor mahsulotda ──
+          if (item.hasOptom)
+            Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      "Optom: ${formatSom(item.optomPrice)} so'm",
+                      style: theme.textTheme.labelSmall?.copyWith(
+                        color: theme.colorScheme.secondary,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  InkWell(
+                    borderRadius: BorderRadius.circular(8),
+                    onTap: () => bloc.add(PosToggleItemOptom(item.cartId)),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 10, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: item.isOptom
+                            ? theme.colorScheme.secondary
+                            : Colors.transparent,
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(
+                          color: theme.colorScheme.secondary
+                              .withValues(alpha: 0.5),
+                        ),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            item.isOptom
+                                ? Icons.check_circle_rounded
+                                : Icons.sell_rounded,
+                            size: 15,
+                            color: item.isOptom
+                                ? theme.colorScheme.onSecondary
+                                : theme.colorScheme.secondary,
+                          ),
+                          const SizedBox(width: 5),
+                          Text(
+                            item.isOptom ? 'Optom narxda' : 'Optom narxda sotish',
+                            style: theme.textTheme.labelSmall?.copyWith(
+                              fontWeight: FontWeight.w800,
+                              color: item.isOptom
+                                  ? theme.colorScheme.onSecondary
+                                  : theme.colorScheme.secondary,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
           if (item.lineDiscount > 0)
             Padding(
               padding: const EdgeInsets.only(top: 6),
@@ -976,6 +1059,40 @@ class _CartFooterState extends State<_CartFooter> {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
+          // ── Hammasini optom narxda sotish — global toggle ───────────────
+          // Savatda optom narxli mahsulot bo'lsa ko'rinadi. Bosilsa hammasi
+          // optom narxga o'tadi; yana bossa oddiy narxga qaytadi.
+          if (state.cartHasOptom) ...[
+            SizedBox(
+              width: double.infinity,
+              child: state.allAtOptom
+                  ? OutlinedButton.icon(
+                      onPressed: () => bloc.add(const PosResetPrices()),
+                      icon: const Icon(Icons.undo_rounded, size: 18),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: theme.colorScheme.secondary,
+                        side: BorderSide(
+                            color: theme.colorScheme.secondary
+                                .withValues(alpha: 0.5)),
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                      ),
+                      label: const Text('Oddiy narxga qaytarish',
+                          style: TextStyle(fontWeight: FontWeight.w800)),
+                    )
+                  : FilledButton.icon(
+                      onPressed: () => bloc.add(const PosSellAllOptom()),
+                      icon: const Icon(Icons.inventory_2_rounded, size: 18),
+                      style: FilledButton.styleFrom(
+                        backgroundColor: theme.colorScheme.secondary,
+                        foregroundColor: theme.colorScheme.onSecondary,
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                      ),
+                      label: const Text('Hammasini optom narxda sotish',
+                          style: TextStyle(fontWeight: FontWeight.w800)),
+                    ),
+            ),
+            const SizedBox(height: 10),
+          ],
           // ── Jamidan chegirma — proporsional taqsimlash ──────────────────
           Row(
             children: [
