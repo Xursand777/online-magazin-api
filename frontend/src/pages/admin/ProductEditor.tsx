@@ -10,8 +10,9 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { adminCreateProduct, adminUpdateProduct, adminGetExchangeRate } from '../../api/endpoints';
 import { toast } from '../../utils/toast';
 import { compressImage, compressImages } from '../../utils/imageCompress';
+import { CategorySelect } from './CategorySelect';
 import {
-  COLOR_PRESETS, QUALITY_PRESETS, categoryLabel, emptyProductForm, emptyVariant,
+  COLOR_PRESETS, QUALITY_PRESETS, emptyProductForm, emptyVariant,
   extractErrorMessage, formatPriceInput, generateVariantSku, hasVariantContent,
   mapProductToForm, mapVariantsForEditor, stripNumberFormatting, somToUsd,
 } from './shared';
@@ -807,18 +808,11 @@ export const ProductEditor = ({
             <label className='mb-1 block text-label-md font-label-md text-on-surface-variant'>
               Kategoriya
             </label>
-            <select
+            <CategorySelect
+              categories={categories}
               value={form.category}
-              onChange={(e) => setForm((c) => ({ ...c, category: e.target.value }))}
-              className='w-full rounded-lg border border-outline-variant bg-surface-bright px-3 py-2 outline-none focus:border-primary'
-            >
-              <option value=''>-- Kategoriya tanlanmagan --</option>
-              {categories.map((cat) => (
-                <option key={cat.id} value={cat.id}>
-                  {categoryLabel(cat)}
-                </option>
-              ))}
-            </select>
+              onChange={(v) => setForm((c) => ({ ...c, category: v }))}
+            />
           </div>
 
           <div className='xl:col-span-12'>

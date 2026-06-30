@@ -3278,6 +3278,17 @@ class _ToggleRow extends StatelessWidget {
   }
 }
 
+/// Tanlash natijasini "bekor qilingan" (null future) holatdan ajratish uchun
+/// o'ralma — `id` null bo'lishi mumkin (= "Tanlanmagan"), lekin future null
+/// bo'lsa hech narsa o'zgarmaydi.
+class _CatPick {
+  const _CatPick(this.id);
+  final int? id;
+}
+
+/// QIDIRILADIGAN kategoriya tanlovchi — oddiy dropdown o'rniga.
+/// Bosilganda pastdan qidiruvli ro'yxat ochiladi: admin kategoriya yoki
+/// katalog nomini yozib tezda topadi (90+ kategoriya orasidan).
 class _CategoryDropdown extends StatelessWidget {
   const _CategoryDropdown({
     required this.categories,
@@ -3291,6 +3302,13 @@ class _CategoryDropdown extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    AdminCategoryModel? selected;
+    for (final c in categories) {
+      if (c.id == selectedId) {
+        selected = c;
+        break;
+      }
+    }
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -3301,36 +3319,172 @@ class _CategoryDropdown extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 6),
-        DropdownButtonFormField<int>(
-          initialValue: selectedId,
-          hint: const Text('Tanlang'),
-          decoration: InputDecoration(
-            filled: true,
-            fillColor: theme.colorScheme.surfaceContainerLowest,
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(10),
-              borderSide: BorderSide(color: theme.colorScheme.outlineVariant),
+        InkWell(
+          borderRadius: BorderRadius.circular(10),
+          onTap: () async {
+            final result = await showModalBottomSheet<_CatPick>(
+              context: context,
+              isScrollControlled: true,
+              backgroundColor: theme.colorScheme.surface,
+              shape: const RoundedRectangleBorder(
+                borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+              ),
+              builder: (ctx) => Padding(
+                padding: EdgeInsets.only(
+                    bottom: MediaQuery.of(ctx).viewInsets.bottom),
+                child: SizedBox(
+                  height: MediaQuery.of(ctx).size.height * 0.75,
+                  child: _CategorySearchSheet(
+                    categories: categories,
+                    selectedId: selectedId,
+                  ),
+                ),
+              ),
+            );
+            if (result != null) onChanged(result.id);
+          },
+          child: InputDecorator(
+            decoration: InputDecoration(
+              filled: true,
+              fillColor: theme.colorScheme.surfaceContainerLowest,
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(10),
+                borderSide: BorderSide(color: theme.colorScheme.outlineVariant),
+              ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(10),
+                borderSide: BorderSide(color: theme.colorScheme.outlineVariant),
+              ),
+              contentPadding:
+                  const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+              suffixIcon: const Icon(Icons.expand_more),
             ),
-            enabledBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(10),
-              borderSide: BorderSide(color: theme.colorScheme.outlineVariant),
-            ),
-            contentPadding: const EdgeInsets.symmetric(
-              horizontal: 12,
-              vertical: 12,
+            child: Text(
+              selected?.label ?? 'Tanlang',
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: selected != null
+                    ? theme.colorScheme.onSurface
+                    : theme.colorScheme.onSurfaceVariant,
+              ),
             ),
           ),
-          isExpanded: true,
-          items: categories
-              .map(
-                (c) => DropdownMenuItem(
-                  value: c.id,
-                  child: Text(c.name, overflow: TextOverflow.ellipsis),
-                ),
-              )
-              .toList(),
-          onChanged: onChanged,
         ),
+      ],
+    );
+  }
+}
+
+/// Qidiruvli kategoriya ro'yxati (bottom sheet ichi).
+class _CategorySearchSheet extends StatefulWidget {
+  const _CategorySearchSheet({
+    required this.categories,
+    required this.selectedId,
+  });
+  final List<AdminCategoryModel> categories;
+  final int? selectedId;
+
+  @override
+  State<_CategorySearchSheet> createState() => _CategorySearchSheetState();
+}
+
+class _CategorySearchSheetState extends State<_CategorySearchSheet> {
+  final _searchCtrl = TextEditingController();
+  String _query = '';
+
+  @override
+  void dispose() {
+    _searchCtrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final q = _query.trim().toLowerCase();
+    final filtered = q.isEmpty
+        ? widget.categories
+        : widget.categories
+            .where((c) => c.label.toLowerCase().contains(q))
+            .toList();
+
+    return Column(
+      children: [
+        const SizedBox(height: 8),
+        // Tortish chizig'i
+        Container(
+          width: 40,
+          height: 4,
+          decoration: BoxDecoration(
+            color: theme.colorScheme.outlineVariant,
+            borderRadius: BorderRadius.circular(2),
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+          child: TextField(
+            controller: _searchCtrl,
+            autofocus: true,
+            onChanged: (v) => setState(() => _query = v),
+            textInputAction: TextInputAction.search,
+            decoration: InputDecoration(
+              prefixIcon: const Icon(Icons.search),
+              hintText: 'Kategoriya yoki katalog izlash...',
+              isDense: true,
+              filled: true,
+              fillColor: theme.colorScheme.surfaceContainerHighest
+                  .withValues(alpha: 0.4),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: BorderSide.none,
+              ),
+            ),
+          ),
+        ),
+        Expanded(
+          child: (q.isNotEmpty && filtered.isEmpty)
+              ? Center(
+                  child: Text(
+                    'Hech narsa topilmadi',
+                    style: TextStyle(color: theme.colorScheme.onSurfaceVariant),
+                  ),
+                )
+              : ListView.builder(
+                  keyboardDismissBehavior:
+                      ScrollViewKeyboardDismissBehavior.onDrag,
+                  itemCount: filtered.length + 1,
+                  itemBuilder: (ctx, i) {
+                    if (i == 0) {
+                      final isSel = widget.selectedId == null;
+                      return ListTile(
+                        dense: true,
+                        selected: isSel,
+                        title: Text(
+                          '-- Tanlanmagan --',
+                          style: TextStyle(
+                              color: theme.colorScheme.onSurfaceVariant),
+                        ),
+                        trailing:
+                            isSel ? const Icon(Icons.check, size: 18) : null,
+                        onTap: () => Navigator.pop(ctx, const _CatPick(null)),
+                      );
+                    }
+                    final c = filtered[i - 1];
+                    final isSel = c.id == widget.selectedId;
+                    return ListTile(
+                      dense: true,
+                      selected: isSel,
+                      title: Text(c.label, overflow: TextOverflow.ellipsis),
+                      trailing: isSel
+                          ? Icon(Icons.check,
+                              size: 18, color: theme.colorScheme.primary)
+                          : null,
+                      onTap: () => Navigator.pop(ctx, _CatPick(c.id)),
+                    );
+                  },
+                ),
+        ),
+        SizedBox(height: MediaQuery.of(context).padding.bottom),
       ],
     );
   }

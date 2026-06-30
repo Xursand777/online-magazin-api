@@ -219,6 +219,7 @@ class AdminCategoryModel {
   final int id;
   final String name;
   final int? parentId;
+  final String? parentName;
   final bool isActive;
   final bool isPopular;
   final String? imageUrl;
@@ -227,16 +228,25 @@ class AdminCategoryModel {
     required this.id,
     required this.name,
     this.parentId,
+    this.parentName,
     required this.isActive,
     required this.isPopular,
     this.imageUrl,
   });
+
+  /// Ko'rsatish nomi: "Katalog / Kategoriya" (ota-kategoriya bo'lsa) — web
+  /// `categoryLabel` bilan bir xil. Qidiruv ham shu bo'yicha ishlaydi.
+  String get label =>
+      (parentName != null && parentName!.trim().isNotEmpty)
+          ? '$parentName / $name'
+          : name;
 
   factory AdminCategoryModel.fromJson(Map<String, dynamic> json) {
     return AdminCategoryModel(
       id: json['id'] as int,
       name: json['name'] as String? ?? '',
       parentId: json['parent'] as int?,
+      parentName: json['parent_name'] as String?,
       isActive: json['is_active'] as bool? ?? true,
       isPopular: json['is_popular'] as bool? ?? false,
       imageUrl: json['image_url'] as String? ?? json['image'] as String?,
