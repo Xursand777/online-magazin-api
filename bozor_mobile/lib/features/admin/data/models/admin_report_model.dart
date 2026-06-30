@@ -77,6 +77,10 @@ class ReportProduct {
   final double? discountPrice;
   final double? discountPriceUsd;
   final double soldPrice;
+  // Sotuv narx turi (sotuv vaqtida belgilangan) + chegirma miqdori.
+  // 'retail' | 'discount' | 'optom' | 'master'. Optom → orange ramka.
+  final String priceType;
+  final double discountAmount;
   final double costPrice;
   final int stock;
   final int quantitySold;
@@ -104,6 +108,8 @@ class ReportProduct {
     this.discountPrice,
     this.discountPriceUsd,
     required this.soldPrice,
+    this.priceType = 'retail',
+    this.discountAmount = 0,
     required this.costPrice,
     required this.stock,
     required this.quantitySold,
@@ -136,6 +142,8 @@ class ReportProduct {
       discountPrice: json['discount_price'] != null ? _double(json['discount_price']) : null,
       discountPriceUsd: json['discount_price_usd'] != null ? _double(json['discount_price_usd']) : null,
       soldPrice: _double(json['sold_price']),
+      priceType: json['price_type'] as String? ?? 'retail',
+      discountAmount: _double(json['discount_amount']),
       costPrice: _double(json['cost_price']),
       stock: _int(json['stock']),
       quantitySold: qs,

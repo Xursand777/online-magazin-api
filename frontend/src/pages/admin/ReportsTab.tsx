@@ -45,6 +45,10 @@ interface ReportProduct {
   discount_price: number | null;
   discount_price_usd: number | null;
   sold_price: number;
+  // Sotuv narx turi (sotuv vaqtida belgilangan) + chegirma miqdori.
+  price_type?: 'retail' | 'discount' | 'optom' | 'master';
+  unit_sold_price?: number;
+  discount_amount?: number;
   cost_price: number;
   stock: number;
   quantity_sold: number;
@@ -754,16 +758,44 @@ export const ReportsTab = () => {
                 </tr>
               </thead>
               <tbody>
-                {filteredProducts.map((p, ri) => (
+                {filteredProducts.map((p, ri) => {
+                  // ── Sotuv narx turiga ko'ra rang ajratish (foydalanuvchi so'rovi) ──
+                  // OPTOM narxda sotilgan qator ORANGE ramkada — oddiy/chegirma
+                  // sotuvlardan darhol ajralib turadi. Chegirma → amber, usta →
+                  // primary. price_type sotuv VAQTIDA backendda belgilangan.
+                  const pt = p.price_type;
+                  const rowCls =
+                    pt === 'optom' ? 'bg-[#f59e0b]/10'
+                    : pt === 'discount' ? 'bg-amber-50 dark:bg-amber-900/10'
+                    : pt === 'master' ? 'bg-primary/5'
+                    : (ri % 2 === 0 ? 'bg-surface-container-lowest' : 'bg-surface-container/30');
+                  const accentCls =
+                    pt === 'optom' ? 'border-l-4 !border-l-[#f59e0b]'
+                    : pt === 'discount' ? 'border-l-4 !border-l-amber-400'
+                    : pt === 'master' ? 'border-l-4 !border-l-primary'
+                    : '';
+                  const badge =
+                    pt === 'optom' ? { label: 'OPTOM', cls: 'bg-[#f59e0b]/20 text-[#b45309] dark:text-[#fbbf24]' }
+                    : pt === 'discount' ? { label: 'CHEGIRMA', cls: 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300' }
+                    : pt === 'master' ? { label: 'USTA', cls: 'bg-primary/15 text-primary' }
+                    : null;
+                  return (
                   <tr
-                    key={`p-${p.id}-${p.sku || 'nosku'}-${p.quality || 'noq'}-${p.size || 'nos'}-${p.color || 'noc'}-${p.model || 'nom'}-${ri}`}
-                    className={`${ri % 2 === 0 ? 'bg-surface-container-lowest' : 'bg-surface-container/30'} hover:bg-primary/5`}
+                    key={`p-${p.id}-${p.sku || 'nosku'}-${p.quality || 'noq'}-${p.size || 'nos'}-${p.color || 'noc'}-${p.model || 'nom'}-${pt || 'rt'}-${p.unit_sold_price ?? p.sold_price}-${ri}`}
+                    className={`${rowCls} hover:bg-primary/5`}
                   >
-                    <td className='border border-outline-variant/40 px-3 py-2.5 text-center font-bold text-on-surface-variant'>
+                    <td className={`border border-outline-variant/40 px-3 py-2.5 text-center font-bold text-on-surface-variant ${accentCls}`}>
                       {p.rank}
                     </td>
                     <td className='border border-outline-variant/40 px-3 py-2.5 font-semibold text-on-surface'>
-                      {p.name}
+                      <div className='flex items-center gap-2 flex-wrap'>
+                        <span>{p.name}</span>
+                        {badge && (
+                          <span className={`inline-block rounded-full px-2 py-0.5 text-[10px] font-extrabold tracking-wide ${badge.cls}`}>
+                            {badge.label}
+                          </span>
+                        )}
+                      </div>
                     </td>
                     <td className='border border-outline-variant/40 px-3 py-2.5 text-center'>
                       {p.quality || <span className='text-outline'>—</span>}
@@ -792,6 +824,12 @@ export const ReportsTab = () => {
                     </td>
                     <td className='border border-outline-variant/40 px-3 py-2.5 text-right font-semibold text-primary'>
                       {fmt(p.sold_price)} so'm
+                      {/* Chegirma/usta sotuvida: qancha chegirma berilgani */}
+                      {(p.discount_amount ?? 0) > 0 && pt !== 'optom' && (
+                        <div className='text-[10px] font-normal text-amber-600 dark:text-amber-400'>
+                          −{fmt(p.discount_amount!)} chegirma
+                        </div>
+                      )}
                     </td>
                     <td className='border border-outline-variant/40 px-3 py-2.5 text-right font-semibold text-tertiary'>
                       {fmt(p.cost_price)} so'm
@@ -842,7 +880,8 @@ export const ReportsTab = () => {
                       )}
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
               <tfoot className='bg-surface-container font-bold text-on-surface border-t-2 border-outline-variant'>
                 <tr>

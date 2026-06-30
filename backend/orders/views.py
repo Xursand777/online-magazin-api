@@ -768,13 +768,19 @@ class AdminReportView(views.APIView):
         # OrderItem.returned_qty INVARIANT'i: SUCCESS statusda turgan
         # OrderReturnItem.quantity yig'indisi. Mavjud qiymatdan o'qiymiz —
         # JOIN'siz va aniq.
+        # MUHIM (foydalanuvchi so'rovi): har bir mahsulot SOTILGAN NARXI va
+        # NARX TURI bo'yicha ALOHIDA qatorga ajraladi — optom narxda sotilgan
+        # bilan oddiy narxda sotilgan ARALASHIB, xato son ko'rsatmaydi. Bir xil
+        # mahsulot 2 xil narxda sotilsa → 2 qator (har biri o'z soni/tushumi
+        # bilan). `price_type` + `price_snapshot` guruhlash kalitiga qo'shildi.
         items_stats = (
             OrderItem.objects
             .filter(order__in=qs)
             .values(
                 'product_id', 'product__name', 'product__price', 'product__discount_price', 'product__cost_price',
                 'variant_id', 'variant__quality', 'variant__model', 'variant__size', 'variant__color', 'variant__sku',
-                'variant__price', 'variant__discount_price', 'variant__cost_price'
+                'variant__price', 'variant__discount_price', 'variant__cost_price',
+                'price_type', 'price_snapshot',
             )
             .annotate(
                 quantity_sold=Sum('quantity'),
@@ -818,6 +824,15 @@ class AdminReportView(views.APIView):
             p_disc = item['product__discount_price']
             disc_price = float(v_disc) if v_disc is not None else (float(p_disc) if p_disc else None)
 
+            # ── Sotuv narx turi va chegirma miqdori (qatorga oid) ────────────
+            # `unit_sold` = aynan sotilgan birlik narxi (price_snapshot bo'yicha
+            # guruhlangani uchun rev/qty unga teng). `discount_amount` =
+            # (oddiy narx − sotilgan narx) × soni, manfiy bo'lmaydi.
+            price_type = item['price_type'] or OrderItem.PRICE_TYPE_RETAIL
+            unit_sold = float(item['price_snapshot'] or 0)
+            discount_per_unit = max(0.0, original_price - unit_sold)
+            discount_amount = discount_per_unit * qty_sold
+
             # Gross (qaytarmasdan)
             total_cost_item = cost_price * qty_sold
             net_profit_item = rev - total_cost_item
@@ -843,6 +858,10 @@ class AdminReportView(views.APIView):
                 'total_revenue': rev,
                 'total_cost': total_cost_item,
                 'sold_price': rev / qty_sold if qty_sold > 0 else 0,
+                # Sotuv narx turi (retail/discount/optom/master) + chegirma miqdori.
+                'price_type': price_type,
+                'unit_sold_price': unit_sold,
+                'discount_amount': discount_amount,
                 'net_profit': net_profit_item,
                 # Phase 3.5
                 'quantity_returned': qty_returned,

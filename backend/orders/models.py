@@ -329,12 +329,37 @@ class Order(models.Model):
 
 
 class OrderItem(models.Model):
+    # ── Sotuv narx TURI — sotuv VAQTIDA belgilanadi (hisobot uchun) ──────────
+    # Hisobotda har bir element qanday narxda sotilganini ANIQ bilish uchun
+    # (kurs o'zgarsa ham buzilmaydi — sotuv paytidagi haqiqat saqlanadi):
+    #   • RETAIL   — oddiy (ko'rsatilgan) narx
+    #   • DISCOUNT — POS'da qo'lda chegirma qilingan (narx retaildan past)
+    #   • OPTOM    — optom (ulgurji) narxda sotilgan (admin "optom narxda sotish")
+    #   • MASTER   — usta imtiyozi (optom+ustama, faollik gradienti)
+    PRICE_TYPE_RETAIL = 'retail'
+    PRICE_TYPE_DISCOUNT = 'discount'
+    PRICE_TYPE_OPTOM = 'optom'
+    PRICE_TYPE_MASTER = 'master'
+    PRICE_TYPE_CHOICES = [
+        (PRICE_TYPE_RETAIL, 'Oddiy narx'),
+        (PRICE_TYPE_DISCOUNT, 'Chegirma narx'),
+        (PRICE_TYPE_OPTOM, 'Optom narx'),
+        (PRICE_TYPE_MASTER, 'Usta narx'),
+    ]
+
     order = models.ForeignKey(Order, on_delete=models.CASCADE, related_name='items')
     product = models.ForeignKey(Product, on_delete=models.SET_NULL, null=True)
     variant = models.ForeignKey(ProductVariant, on_delete=models.SET_NULL, null=True, blank=True)
 
     quantity = models.PositiveIntegerField(default=1)
     price_snapshot = models.DecimalField(max_digits=12, decimal_places=2)
+    # Sotuv vaqtida belgilanadi (orders.services.create_order). Eski yozuvlar
+    # uchun default 'retail'.
+    price_type = models.CharField(
+        max_length=12,
+        choices=PRICE_TYPE_CHOICES,
+        default=PRICE_TYPE_RETAIL,
+    )
 
     # ── Phase 3.1 — Return tracker ───────────────────────────────────────────
     # Necha donasi allaqachon qaytarib olingan (refunded yoki replaced).

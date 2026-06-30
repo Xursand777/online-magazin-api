@@ -743,10 +743,54 @@ class _AdminReportPageState extends State<AdminReportPage> {
                 ],
                 rows: [
                   ...products.map((p) {
+                    // ── Sotuv narx turiga ko'ra ajratish (foydalanuvchi so'rovi) ──
+                    // OPTOM narxda sotilgan qator ORANGE fon bilan ajralib turadi;
+                    // chegirma → och amber, usta → yashil. + nom yonida belgi.
+                    final pt = p.priceType;
+                    final Color? rowColor = pt == 'optom'
+                        ? const Color(0xFFF59E0B).withValues(alpha: 0.16)
+                        : pt == 'discount'
+                            ? const Color(0xFFF59E0B).withValues(alpha: 0.06)
+                            : pt == 'master'
+                                ? const Color(0xFF0A7C55).withValues(alpha: 0.06)
+                                : null;
+                    final String? badgeLabel = pt == 'optom'
+                        ? 'OPTOM'
+                        : pt == 'discount'
+                            ? 'CHEGIRMA'
+                            : pt == 'master'
+                                ? 'USTA'
+                                : null;
+                    final Color badgeColor = pt == 'master'
+                        ? const Color(0xFF0A7C55)
+                        : const Color(0xFFB45309);
                     return DataRow(
+                      color: rowColor != null
+                          ? WidgetStateProperty.all(rowColor)
+                          : null,
                       cells: [
                         DataCell(Text('${p.rank}', style: const TextStyle(fontSize: 12))),
-                        DataCell(Text(p.name, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold))),
+                        DataCell(Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(p.name, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                            if (badgeLabel != null) ...[
+                              const SizedBox(width: 6),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                                decoration: BoxDecoration(
+                                  color: badgeColor.withValues(alpha: 0.18),
+                                  borderRadius: BorderRadius.circular(6),
+                                ),
+                                child: Text(badgeLabel,
+                                    style: TextStyle(
+                                        fontSize: 9,
+                                        fontWeight: FontWeight.w800,
+                                        color: badgeColor)),
+                              ),
+                            ],
+                          ],
+                        )),
                         DataCell(Text(p.quality ?? '-', style: const TextStyle(fontSize: 12))),
                         DataCell(Text(p.model ?? '-', style: const TextStyle(fontSize: 12))),
                         DataCell(Text(p.size ?? '-', style: const TextStyle(fontSize: 12))),
@@ -754,7 +798,20 @@ class _AdminReportPageState extends State<AdminReportPage> {
                         DataCell(Text(p.sku ?? '-', style: const TextStyle(fontSize: 12, color: Colors.grey, fontFamily: 'monospace'))),
                         DataCell(Text(fmt(p.price), style: const TextStyle(fontSize: 12))),
                         DataCell(Text(p.discountPrice != null ? fmt(p.discountPrice!) : '-', style: const TextStyle(fontSize: 12, color: Colors.orange))),
-                        DataCell(Text(fmt(p.soldPrice), style: const TextStyle(fontSize: 12, color: Color(0xFF0A7C55), fontWeight: FontWeight.bold))),
+                        DataCell(
+                          (p.discountAmount > 0 && pt != 'optom')
+                              ? Column(
+                                  crossAxisAlignment: CrossAxisAlignment.end,
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    Text(fmt(p.soldPrice),
+                                        style: const TextStyle(fontSize: 12, color: Color(0xFF0A7C55), fontWeight: FontWeight.bold)),
+                                    Text('−${fmt(p.discountAmount)}',
+                                        style: const TextStyle(fontSize: 9, color: Color(0xFFB45309))),
+                                  ],
+                                )
+                              : Text(fmt(p.soldPrice), style: const TextStyle(fontSize: 12, color: Color(0xFF0A7C55), fontWeight: FontWeight.bold)),
+                        ),
                         DataCell(Text(fmt(p.costPrice), style: const TextStyle(fontSize: 12, color: Color(0xFFA43A3A), fontWeight: FontWeight.bold))),
                         DataCell(
                           Container(

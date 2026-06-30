@@ -614,12 +614,32 @@ def create_order_with_items(
         else:
             final_unit = normal_unit
 
+        # ── Sotuv NARX TURINI aniqlash (hisobot uchun, sotuv vaqtida) ────────
+        # Kurs keyin o'zgarsa ham buzilmaydi — bu yerda hozirgi haqiqat yoziladi.
+        optom_unit = get_line_optom(product, variant)
+        if price_override is not None:
+            # POS qo'lda kiritilgan narx: optom bilan AYNAN tengmi, yoki
+            # retaildan pastmi (chegirma), yoki oddiy.
+            if optom_unit is not None and final_unit == Decimal(str(optom_unit)).quantize(Decimal('0.01')):
+                price_type = OrderItem.PRICE_TYPE_OPTOM
+            elif final_unit < retail_unit:
+                price_type = OrderItem.PRICE_TYPE_DISCOUNT
+            else:
+                price_type = OrderItem.PRICE_TYPE_RETAIL
+        else:
+            # Tizim narxi (mijoz checkout): usta imtiyozi qo'llangan bo'lsa MASTER.
+            if master_unit is not None and final_unit == master_unit:
+                price_type = OrderItem.PRICE_TYPE_MASTER
+            else:
+                price_type = OrderItem.PRICE_TYPE_RETAIL
+
         OrderItem.objects.create(
             order=order,
             product=product,
             variant=variant,
             quantity=quantity,
             price_snapshot=final_unit,
+            price_type=price_type,
         )
         total_price += final_unit * quantity
         normal_subtotal += normal_unit * quantity
