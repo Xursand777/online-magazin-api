@@ -1073,7 +1073,7 @@ export const ProductEditor = ({
                 setForm((c) => ({ ...c, supplier: e.target.value.slice(0, 100) }))
               }
               className='w-full rounded-lg border border-secondary/40 bg-surface-bright px-3 py-2 font-semibold text-secondary outline-none placeholder:font-normal placeholder:text-on-surface-variant/50 focus:border-secondary focus:ring-2 focus:ring-secondary/30'
-              placeholder='Masalan: Vali aka / Optom bozor'
+              placeholder='Masalan : Xitoy'
               title='Tovar kimdan kelgan (yetkazib beruvchi). Faqat admin/POS.'
             />
           </div>
@@ -1897,7 +1897,7 @@ const ColorGroupVariantEditor = ({
                                 placeholder={
                                   productSupplierFallback
                                     ? `${productSupplierFallback} (default)`
-                                    : 'Vali aka'
+                                    : 'Masalan : Xitoy'
                                 }
                                 maxLength={100}
                                 title={

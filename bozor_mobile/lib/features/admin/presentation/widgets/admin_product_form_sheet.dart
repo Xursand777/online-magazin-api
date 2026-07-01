@@ -1888,6 +1888,7 @@ class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
                             label: _variants.isEmpty
                                 ? 'Kimdan kelgan (yetkazib beruvchi)'
                                 : 'Kimdan kelgan (default)',
+                            hint: 'Masalan : Xitoy',
                             controller: _supplier,
                             keyboardType: TextInputType.text,
                             textInputAction: TextInputAction.done,
@@ -2803,7 +2804,7 @@ class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
               final productSupplier = _supplier.text.trim();
               final hintText = productSupplier.isNotEmpty
                   ? '$productSupplier (default)'
-                  : 'Masalan: Vali aka';
+                  : 'Masalan : Xitoy';
               return TextFormField(
                 initialValue: v.supplier,
                 maxLength: 100,
@@ -3208,8 +3209,10 @@ class _FormField extends StatelessWidget {
     this.onChanged,
     this.inputFormatters,
     this.textInputAction,
+    this.hint,
   });
   final String label;
+  final String? hint;
   final TextEditingController controller;
   final TextInputType? keyboardType;
   final String? Function(String?)? validator;
@@ -3246,6 +3249,7 @@ class _FormField extends StatelessWidget {
               : null,
           decoration: InputDecoration(
             filled: true,
+            hintText: hint,
             fillColor: theme.colorScheme.surfaceContainerLowest,
             border: OutlineInputBorder(
               borderRadius: BorderRadius.circular(10),
