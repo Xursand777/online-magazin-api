@@ -648,6 +648,8 @@ export const ProductEditor = ({
     // Phase 4.2 — product-level polka (variantsiz mahsulot uchun yoki
     // barcha variantlar uchun default). Max 20 belgi backend cheklov.
     payload.append('shelf_location', (form.shelf_location || '').trim().slice(0, 20));
+    // Kimdan kelgan (yetkazib beruvchi) — max 100. Faqat admin/POS.
+    payload.append('supplier', (form.supplier || '').trim().slice(0, 100));
     payload.append('remove_image', String(removeImage));
     if (imageFile) payload.append('image', imageFile);
     // ── PAYLOAD QURISH — backend "may not be null" xatosini OLDINI olamiz ────
@@ -688,6 +690,8 @@ export const ProductEditor = ({
         // Phase 4.0 — do'kondagi polka manzili (max 20). Backend `default=''`,
         // shu sababli bo'sh stringni jim qabul qiladi.
         shelf_location: v.shelf_location.trim().slice(0, 20),
+        // Kimdan kelgan (yetkazib beruvchi) — max 100. Faqat admin/POS.
+        supplier: v.supplier.trim().slice(0, 100),
       }))
       .filter((v) =>
         hasVariantContent({
@@ -1050,6 +1054,29 @@ export const ProductEditor = ({
               }
             />
           </div>
+          {/* KIMDAN KELGAN (yetkazib beruvchi) — faqat admin/POS ko'radi,
+              foydalanuvchiga umuman ko'rinmaydi. Variantli mahsulotda default
+              (variant o'zi bo'sh bo'lsa backend shu qiymatdan fallback qiladi). */}
+          <div className='xl:col-span-3'>
+            <label
+              className='mb-1 flex items-center gap-1 text-label-md font-label-md text-secondary'
+              title='Kimdan kelgan — faqat admin va POS ko'radi, foydalanuvchiga ko'rinmaydi'
+            >
+              <span className='material-symbols-outlined text-[16px]'>local_shipping</span>
+              {hasVariants ? 'Kimdan kelgan (default)' : 'Kimdan kelgan'}
+            </label>
+            <input
+              type='text'
+              maxLength={100}
+              value={form.supplier}
+              onChange={(e) =>
+                setForm((c) => ({ ...c, supplier: e.target.value.slice(0, 100) }))
+              }
+              className='w-full rounded-lg border border-secondary/40 bg-surface-bright px-3 py-2 font-semibold text-secondary outline-none placeholder:font-normal placeholder:text-on-surface-variant/50 focus:border-secondary focus:ring-2 focus:ring-secondary/30'
+              placeholder='Masalan: Vali aka / Optom bozor'
+              title='Tovar kimdan kelgan (yetkazib beruvchi). Faqat admin/POS.'
+            />
+          </div>
           <div className='xl:col-span-4'>
             <label className='mb-1 block text-label-md font-label-md text-on-surface-variant'>
               Asosiy rasm
@@ -1217,6 +1244,7 @@ export const ProductEditor = ({
               onGalleryRemoveNew={handleVariantGalleryRemoveNew}
               onGalleryDeleteExisting={handleVariantGalleryDeleteExisting}
               productShelfFallback={form.shelf_location.trim()}
+              productSupplierFallback={form.supplier.trim()}
               onAddVariantToGroup={(baseVariant) => {
                 // Yangi qator faqat rang/narx/kirim qiymatlarini "rang-darajasidagi"
                 // sukut bo'yicha meros qilib oladi. image_url MEROS QILINMAYDI —
@@ -1353,6 +1381,7 @@ const ColorGroupVariantEditor = ({
   // — variant input'ida "001 (default)" ko'rinadi va admin tushunadi: yozmasa
   // ham backend product polkasidan oladi.
   productShelfFallback,
+  productSupplierFallback,
 }: {
   variants: VariantFormState[];
   variantImageFiles: Record<string, File | null>;
@@ -1373,6 +1402,7 @@ const ColorGroupVariantEditor = ({
   onGalleryDeleteExisting: (clientId: string, imageId: number) => void;
   onAddVariantToGroup: (baseVariant: VariantFormState) => void;
   productShelfFallback: string;
+  productSupplierFallback: string;
 }) => {
   // Rang bo'yicha guruhlash (group_id — bir xil ranga ega variantlar uchun bir xil)
   const groups = useMemo(() => {
@@ -1841,6 +1871,41 @@ const ColorGroupVariantEditor = ({
                                     : "Do'kondagi jismoniy polka (faqat admin va POS'da ko'rinadi)"
                                 }
                                 className='w-32 rounded-lg border border-primary/40 bg-surface-bright px-2 py-1 text-sm font-bold text-primary outline-none placeholder:font-normal placeholder:text-on-surface-variant/50 focus:border-primary focus:ring-2 focus:ring-primary/30'
+                              />
+                            </div>
+                            {/* KIMDAN KELGAN (yetkazib beruvchi) — faqat admin/POS.
+                                Variant bo'sh bo'lsa product default'idan fallback. */}
+                            <div className='flex items-center gap-1.5'>
+                              <span
+                                className='material-symbols-outlined text-[14px] text-secondary'
+                                title='Kimdan kelgan — faqat admin/POS'
+                              >
+                                local_shipping
+                              </span>
+                              <span className='text-[11px] font-bold uppercase tracking-wide text-secondary'>
+                                Kimdan
+                              </span>
+                              <input
+                                value={variant.supplier}
+                                onChange={(e) =>
+                                  onVariantChange(
+                                    idx,
+                                    'supplier',
+                                    e.target.value.slice(0, 100),
+                                  )
+                                }
+                                placeholder={
+                                  productSupplierFallback
+                                    ? `${productSupplierFallback} (default)`
+                                    : 'Vali aka'
+                                }
+                                maxLength={100}
+                                title={
+                                  productSupplierFallback
+                                    ? `Bo'sh qoldirsangiz: "${productSupplierFallback}" (mahsulot default) ishlatiladi`
+                                    : "Tovar kimdan kelgan (faqat admin va POS'da ko'rinadi)"
+                                }
+                                className='w-40 rounded-lg border border-secondary/40 bg-surface-bright px-2 py-1 text-sm font-semibold text-secondary outline-none placeholder:font-normal placeholder:text-on-surface-variant/50 focus:border-secondary focus:ring-2 focus:ring-secondary/30'
                               />
                             </div>
                           </div>

@@ -35,6 +35,8 @@ interface POSItem {
   quantity: number;
   stock: number;
   sku: string;
+  // Kimdan kelgan (yetkazib beruvchi) — FAQAT admin/POS. Public API'da yo'q.
+  supplier: string;
   // Phase 4.0 — do'kondagi polka manzili. FAQAT admin/POS uchun.
   // Backend `AdminProductVariantSerializer` orqali keladi; public API
   // bu maydonni qaytarmaydi → foydalanuvchi tomonida bu joy yo'q.
@@ -493,6 +495,11 @@ const AdminPOS = () => {
             quantity: 1,
             stock: v.stock,
             sku: v.sku || '',
+            // Kimdan kelgan — variant own → effective → product fallback.
+            supplier:
+              (v.supplier || '').trim() ||
+              (v.effective_supplier || '').trim() ||
+              (p.supplier || '').trim(),
             // Phase 4.2 fallback: variant'da o'z polkasi yo'q bo'lsa,
             // backend `effective_shelf` (variant'niki yoki product fallback)
             // qaytaradi. Eski API javoblari uchun defensive 3-pog'onali
@@ -513,6 +520,8 @@ const AdminPOS = () => {
           price: Number(p.discount_price || p.price),
           // Phase 4.2 — variantsiz mahsulot uchun product polkasi.
           shelfLocation: (p.shelf_location || '').trim(),
+          // Kimdan kelgan — variantsiz mahsulot uchun product darajasi.
+          supplier: (p.supplier || '').trim(),
           soldPrice: Number(p.discount_price || p.price),
           costPrice: Number(p.cost_price),
           optomPrice: Number(p.optom_price || 0),
@@ -941,6 +950,13 @@ const AdminPOS = () => {
                             <div className="mt-1 flex items-center gap-1 text-[11px] font-semibold text-secondary">
                               <span className="material-symbols-outlined text-[13px]">sell</span>
                               Optom: {fmt(item.optomPrice)} so'm
+                            </div>
+                          )}
+                          {/* Kimdan kelgan — Optom tagida, SKU yuqorisida (kichik). */}
+                          {item.supplier && (
+                            <div className="mt-0.5 flex items-center gap-1 text-[10px] text-secondary/90">
+                              <span className="material-symbols-outlined text-[12px]">local_shipping</span>
+                              Kimdan: {item.supplier}
                             </div>
                           )}
                           {/* SKU — har doim joy reservasiya (bo'sh bo'lsa ham bir

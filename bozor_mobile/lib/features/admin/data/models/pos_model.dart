@@ -15,6 +15,8 @@ class PosProduct {
   // variantli mahsulotda variant'da polka bo'sh bo'lsa fallback (backend
   // `effective_shelf` qaytaradi). Mobil POS karta ko'rsatishida ishlatamiz.
   final String shelfLocation;
+  // Kimdan kelgan (yetkazib beruvchi) — faqat admin/POS.
+  final String supplier;
 
   const PosProduct({
     required this.id,
@@ -27,6 +29,7 @@ class PosProduct {
     required this.mainImage,
     required this.variants,
     this.shelfLocation = '',
+    this.supplier = '',
   });
 
   factory PosProduct.fromJson(Map<String, dynamic> json) {
@@ -51,6 +54,7 @@ class PosProduct {
       stock: _int(json['stock']),
       mainImage: mainImg,
       shelfLocation: (json['shelf_location'] as String? ?? '').trim(),
+      supplier: (json['supplier'] as String? ?? '').trim(),
       variants: ((json['variants'] as List?) ?? [])
           .map((e) => PosVariant.fromJson(e as Map<String, dynamic>))
           .toList(),
@@ -82,6 +86,7 @@ class PosProduct {
           sku: '',
           // Phase 4.2 — variantsiz mahsulot polkasi product darajasida.
           shelfLocation: shelfLocation,
+          supplier: supplier,
         ),
       ];
     }
@@ -102,6 +107,9 @@ class PosProduct {
       final effectiveShelf = v.shelfLocation.isNotEmpty
           ? v.shelfLocation
           : shelfLocation;
+      // Kimdan kelgan — variant own, bo'sh bo'lsa product fallback.
+      final effectiveSupplier =
+          v.supplier.isNotEmpty ? v.supplier : supplier;
       return PosCartItem(
         cartId: 'v-${v.id}',
         productId: id,
@@ -120,6 +128,7 @@ class PosProduct {
         stock: v.stock,
         sku: v.sku,
         shelfLocation: effectiveShelf,
+        supplier: effectiveSupplier,
       );
     }).toList();
   }
@@ -142,6 +151,8 @@ class PosVariant {
   // Phase 4.0 — do'kondagi polka manzili (admin/POS uchun). Backend
   // public API'da yo'q → faqat admin token bilan keladi.
   final String shelfLocation;
+  // Kimdan kelgan (yetkazib beruvchi) — variant own → effective fallback.
+  final String supplier;
 
   const PosVariant({
     required this.id,
@@ -157,6 +168,7 @@ class PosVariant {
     required this.stock,
     required this.imageUrl,
     this.shelfLocation = '',
+    this.supplier = '',
   });
 
   factory PosVariant.fromJson(Map<String, dynamic> json) {
@@ -174,6 +186,10 @@ class PosVariant {
     final ownShelf = (json['shelf_location'] as String? ?? '').trim();
     final effShelf = (json['effective_shelf'] as String? ?? '').trim();
     final shelf = ownShelf.isNotEmpty ? ownShelf : effShelf;
+    // Kimdan kelgan — own → effective fallback (polka bilan bir xil mantiq).
+    final ownSup = (json['supplier'] as String? ?? '').trim();
+    final effSup = (json['effective_supplier'] as String? ?? '').trim();
+    final supplier = ownSup.isNotEmpty ? ownSup : effSup;
     return PosVariant(
       id: _int(json['id']),
       color: json['color'] as String? ?? '',
@@ -182,6 +198,7 @@ class PosVariant {
       size: json['size'] as String? ?? '',
       sku: json['sku'] as String? ?? '',
       shelfLocation: shelf,
+      supplier: supplier,
       price: _doubleOrNull(json['price']),
       discountPrice: _doubleOrNull(json['discount_price']),
       costPrice: _doubleOrNull(json['cost_price']),
@@ -212,6 +229,8 @@ class PosCartItem {
   // Phase 4.0 — do'kondagi polka manzili (FAQAT admin/POS). Backend public
   // API'da bu maydon yo'q → oddiy foydalanuvchi tomonida bu joy mavjud emas.
   final String shelfLocation;
+  // Kimdan kelgan (yetkazib beruvchi) — FAQAT admin/POS.
+  final String supplier;
 
   const PosCartItem({
     required this.cartId,
@@ -231,6 +250,7 @@ class PosCartItem {
     required this.stock,
     required this.sku,
     this.shelfLocation = '',
+    this.supplier = '',
   }) : soldPrice = soldPrice ?? price;
 
   /// Variant atributlari — sifat • model • hajm • rang (backend tartibi bilan).
@@ -283,6 +303,7 @@ class PosCartItem {
         stock: stock,
         sku: sku,
         shelfLocation: shelfLocation,
+        supplier: supplier,
       );
 }
 

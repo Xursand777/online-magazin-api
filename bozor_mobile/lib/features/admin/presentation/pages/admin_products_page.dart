@@ -424,6 +424,30 @@ class _ProductTile extends StatelessWidget {
                               ),
                           ],
                         ),
+                        // Kimdan kelgan (yetkazib beruvchi) — faqat admin. Bo'sh
+                        // bo'lsa ko'rinmaydi. Foydalanuvchiga umuman ko'rinmaydi.
+                        if ((product.supplier ?? '').trim().isNotEmpty) ...[
+                          const SizedBox(height: 3),
+                          Row(
+                            children: [
+                              Icon(Icons.local_shipping_outlined,
+                                  size: 12, color: theme.colorScheme.secondary),
+                              const SizedBox(width: 3),
+                              Expanded(
+                                child: Text(
+                                  'Kimdan: ${product.supplier!.trim()}',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: theme.textTheme.bodySmall?.copyWith(
+                                    color: theme.colorScheme.secondary,
+                                    fontWeight: FontWeight.w600,
+                                    fontSize: 11,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
                         const SizedBox(height: 4),
                         // Narx + jami stok (yoki variantsiz narx)
                         Wrap(

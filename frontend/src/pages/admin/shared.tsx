@@ -57,6 +57,9 @@ export interface AdminProductVariant {
   // Phase 4.2 — backend fallback bilan amaldagi polka (variant'niki yoki
   // product.shelf_location'dan o'qiladi). UI faqat shuni ko'rsatsa kifoya.
   effective_shelf?: string | null;
+  // Kimdan kelgan (yetkazib beruvchi) — faqat admin/POS. Public API'da yo'q.
+  supplier?: string | null;
+  effective_supplier?: string | null;
 }
 
 export interface AdminProduct {
@@ -83,6 +86,8 @@ export interface AdminProduct {
   // Phase 4.2 — product-level polka (variantsiz mahsulot uchun yoki
   // barcha variantlar uchun default fallback). Faqat admin so'rovida keladi.
   shelf_location?: string | null;
+  // Kimdan kelgan (yetkazib beruvchi) — faqat admin/POS. Public API'da yo'q.
+  supplier?: string | null;
   created_at: string;
   updated_at: string;
   variants: AdminProductVariant[];
@@ -115,6 +120,8 @@ export interface ProductFormState {
   // barcha variantlar uchun default — variant.shelf_location bo'sh bo'lsa
   // backend bu yerdan fallback qiladi).
   shelf_location: string;
+  // Kimdan kelgan (yetkazib beruvchi) — faqat admin/POS.
+  supplier: string;
 }
 
 export interface VariantFormState {
@@ -145,6 +152,8 @@ export interface VariantFormState {
   position: string;
   // Phase 4.0 — do'kondagi jismoniy polka (masalan: "001", "A-3").
   shelf_location: string;
+  // Kimdan kelgan (yetkazib beruvchi) — faqat admin/POS.
+  supplier: string;
 }
 
 export interface ProductEditorState {
@@ -281,6 +290,7 @@ export const emptyProductForm = (): ProductFormState => ({
   is_new: false,
   is_popular: false,
   shelf_location: '',
+  supplier: '',
 });
 
 export const makeVariantClientId = () => `variant-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -311,6 +321,7 @@ export const emptyVariant = (groupId?: string): VariantFormState => ({
   is_active: true,
   position: '0',
   shelf_location: '',
+  supplier: '',
 });
 
 export const emptyBannerForm = (): BannerFormState => ({
@@ -468,6 +479,7 @@ export const mapProductToForm = (product?: AdminProduct): ProductFormState => {
     is_new: product.is_new,
     is_popular: product.is_popular,
     shelf_location: (product.shelf_location || '').slice(0, 20),
+    supplier: (product.supplier || '').slice(0, 100),
   };
 };
 
@@ -505,6 +517,7 @@ export const mapProductVariants = (product?: AdminProduct): VariantFormState[] =
     is_active: v.is_active ?? true,
     position: String(v.position ?? 0),
     shelf_location: v.shelf_location || '',
+    supplier: v.supplier || '',
   }));
 };
 

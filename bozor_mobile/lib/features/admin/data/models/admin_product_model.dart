@@ -48,6 +48,9 @@ class AdminProductVariantModel {
   // parent product.shelfLocation). UI faqat shuni o'qisa kifoya — fallback
   // mantig'i backend tomonida bir joyda hal qilingan (DRY).
   final String? effectiveShelf;
+  // Kimdan kelgan (yetkazib beruvchi) — faqat admin/POS. Public API'da yo'q.
+  final String? supplier;
+  final String? effectiveSupplier;
 
   AdminProductVariantModel({
     this.id,
@@ -72,6 +75,8 @@ class AdminProductVariantModel {
     required this.images,
     this.shelfLocation,
     this.effectiveShelf,
+    this.supplier,
+    this.effectiveSupplier,
   });
 
   factory AdminProductVariantModel.fromJson(Map<String, dynamic> json) {
@@ -101,6 +106,8 @@ class AdminProductVariantModel {
           [],
       shelfLocation: json['shelf_location'] as String?,
       effectiveShelf: json['effective_shelf'] as String?,
+      supplier: json['supplier'] as String?,
+      effectiveSupplier: json['effective_supplier'] as String?,
     );
   }
 
@@ -140,6 +147,8 @@ class AdminProductModel {
   // variantli mahsulot uchun default fallback). Variant'da polka bo'sh bo'lsa
   // backend bu yerdan oladi. UI har joyda `effectiveShelf` bilan ishlasa kifoya.
   final String? shelfLocation;
+  // Kimdan kelgan (yetkazib beruvchi) — faqat admin/POS. Public API'da yo'q.
+  final String? supplier;
 
   AdminProductModel({
     required this.id,
@@ -165,6 +174,7 @@ class AdminProductModel {
     required this.images,
     required this.variants,
     this.shelfLocation,
+    this.supplier,
   });
 
   factory AdminProductModel.fromJson(Map<String, dynamic> json) {
@@ -198,6 +208,7 @@ class AdminProductModel {
               .toList() ??
           [],
       shelfLocation: json['shelf_location'] as String?,
+      supplier: json['supplier'] as String?,
     );
   }
 

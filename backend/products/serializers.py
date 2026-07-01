@@ -172,6 +172,7 @@ class AdminProductVariantSerializer(ProductVariantSerializer):
     backend tomonida bir joyda hal qiladi (DRY printsipi).
     """
     effective_shelf = serializers.CharField(read_only=True)
+    effective_supplier = serializers.CharField(read_only=True)
 
     class Meta(ProductVariantSerializer.Meta):
         fields = ProductVariantSerializer.Meta.fields + (
@@ -185,6 +186,8 @@ class AdminProductVariantSerializer(ProductVariantSerializer):
             'images',
             'shelf_location',   # Phase 4.0 — variant'ning o'z yozuvi
             'effective_shelf',  # Phase 4.2 — fallback bilan amaldagi qiymat
+            'supplier',          # Kimdan kelgan — variant'ning o'z yozuvi
+            'effective_supplier',  # fallback bilan amaldagi qiymat
         )
 
 class ProductListSerializer(serializers.ModelSerializer):
@@ -944,6 +947,10 @@ class AdminProductVariantInputSerializer(serializers.Serializer):
     shelf_location = serializers.CharField(
         required=False, allow_blank=True, allow_null=True, max_length=20,
     )
+    # Kimdan kelgan (yetkazib beruvchi) — faqat admin/POS.
+    supplier = serializers.CharField(
+        required=False, allow_blank=True, allow_null=True, max_length=100,
+    )
 
     def to_internal_value(self, data):
         # Frontend ba'zan bo'sh string yoki noto'g'ri tipdagi raqamlarni yuborishi
@@ -986,6 +993,7 @@ class AdminProductSerializer(serializers.ModelSerializer):
             # Phase 4.2 — product darajasidagi polka (variantsiz mahsulot
             # uchun yoki barcha variantlar uchun default fallback).
             'shelf_location',
+            'supplier',  # Kimdan kelgan (yetkazib beruvchi) — admin/POS
             'created_at', 'updated_at', 'main_image', 'image', 'remove_image', 'images', 'variants_data', 'variants'
         )
         read_only_fields = ('slug', 'created_at', 'updated_at', 'is_discount')
@@ -1107,6 +1115,8 @@ class AdminProductSerializer(serializers.ModelSerializer):
             # Phase 4.0 — polka. None/bo'sh string → '' (model'da default='').
             # CharField(blank=True), null=False bo'lgani uchun '' bo'lib qoladi.
             'shelf_location': (variant_data.get('shelf_location') or '').strip()[:20],
+            # Kimdan kelgan — bo'sh bo'lsa '' (model default). Max 100.
+            'supplier': (variant_data.get('supplier') or '').strip()[:100],
         }
         has_content = any(
             value not in (None, '', Decimal('0.00'), 0, True)

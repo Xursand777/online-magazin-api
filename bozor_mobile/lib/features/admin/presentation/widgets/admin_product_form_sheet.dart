@@ -165,6 +165,8 @@ class _VariantData {
   // 20 belgi (backend `CharField(max_length=20)`). Foydalanuvchi tomonida
   // umuman ko'rsatilmaydi — backend public API'da bu maydon yo'q.
   String? shelfLocation;
+  // Kimdan kelgan (yetkazib beruvchi) — faqat admin/POS.
+  String? supplier;
   String? price;
   String? priceUsd;
   // #N(per-variant cost/discount): web bilan to'liq tenglash — har variant o'z
@@ -211,6 +213,7 @@ class _VariantData {
     this.barcode,
     this.sku,
     this.shelfLocation,
+    this.supplier,
     this.price,
     this.priceUsd,
     this.discountPrice,
@@ -283,6 +286,8 @@ class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
   // Phase 4.2 — product darajasidagi polka (variantsiz mahsulot yoki
   // variantli mahsulot uchun default fallback).
   final _shelfLocation = TextEditingController();
+  // Kimdan kelgan (yetkazib beruvchi) — product darajasi.
+  final _supplier = TextEditingController();
 
   int? _selectedCategoryId;
   bool _isActive = true;
@@ -343,6 +348,7 @@ class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
       _stock.text = p.stock.toString();
       // Phase 4.2 — product polkasi (variantsiz mahsulot uchun yoki default)
       _shelfLocation.text = (p.shelfLocation ?? '').trim();
+      _supplier.text = (p.supplier ?? '').trim();
       _selectedCategoryId = p.categoryId;
       _isActive = p.isActive;
       _isNew = p.isNew;
@@ -368,6 +374,7 @@ class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
             // Phase 4.0 — polka: klon paytida ham saqlanadi (jismoniy joy
             // takrorlanmasligi mumkin, lekin admin keyin o'zgartiradi).
             shelfLocation: widget.clone ? null : v.shelfLocation,
+            supplier: widget.clone ? null : v.supplier,
             price: v.price?.toStringAsFixed(0),
             // USD aniqligini saqlash (6 o'nlik) — narx buzilmasligi uchun.
             priceUsd: _fmtUsdValue(v.priceUsd),
@@ -500,6 +507,7 @@ class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
     _optomPriceUsd.dispose();
     _stock.dispose();
     _shelfLocation.dispose();
+    _supplier.dispose();
     for (final v in _variants) {
       v.disposeControllers();
     }
@@ -538,6 +546,7 @@ class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
     'stock': _stock.text,
     // Phase 4.2 — product polkasi qoralama saqlash
     'shelf_location': _shelfLocation.text,
+    'supplier': _supplier.text,
     'category': _selectedCategoryId,
     'is_active': _isActive,
     'is_new': _isNew,
@@ -555,6 +564,7 @@ class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
             'barcode': v.barcode,
             'sku': v.sku,
             'shelf_location': v.shelfLocation,
+            'supplier': v.supplier,
             'price': v.priceCtrl.text,
             'price_usd': v.priceUsdCtrl.text,
             'discount': v.discountCtrl.text,
@@ -628,6 +638,7 @@ class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
       _optomPriceUsd.text = s(d['optom_price_usd']);
       _stock.text = s(d['stock']);
       _shelfLocation.text = s(d['shelf_location']);
+      _supplier.text = s(d['supplier']);
       _selectedCategoryId = d['category'] as int?;
       _isActive = d['is_active'] as bool? ?? true;
       _isNew = d['is_new'] as bool? ?? true;
@@ -650,6 +661,7 @@ class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
           barcode: m['barcode'] as String?,
           sku: m['sku'] as String?,
           shelfLocation: m['shelf_location'] as String?,
+          supplier: m['supplier'] as String?,
           price: m['price'] as String?,
           priceUsd: m['price_usd'] as String?,
           discountPrice: m['discount'] as String?,
@@ -1362,6 +1374,10 @@ class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
       'shelf_location': _shelfLocation.text.trim().length > 20
           ? _shelfLocation.text.trim().substring(0, 20)
           : _shelfLocation.text.trim(),
+      // Kimdan kelgan (yetkazib beruvchi) — max 100. Faqat admin/POS.
+      'supplier': _supplier.text.trim().length > 100
+          ? _supplier.text.trim().substring(0, 100)
+          : _supplier.text.trim(),
     };
     if (_selectedCategoryId != null) {
       fields['category'] = _selectedCategoryId.toString();
@@ -1417,6 +1433,12 @@ class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
           // Edit holatida bo'shatilgan polkani backend'ga jim yuboramiz —
           // shu sababli '' qiymat berib, eski qiymat ham tozalansin.
           vMap['shelf_location'] = '';
+        }
+        // Kimdan kelgan — polka bilan bir xil mantiq (edit'da tozalash uchun '').
+        if (v.supplier?.isNotEmpty == true) {
+          vMap['supplier'] = v.supplier!.trim();
+        } else if (v.id != null) {
+          vMap['supplier'] = '';
         }
         if (v.price?.isNotEmpty == true) vMap['price'] = v.price;
         if (v.priceUsd?.isNotEmpty == true) vMap['price_usd'] = v.priceUsd;
@@ -1847,13 +1869,33 @@ class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
                                 : "Default polka (variantlar bo'sh polkali bo'lsa)",
                             controller: _shelfLocation,
                             keyboardType: TextInputType.text,
-                            textInputAction: TextInputAction.done,
+                            textInputAction: TextInputAction.next,
                             onChanged: (val) {
                               // Max 20 belgi (backend cheklov)
                               if (val.length > 20) {
                                 _shelfLocation.text = val.substring(0, 20);
                                 _shelfLocation.selection =
                                     TextSelection.collapsed(offset: 20);
+                              }
+                              _scheduleSaveDraft();
+                            },
+                          ),
+                          const SizedBox(height: 12),
+                          // ── KIMDAN KELGAN (yetkazib beruvchi) — faqat admin/POS.
+                          // Foydalanuvchiga umuman ko'rinmaydi. Variantli mahsulotda
+                          // default (variant bo'sh bo'lsa backend shundan fallback).
+                          _FormField(
+                            label: _variants.isEmpty
+                                ? 'Kimdan kelgan (yetkazib beruvchi)'
+                                : 'Kimdan kelgan (default)',
+                            controller: _supplier,
+                            keyboardType: TextInputType.text,
+                            textInputAction: TextInputAction.done,
+                            onChanged: (val) {
+                              if (val.length > 100) {
+                                _supplier.text = val.substring(0, 100);
+                                _supplier.selection =
+                                    TextSelection.collapsed(offset: 100);
                               }
                               _scheduleSaveDraft();
                             },
@@ -2750,6 +2792,70 @@ class _AdminProductFormSheetState extends State<AdminProductFormSheet> {
                   helperStyle: const TextStyle(fontSize: 10, color: Colors.grey),
                 ),
                 onChanged: (val) => v.shelfLocation = val,
+              );
+            },
+          ),
+          const SizedBox(height: 8),
+          // ── KIMDAN KELGAN (yetkazib beruvchi) — faqat admin/POS. Variant bo'sh
+          // bo'lsa product default'idan fallback (smart hint bilan). ──────────
+          Builder(
+            builder: (context) {
+              final productSupplier = _supplier.text.trim();
+              final hintText = productSupplier.isNotEmpty
+                  ? '$productSupplier (default)'
+                  : 'Masalan: Vali aka';
+              return TextFormField(
+                initialValue: v.supplier,
+                maxLength: 100,
+                textInputAction: TextInputAction.next,
+                onFieldSubmitted: (_) => FocusScope.of(context).nextFocus(),
+                style: const TextStyle(
+                  fontWeight: FontWeight.w700,
+                  color: Color(0xFF7C3AED),
+                ),
+                decoration: InputDecoration(
+                  hintText: hintText,
+                  hintStyle: const TextStyle(
+                    fontSize: 12,
+                    color: Colors.grey,
+                    fontWeight: FontWeight.normal,
+                  ),
+                  labelText: productSupplier.isNotEmpty
+                      ? "Kimdan kelgan (bo'sh: $productSupplier)"
+                      : 'Kimdan kelgan',
+                  labelStyle: const TextStyle(
+                    fontWeight: FontWeight.bold,
+                    color: Color(0xFF7C3AED),
+                  ),
+                  prefixIcon: const Icon(
+                    Icons.local_shipping_outlined,
+                    color: Color(0xFF7C3AED),
+                    size: 20,
+                  ),
+                  counterText: '',
+                  isDense: true,
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 10,
+                  ),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(8),
+                    borderSide: const BorderSide(color: Color(0xFF7C3AED)),
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(8),
+                    borderSide:
+                        const BorderSide(color: Color(0xFF7C3AED), width: 1.2),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(8),
+                    borderSide:
+                        const BorderSide(color: Color(0xFF7C3AED), width: 2),
+                  ),
+                  helperText: "Faqat admin/POS'da ko'rinadi",
+                  helperStyle: const TextStyle(fontSize: 10, color: Colors.grey),
+                ),
+                onChanged: (val) => v.supplier = val,
               );
             },
           ),

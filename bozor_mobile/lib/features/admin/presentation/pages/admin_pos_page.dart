@@ -522,6 +522,29 @@ class _ProductUnitCard extends StatelessWidget {
                   ],
                 ),
               ),
+            // Kimdan kelgan — Optom tagida (kichik). Faqat admin/POS.
+            if (unit.supplier.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(top: 2),
+                child: Row(
+                  children: [
+                    Icon(Icons.local_shipping_outlined,
+                        size: 12, color: theme.colorScheme.secondary),
+                    const SizedBox(width: 3),
+                    Flexible(
+                      child: Text(
+                        'Kimdan: ${unit.supplier}',
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.labelSmall?.copyWith(
+                          color: theme.colorScheme.secondary,
+                          fontWeight: FontWeight.w600,
+                          fontSize: 10,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             const SizedBox(height: 4),
             Row(
               children: [
@@ -721,6 +744,28 @@ class _CartItemRow extends StatelessWidget {
                                   )),
                             ],
                           ),
+                        ),
+                      ),
+                    // Kimdan kelgan — faqat admin/POS (SKU yonida, kichik).
+                    if (item.supplier.isNotEmpty)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 4),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.local_shipping_outlined,
+                                size: 12, color: theme.colorScheme.secondary),
+                            const SizedBox(width: 3),
+                            Flexible(
+                              child: Text('Kimdan: ${item.supplier}',
+                                  overflow: TextOverflow.ellipsis,
+                                  style: theme.textTheme.labelSmall?.copyWith(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w600,
+                                    color: theme.colorScheme.secondary,
+                                  )),
+                            ),
+                          ],
                         ),
                       ),
                     if (item.sku.isNotEmpty)

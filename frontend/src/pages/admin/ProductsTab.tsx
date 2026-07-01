@@ -617,8 +617,11 @@ const ProductRowGroup = ({
                   </span>
                 )}
               </div>
-              <div className='mt-1 text-xs text-on-surface-variant'>
-                slug: {product.slug}
+              {/* Kimdan kelgan (yetkazib beruvchi) — slug o'rniga. FAQAT admin
+                  ko'radi (public API'da yo'q). Bo'sh bo'lsa "—". */}
+              <div className='mt-1 flex items-center gap-1 text-xs text-secondary'>
+                <span className='material-symbols-outlined text-[13px]'>local_shipping</span>
+                Kimdan kelgan: <span className='font-semibold'>{product.supplier?.trim() || '—'}</span>
               </div>
             </div>
           </div>
@@ -746,6 +749,13 @@ const ProductRowGroup = ({
                     {v.sku && (
                       <div className='mt-0.5 font-mono text-[11px] text-on-surface-variant'>
                         SKU: {v.sku}
+                      </div>
+                    )}
+                    {/* Kimdan kelgan — variant'niki yoki mahsulot fallback (admin) */}
+                    {(v.effective_supplier || v.supplier || product.supplier)?.trim() && (
+                      <div className='mt-0.5 flex items-center gap-1 text-[11px] text-secondary'>
+                        <span className='material-symbols-outlined text-[12px]'>local_shipping</span>
+                        {(v.effective_supplier || v.supplier || product.supplier)?.trim()}
                       </div>
                     )}
                   </div>

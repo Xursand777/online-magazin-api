@@ -548,6 +548,19 @@ class Product(models.Model):
                   "FAQAT admin paneli, POS va Buyurtmalarda ko'rinadi.",
     )
 
+    # ── KIMDAN KELGAN (yetkazib beruvchi / manba) — faqat admin/POS ──────────
+    # Tovar qaysi yetkazib beruvchidan / do'kondan kelganini bilish uchun.
+    # `shelf_location` kabi ATAYIN FAQAT admin va POS'da ko'rinadi — public
+    # serializer'larda bu maydon yo'q → oddiy foydalanuvchi (sayt/mobil) uni
+    # HECH QACHON ko'rmaydi. Variantsiz mahsulot uchun shu maydon; variantli
+    # mahsulotda variant'niki bo'sh bo'lsa `ProductVariant.effective_supplier`
+    # shu yerdan fallback qiladi (bir marta yozsa yetadi).
+    supplier = models.CharField(
+        max_length=100, blank=True, default='',
+        help_text="Kimdan kelgan (yetkazib beruvchi). FAQAT admin va POS'da "
+                  "ko'rinadi — foydalanuvchiga ko'rinmaydi.",
+    )
+
     is_active = models.BooleanField(default=True)
     is_popular = models.BooleanField(default=False)
     is_new = models.BooleanField(default=True)
@@ -560,6 +573,11 @@ class Product(models.Model):
     def effective_shelf(self) -> str:
         """O'z polka manzili. Variantsiz mahsulot uchun bevosita shu."""
         return self.shelf_location or ''
+
+    @property
+    def effective_supplier(self) -> str:
+        """Kimdan kelgan — variantsiz mahsulot uchun bevosita shu."""
+        return self.supplier or ''
 
     def save(self, *args, **kwargs):
         if not self.slug:
@@ -713,8 +731,26 @@ class ProductVariant(models.Model):
                   "FAQAT admin paneli va POS'da ko'rinadi.",
     )
 
+    # ── KIMDAN KELGAN (yetkazib beruvchi) — faqat admin/POS, foydalanuvchidan
+    # yashirin (public serializer'larda yo'q). Har variant o'z manbaiga ega
+    # bo'lishi mumkin; bo'sh bo'lsa `effective_supplier` product'dan fallback.
+    supplier = models.CharField(
+        max_length=100, blank=True, default='',
+        help_text="Kimdan kelgan (yetkazib beruvchi). FAQAT admin va POS'da.",
+    )
+
     class Meta:
         ordering = ['position', 'id']
+
+    @property
+    def effective_supplier(self) -> str:
+        """Kimdan kelgan — variant'niki yoki product'nikiga fallback (shelf kabi)."""
+        own = (self.supplier or '').strip()
+        if own:
+            return own
+        if not self.product_id:
+            return ''
+        return (self.product.supplier or '').strip()
 
     @property
     def effective_shelf(self) -> str:
