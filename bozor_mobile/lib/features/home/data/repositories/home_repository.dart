@@ -273,6 +273,52 @@ class HomeRepository {
       _ => getRecommendedProducts(),
     };
   }
+
+  /// SAHIFALANGAN bo'lim mahsulotlari — "Barchasini ko'rish" infinite scroll
+  /// uchun. Backend `SectionPagination` (40/sahifa) qaytaradi; `next` bo'lsa
+  /// yana sahifa bor. Serverga og'irlik tushmaydi — har so'rovda faqat bir
+  /// sahifa (40 ta) yuklanadi (Amazon/Wildberries uslubi).
+  ///
+  /// `recommended` bo'limi backend'da sahifalanmaydi (cheklangan pool) —
+  /// bir marta yuklanadi, `hasMore=false`.
+  Future<({List<ProductModel> items, bool hasMore})> getSectionProductsPage(
+    String sectionKey, {
+    required int page,
+    int pageSize = 40,
+  }) async {
+    final String? path = switch (sectionKey) {
+      'discount' => ApiConstants.discounts,
+      'new' => ApiConstants.newProducts,
+      'popular' => ApiConstants.popularProducts,
+      _ => null, // recommended — sahifalanmaydi
+    };
+
+    if (path == null) {
+      // Recommended: bir martalik ro'yxat (sahifasiz).
+      final items = page <= 1 ? await getRecommendedProducts() : <ProductModel>[];
+      return (items: items, hasMore: false);
+    }
+
+    try {
+      final response = await apiClient.dio.get(
+        path,
+        queryParameters: {
+          ..._expandParams,
+          'page': page,
+          'page_size': pageSize,
+        },
+      );
+      final data = response.data;
+      final items = ApiResponse.listFrom(data)
+          .map((json) => ProductModel.fromJson(json))
+          .toList();
+      // `next` bo'sh bo'lmasa — yana sahifa bor.
+      final hasMore = data is Map<String, dynamic> && data['next'] != null;
+      return (items: items, hasMore: hasMore);
+    } catch (_) {
+      return (items: <ProductModel>[], hasMore: false);
+    }
+  }
 }
 
 /// Internal — `/api/main/` javobini parse qilingan ko'rinishda saqlaydi.
