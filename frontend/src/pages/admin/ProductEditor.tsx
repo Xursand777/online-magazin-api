@@ -1060,7 +1060,7 @@ export const ProductEditor = ({
           <div className='xl:col-span-3'>
             <label
               className='mb-1 flex items-center gap-1 text-label-md font-label-md text-secondary'
-              title='Kimdan kelgan — faqat admin va POS ko'radi, foydalanuvchiga ko'rinmaydi'
+              title="Kimdan kelgan — faqat admin va POS ko'radi, foydalanuvchiga ko'rinmaydi"
             >
               <span className='material-symbols-outlined text-[16px]'>local_shipping</span>
               {hasVariants ? 'Kimdan kelgan (default)' : 'Kimdan kelgan'}
