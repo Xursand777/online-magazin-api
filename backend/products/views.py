@@ -122,95 +122,62 @@ from .models import (
 from decimal import Decimal
 
 
+def _search_tokens(query: str) -> list:
+    """
+    Qidiruv so'rovini "mazmunli" tokenlarga ajratadi.
+
+    Qoida: token 2+ belgidan iborat BO'LSA yoki RAQAM bo'lsa saqlanadi.
+      • "iPhone 6"  → ['iphone', '6']   (bitta raqamli "6" ham muhim)
+      • "abj a naushnik" → ['abj', 'naushnik']  ("a" — shovqin, tashlanadi)
+    Kichik harflarga o'tkazilmaydi — `icontains` baribir case-insensitive.
+    """
+    return [t for t in re.split(r'\s+', (query or '').strip()) if len(t) >= 2 or t.isdigit()]
+
+
 def build_product_search_filter(query: str) -> Q:
     """
-    SQLite va boshqa DB lar uchun Q-filter quradi.
-    PostgreSQL uchun ProductSearchView alohida _apply_postgres_fts() ishlatadi.
+    "Aqilli" mahsulot qidiruv filtri — SQLite, PostgreSQL, hamma DB uchun bir xil.
 
-    Ko'p so'zli so'rov mantig'i — NIMA O'ZGARDI:
-      Eski (OR mantiqi):
-        "samsung galaxy" → name LIKE '%samsung%' OR name LIKE '%galaxy%'
-        Natija: "Samsung Printer" ham chiqadi ("samsung" so'zi bor).
+    ASOSIY MANTIQ (mashhur do'konlar kabi): so'rovdagi HAR bir so'z mahsulot
+    nomining ISTALGAN joyida (istalgan tartibda, substring sifatida) bo'lishi
+    kifoya (AND). So'zlar ketma-ket turishi SHART EMAS.
 
-      Yangi (AND mantiqi):
-        "samsung galaxy" → to'liq ibora moslik
-                          OR (name LIKE '%samsung%' AND name LIKE '%galaxy%')
-        Natija: faqat ikkala so'z bir vaqtda bo'lgan mahsulotlar.
+      Misol: "ABJ Naushnik"  →  name LIKE '%abj%' AND name LIKE '%naushnik%'
+      "ABJ D41 Premium Sound 3.5mm Stereo Simli Naushnik Oq" — TOPILADI
+      (chunki 'abj' va 'naushnik' nomning turli joylarida bor).
 
-    Bitta so'z: avvalgidek — name + description + slug + category icontains.
-    Ko'p so'z: barcha tokenlar mahsulot nomida mavjud bo'lishi kerak (AND).
+    Qisman so'z ham ishlaydi: "naush" → '%naush%' → "Naushnik" mos keladi.
+
+    Bitta so'z: nom + slug + kategoriya + tavsifdan qidiriladi.
+    Ko'p so'z: barcha tokenlar NOMDA bo'lishi shart (AND) — yoki to'liq ibora mos.
     """
     query = (query or '').strip()
     if not query:
         return Q(pk__in=[])
 
-    # Raqamli so'rov: ID bo'yicha qidirish
+    # Raqamli so'rov: ID bo'yicha ham qidirish
     if query.isdigit():
         return Q(id=int(query)) | Q(name__icontains=query)
 
-    # To'liq ibora — har doim qidiriladi (aniq mos kelish)
+    # To'liq ibora (aniq, ketma-ket mos kelish) — nom/slug/kategoriya
     phrase_filter = (
         Q(name__icontains=query)
         | Q(slug__icontains=query)
         | Q(category__name__icontains=query)
     )
 
-    # 2+ belgidan iborat tokenlar (qisqa prefikslar kerak emas: "a", "da"…)
-    tokens = [t for t in re.split(r'\s+', query) if len(t) >= 2]
+    tokens = _search_tokens(query)
 
     if len(tokens) <= 1:
         # Bitta so'z: tavsifda ham qidirish
         return phrase_filter | Q(description__icontains=query)
 
-    # Ko'p so'z: nomda BARCHA tokenlar bo'lishi kerak (AND)
-    # "samsung galaxy s24" → name contains 'samsung' AND 'galaxy' AND 's24'
+    # Ko'p so'z: nomda HAR token bo'lishi shart (AND) — joylashuv/tartib muhim emas.
     name_all_tokens = Q()
     for token in tokens:
         name_all_tokens &= Q(name__icontains=token)
 
     return phrase_filter | name_all_tokens
-
-
-def _apply_postgres_fts(qs, query: str):
-    """
-    PostgreSQL'da SearchVector + SearchRank orqali to'liq matn qidiruvini qo'llaydi.
-
-    Nima uchun 'simple' konfiguratsiya:
-      Uzbek/Rus/Ingliz tillarida stemming kerak emas — 'simple' oddiy
-      tokenizatsiya va kichik harflarga o'tkazish bilan cheklanadi.
-      'english' config ishlatilsa: "phones" → "phone" (kesish) yaxshi ishlaydi,
-      lekin "Galaxy" → "galaxi" qilishi mumkin — mahsulot nomlarini buzadi.
-
-    Ikki bosqichli filter:
-      1. fts_rank > 0.0  — to'liq matn mosligi (indeksdan foydalanadi)
-      2. name icontains  — qisman moslash uchun (avtoto'ldirish: "iPh" → "iPhone")
-
-    Production'da GIN index qo'shish (bir marta, admin yoki migration orqali):
-      CREATE EXTENSION IF NOT EXISTS pg_trgm;
-      CREATE INDEX CONCURRENTLY idx_products_fts
-        ON products_product
-        USING gin(
-          to_tsvector('simple', name || ' ' || COALESCE(description, ''))
-        );
-    Shundan so'ng SearchVector so'rovlari O(log n) ga tushadi.
-    """
-    from django.contrib.postgres.search import SearchVector, SearchQuery, SearchRank
-
-    sv = (
-        SearchVector('name',        weight='A', config='simple') +
-        SearchVector('description', weight='B', config='simple')
-    )
-    sq = SearchQuery(query, config='simple')
-
-    return (
-        qs
-        .annotate(fts_rank=SearchRank(sv, sq))
-        .filter(
-            Q(fts_rank__gt=0.0) |   # FTS mosligi
-            Q(name__icontains=query) # Qisman moslash (prefiksi bilan)
-        )
-        .distinct()
-    )
 
 
 def active_home_banners():
@@ -324,23 +291,24 @@ class ProductSearchView(generics.ListAPIView):
 
     def get_queryset(self):
         """
-        Qidiruv so'rovi: PostgreSQL'da SearchVector+SearchRank (FTS),
-        SQLite'da optimallashtirilgan icontains bilan AND-mantig'i.
+        "AQILLI" qidiruv — barcha DB uchun BIR XIL, deterministik mantiq
+        (mashhur do'konlar uslubi). So'rovdagi har bir so'z mahsulot nomining
+        istalgan joyida bo'lsa topiladi ("ABJ Naushnik" → "...Naushnik..." nomli
+        tovar). PostgreSQL FTS (SearchVector) OLIB TASHLANDI — u ko'p so'zli,
+        turli joydagi so'zlar uchun beqaror edi; token-AND-icontains esa
+        kafolatli va bashoratli.
 
-        Tartiblash ustuvorligi (ikkala DB uchun):
-          1. exact_match  — aniq mos kelish (iexact)
-          2. starts_match — boshidan boshlanadigan mos kelish (istartswith)
-          3. PostgreSQL: fts_rank (SearchRank) — tegishlilik ball
-             SQLite:     contains_match (icontains) — oddiy mavjudlik
-          4. is_popular, is_new, name — teng ball bo'lganda
+        Tartiblash ustuvorligi (eng mos yuqorida):
+          1. exact_match     — nom/slug/kategoriya AYNAN so'rovga teng
+          2. starts_match    — nom so'rov bilan boshlanadi
+          3. token_lead      — nom BIRINCHI so'z bilan boshlanadi (mos'lik boosti)
+          4. contains_match  — to'liq ibora nomda ketma-ket bor
+          5. is_popular, is_new, name — teng bo'lganda
         """
-        from django.db import connection
-
         search_query = (self.request.query_params.get('q') or '').strip()
         if not search_query:
             return Product.objects.none()
 
-        # Aniq mos kelish annotatsiyalari — har ikkala DB'da bir xil
         exact_whens = [
             When(name__iexact=search_query,          then=Value(5)),
             When(slug__iexact=search_query,           then=Value(4)),
@@ -349,34 +317,15 @@ class ProductSearchView(generics.ListAPIView):
         if search_query.isdigit():
             exact_whens.insert(0, When(id=int(search_query), then=Value(6)))
 
-        base_qs = (
+        # Birinchi mazmunli token — "nom shu so'z bilan boshlansa" boosti uchun
+        # (masalan "ABJ Naushnik"da 'ABJ' bilan boshlangan tovarlar yuqorida).
+        tokens = _search_tokens(search_query)
+        first_token = tokens[0] if tokens else search_query
+
+        return (
             Product.objects.filter(is_active=True)
             .select_related('category')
             .prefetch_related('images')
-        )
-
-        # ── PostgreSQL: SearchVector + SearchRank ────────────────────────────
-        if connection.vendor == 'postgresql':
-            return (
-                _apply_postgres_fts(base_qs, search_query)
-                .annotate(
-                    exact_match=Case(
-                        *exact_whens, default=Value(0), output_field=IntegerField(),
-                    ),
-                    starts_match=Case(
-                        When(name__istartswith=search_query,          then=Value(3)),
-                        When(category__name__istartswith=search_query, then=Value(2)),
-                        default=Value(0), output_field=IntegerField(),
-                    ),
-                )
-                # fts_rank — _apply_postgres_fts() tomonidan qo'shilgan
-                .order_by('-exact_match', '-starts_match', '-fts_rank', '-is_popular', '-is_new', 'name')
-                .distinct()[:_MAX_SEARCH_RESULTS]
-            )
-
-        # ── SQLite / boshqa DB: icontains (AND-mantig'i) ─────────────────────
-        return (
-            base_qs
             .filter(build_product_search_filter(search_query))
             .annotate(
                 exact_match=Case(
@@ -387,6 +336,10 @@ class ProductSearchView(generics.ListAPIView):
                     When(category__name__istartswith=search_query, then=Value(2)),
                     default=Value(0), output_field=IntegerField(),
                 ),
+                token_lead=Case(
+                    When(name__istartswith=first_token, then=Value(1)),
+                    default=Value(0), output_field=IntegerField(),
+                ),
                 contains_match=Case(
                     When(name__icontains=search_query,        then=Value(2)),
                     When(description__icontains=search_query, then=Value(1)),
@@ -394,7 +347,10 @@ class ProductSearchView(generics.ListAPIView):
                     default=Value(0), output_field=IntegerField(),
                 ),
             )
-            .order_by('-exact_match', '-starts_match', '-contains_match', '-is_popular', '-is_new', 'name')
+            .order_by(
+                '-exact_match', '-starts_match', '-token_lead',
+                '-contains_match', '-is_popular', '-is_new', 'name',
+            )
             .distinct()[:_MAX_SEARCH_RESULTS]
         )
 
