@@ -16,12 +16,17 @@ class ProductDetailRepository {
   }
 
   /// O'xshash mahsulotlar (sayt bilan bir xil — dedup rejimi backend tomonda).
-  Future<List<ProductModel>> getSimilarProducts(int id) async {
+  /// O'xshash mahsulotlar. `variantId` berilsa — o'sha VARIANTGA aloqador
+  /// (masalan "16 Pro Max" variantiga mos tovarlar) chiqadi.
+  Future<List<ProductModel>> getSimilarProducts(int id, {int? variantId}) async {
     try {
       final url = '${ApiConstants.products}$id/similar/';
       final response = await apiClient.dio.get(
         url,
-        queryParameters: {'expand_variants': 'true'},
+        queryParameters: {
+          'expand_variants': 'true',
+          if (variantId != null) 'variant': variantId,
+        },
       );
       return ApiResponse.listFrom(response.data)
           .map((j) => ProductModel.fromJson(j))

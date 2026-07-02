@@ -33,8 +33,10 @@ const EXPAND = { expand_variants: true } as const;
 export const getProducts = (params?: object) =>
   apiClient.get('/products/', { params: { ...EXPAND, ...(params || {}) } });
 export const getProductDetail = (id: number | string) => apiClient.get(`/products/${id}/`);
-export const getSimilarProducts = (id: number | string) =>
-  apiClient.get(`/products/${id}/similar/`, { params: EXPAND });
+export const getSimilarProducts = (id: number | string, variantId?: number | null) =>
+  apiClient.get(`/products/${id}/similar/`, {
+    params: { ...EXPAND, ...(variantId ? { variant: variantId } : {}) },
+  });
 export const searchProducts = (q: string, track = false) =>
   apiClient.get('/search/products/', { params: { q, track } });
 export const getDiscountProducts = (params?: { page?: number; page_size?: number }) =>

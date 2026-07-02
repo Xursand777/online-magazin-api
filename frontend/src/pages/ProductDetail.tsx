@@ -241,9 +241,12 @@ const ProductDetail = () => {
     enabled: !!id,
   });
 
+  // O'xshash mahsulotlar — TANLANGAN VARIANTGA aloqador (masalan "16 Pro Max"
+  // variantiga kirganda, o'sha modelga mos tovarlar). Variant o'zgarsa qayta
+  // yuklanadi (queryKey'da selectedVariantId).
   const { data: similarProducts = [], isLoading: isSimilarLoading } = useQuery<ProductCardData[]>({
-    queryKey: ['similar-products', id, language],
-    queryFn: () => getSimilarProducts(id!).then(r => r.data),
+    queryKey: ['similar-products', id, selectedVariantId, language],
+    queryFn: () => getSimilarProducts(id!, selectedVariantId).then(r => r.data),
     enabled: !!id,
     staleTime: 5 * 60 * 1000,
   });
@@ -898,16 +901,30 @@ const ProductDetail = () => {
             <h2 className="text-h3 font-h3 text-on-surface">{t.product.similar}</h2>
           </div>
 
+          {/* GORIZONTAL scroll karusel — mashhur saytlardagidek. Barcha o'xshash
+              mahsulotlar (5 tadan ko'p) o'ngga surganda ochilib boradi. Har karta
+              belgilangan enda (min-w) — grid emas, oqim. */}
           {isSimilarLoading ? (
-            <div className="grid grid-cols-2 gap-md md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
-              {[1, 2, 3, 4, 5].map((item) => (
-                <ProductSkeleton key={item} />
+            <div className="flex gap-md overflow-x-auto pb-2">
+              {[1, 2, 3, 4, 5, 6].map((item) => (
+                <div key={item} className="w-[45%] shrink-0 sm:w-[30%] md:w-[23%] lg:w-[18.5%] xl:w-[15.5%]">
+                  <ProductSkeleton />
+                </div>
               ))}
             </div>
           ) : (
-            <div className="grid grid-cols-2 gap-md md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
-              {similarProducts.slice(0, 10).map((item) => (
-                <ProductCard key={item.card_id ?? item.id} product={item} />
+            <div
+              className="-mx-4 flex snap-x snap-mandatory gap-md overflow-x-auto scroll-px-4 px-4 pb-3 [scrollbar-width:thin] md:mx-0 md:px-0 md:scroll-px-0"
+              role="list"
+            >
+              {similarProducts.map((item) => (
+                <div
+                  key={item.card_id ?? item.id}
+                  role="listitem"
+                  className="w-[45%] shrink-0 snap-start sm:w-[30%] md:w-[23%] lg:w-[18.5%] xl:w-[15.5%]"
+                >
+                  <ProductCard product={item} />
+                </div>
               ))}
             </div>
           )}

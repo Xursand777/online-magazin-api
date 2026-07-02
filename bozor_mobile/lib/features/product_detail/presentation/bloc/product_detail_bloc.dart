@@ -267,10 +267,15 @@ class ProductDetailBloc extends Bloc<ProductDetailEvent, ProductDetailState> {
   Future<void> _onLoad(LoadProductDetail event, Emitter<ProductDetailState> emit) async {
     emit(const ProductDetailLoading());
     try {
-      // Mahsulot va o'xshashlarni parallel yuklaymiz
+      // Mahsulot va o'xshashlarni parallel yuklaymiz. O'xshashlar TANLANGAN
+      // (preselected) variantga aloqador bo'lsin — masalan qidiruvdan "16 Pro Max"
+      // variantiga kirilsa, o'sha modelga mos tovarlar.
       final results = await Future.wait([
         repository.getProductDetail(event.productId),
-        repository.getSimilarProducts(event.productId),
+        repository.getSimilarProducts(
+          event.productId,
+          variantId: event.preselectedVariantId,
+        ),
       ]);
       final product = results[0] as ProductDetailModel;
       final similar = results[1] as List<ProductModel>;
@@ -295,19 +300,46 @@ class ProductDetailBloc extends Bloc<ProductDetailEvent, ProductDetailState> {
         selectedVariantId: initialVariantId,
         similarProducts: similar,
       ));
+
+      // Amaldagi variant preselected'dan farq qilsa (fallback → birinchi variant),
+      // o'xshashlarni o'sha variantga moslab fon rejimida qayta yuklaymiz.
+      if (initialVariantId != null &&
+          initialVariantId != event.preselectedVariantId) {
+        await _refreshSimilar(event.productId, initialVariantId, emit);
+      }
     } catch (e) {
       emit(ProductDetailError(e.toString().replaceFirst('Exception: ', '')));
     }
   }
 
-  void _onSelectVariant(SelectVariant event, Emitter<ProductDetailState> emit) {
+  /// O'xshash mahsulotlarni tanlangan variantga moslab FON rejimida yangilaydi.
+  /// Eski natijalar ko'rinib turadi (miltillash yo'q). Stale-guard: natija
+  /// kelganda hali ham O'SHA variant tanlangan bo'lsagina qo'llanadi (tez
+  /// almashtirishlarda eski natija chalkashtirmasin).
+  Future<void> _refreshSimilar(
+    int productId,
+    int? variantId,
+    Emitter<ProductDetailState> emit,
+  ) async {
+    final similar =
+        await repository.getSimilarProducts(productId, variantId: variantId);
+    final s = state;
+    if (s is ProductDetailLoaded && s.selectedVariantId == variantId) {
+      emit(s.copyWith(similarProducts: similar));
+    }
+  }
+
+  Future<void> _onSelectVariant(
+      SelectVariant event, Emitter<ProductDetailState> emit) async {
     final s = state;
     if (s is! ProductDetailLoaded) return;
     emit(s.copyWith(selectedVariantId: event.variantId));
+    await _refreshSimilar(s.product.id, event.variantId, emit);
   }
 
   /// Rang bosilganda — RANG priority, sifat va o'lcham preference.
-  void _onSelectByColor(SelectByColor event, Emitter<ProductDetailState> emit) {
+  Future<void> _onSelectByColor(
+      SelectByColor event, Emitter<ProductDetailState> emit) async {
     final s = state;
     if (s is! ProductDetailLoaded) return;
     final next = _findByPriority(
@@ -318,11 +350,15 @@ class ProductDetailBloc extends Bloc<ProductDetailEvent, ProductDetailState> {
       preferQuality: s.selectedVariant?.quality,
       preferSize: s.selectedVariant?.size ?? s.selectedVariant?.model,
     );
-    if (next != null) emit(s.copyWith(selectedVariantId: next.id));
+    if (next != null) {
+      emit(s.copyWith(selectedVariantId: next.id));
+      await _refreshSimilar(s.product.id, next.id, emit);
+    }
   }
 
   /// Sifat bosilganda — SIFAT priority, rang va o'lcham preference.
-  void _onSelectByQuality(SelectByQuality event, Emitter<ProductDetailState> emit) {
+  Future<void> _onSelectByQuality(
+      SelectByQuality event, Emitter<ProductDetailState> emit) async {
     final s = state;
     if (s is! ProductDetailLoaded) return;
     final next = _findByPriority(
@@ -333,11 +369,15 @@ class ProductDetailBloc extends Bloc<ProductDetailEvent, ProductDetailState> {
       preferQuality: event.quality,
       preferSize: s.selectedVariant?.size ?? s.selectedVariant?.model,
     );
-    if (next != null) emit(s.copyWith(selectedVariantId: next.id));
+    if (next != null) {
+      emit(s.copyWith(selectedVariantId: next.id));
+      await _refreshSimilar(s.product.id, next.id, emit);
+    }
   }
 
   /// O'lcham/xotira bosilganda — SIZE priority, rang va sifat preference.
-  void _onSelectBySize(SelectBySize event, Emitter<ProductDetailState> emit) {
+  Future<void> _onSelectBySize(
+      SelectBySize event, Emitter<ProductDetailState> emit) async {
     final s = state;
     if (s is! ProductDetailLoaded) return;
     final next = _findByPriority(
@@ -348,7 +388,10 @@ class ProductDetailBloc extends Bloc<ProductDetailEvent, ProductDetailState> {
       preferQuality: s.selectedVariant?.quality,
       preferSize: event.size,
     );
-    if (next != null) emit(s.copyWith(selectedVariantId: next.id));
+    if (next != null) {
+      emit(s.copyWith(selectedVariantId: next.id));
+      await _refreshSimilar(s.product.id, next.id, emit);
+    }
   }
 
   /// **Priority-based variant matching** (Amazon/Wildberries professional usuli).

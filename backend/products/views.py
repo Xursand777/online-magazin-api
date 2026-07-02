@@ -484,7 +484,17 @@ class ProductSimilarListView(VariantExpandMixin, generics.ListAPIView):
             .prefetch_related('variants'),
             pk=self.kwargs.get('pk'),
         )
-        return build_similar_products(source_product, limit=10)
+        # Joriy tanlangan variant (mahsulot sahifasida) — o'sha variantga
+        # aloqador o'xshash mahsulotlar chiqishi uchun. `?variant=<id>`.
+        variant = None
+        variant_id = self.request.query_params.get('variant')
+        if variant_id:
+            try:
+                variant = source_product.variants.filter(id=int(variant_id)).first()
+            except (ValueError, TypeError):
+                variant = None
+        # 24 ta — gorizontal scroll bilan "o'ngga surganda" ochilib boradi.
+        return build_similar_products(source_product, variant=variant, limit=24)
 
 class MainPageView(views.APIView):
     """
