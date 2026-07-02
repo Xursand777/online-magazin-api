@@ -88,15 +88,13 @@ class PaginatedSearchState extends Equatable {
 
 /// "Barchasini ko'rish" sahifasi uchun bloc.
 ///
-/// Backend: `/api/products/?q=...&page=N&expand_variants=true`
-/// Default page_size = 40 (DRF pagination), katta katalog uchun ham
-/// "qotib qolmaydi" — har sahifa O(1) so'rov bo'lib qaytaradi.
+/// Backend: `/api/search/products/?q=...` — VARIANT-AWARE aqilli qidiruv
+/// (overlay va sayt bilan AYNAN bir xil). Mos variantlar reyting bo'yicha
+/// (max 50, sahifasiz). Shu sababli hammasi bir marta keladi (hasMore=false)
+/// va natijalar overlay bilan 100% mos.
 ///
-/// Algoritmi (Amazon/Wildberries/Yandex Market uslubi):
-///   1. StartSearch(query) → page=1 yuklash, products=replaced
-///   2. Foydalanuvchi scroll qiladi → LoadNextPage → page+1
-///   3. response.next == null bo'lsa → hasMore=false → endi yuklamaydi
-///   4. Xato bo'lsa → error state, foydalanuvchi Retry bosa oladi
+/// Eslatma: avval `/api/products/?q=` ishlatilardi — u faqat mahsulot nomini
+/// qidirardi (variantlarni emas) va natijalar overlay bilan mos kelmasdi.
 class PaginatedSearchBloc
     extends Bloc<PaginatedSearchEvent, PaginatedSearchState> {
   final ApiClient apiClient;
@@ -154,12 +152,16 @@ class PaginatedSearchBloc
     final localToken = _activeToken!;
 
     try {
+      // MUHIM: overlay bilan AYNAN bir xil — VARIANT-AWARE qidiruv
+      // (/api/search/products/). Avval /api/products/?q= ishlatilardi — u faqat
+      // mahsulot NOMINI qidirardi, variantlarni emas → "iphone 16 pro max shisha"
+      // da faqat bitta mahsulot (nomida hamma so'z bor) va uning ranglari
+      // chiqardi. Endi natijalar overlay va sayt bilan 100% bir xil.
+      // Bu endpoint sahifasiz (list) — mos variantlar reyting bo'yicha (max 50).
       final response = await apiClient.dio.get(
-        ApiConstants.products,
+        ApiConstants.searchProducts,
         queryParameters: {
           'q': state.query,
-          'page': page,
-          'expand_variants': 'true',
         },
         cancelToken: localToken,
       );
