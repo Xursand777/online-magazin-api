@@ -7,8 +7,9 @@ import { useFavoritesStore } from '../store/favoritesStore';
 import { useAuthStore } from '../store/authStore';
 import { toast } from '../utils/toast';
 import Lightbox from '../components/Lightbox';
-import ProductCard, { type Product as ProductCardData } from '../components/ProductCard';
+import { type Product as ProductCardData } from '../components/ProductCard';
 import ProductSkeleton from '../components/ProductSkeleton';
+import SimilarCarousel from '../components/SimilarCarousel';
 import { useTranslation } from '../i18n/useTranslation';
 
 
@@ -329,45 +330,60 @@ const ProductDetail = () => {
     (v) => v.size || v.model
   );
 
-  // ── Variant tanlash logikasi ─────────────────────────────────────────────
-  // Foydalanuvchi color/quality/size pill'ini bosganda — eng yaxshi mos
-  // variantni topadi (cascade fallback):
-  //   1. (color, quality, size) — uchchasi ham mos
-  //   2. (color, quality)        — size'ni tashlaymiz
-  //   3. (color, size)           — quality'ni tashlaymiz
-  //   4. (color)                 — faqat color
-  //   5. Birinchi variant        — fallback
+  // ── Variant tanlash logikasi (professional, xatosiz) ─────────────────────
+  // Foydalanuvchi bosgan O'LCHOV (color / quality / size) — QAT'IY talab (locked):
+  // natija ALBATTA shu qiymatga mos variant bo'ladi. Qolgan o'lchovlar esa
+  // "yumshoq afzallik" — imkon qadar joriy tanlov saqlanadi, aks holda bo'shashadi.
   //
-  // Bu Amazon/Wildberries usuli — foydalanuvchi tanlovini iloji boricha saqlaydi.
-  const findBestVariant = (
-    pref: { color?: string; quality?: string; size?: string }
-  ): ProductVariant | null => {
-    const match = (v: ProductVariant, p: typeof pref) =>
-      (p.color === undefined   || v.color === p.color) &&
-      (p.quality === undefined || (v.quality || '') === p.quality) &&
-      (p.size === undefined    || (v.size || v.model) === p.size);
+  // MUHIM: variant maydonlari `null` ham, `''` ham bo'lishi mumkin (masalan bu
+  // mahsulotda color/quality YO'Q, faqat model bor). Shuning uchun `norm()` bilan
+  // normallashtiriladi — aks holda `null === ''` false bo'lib, tanlov ishlamas edi
+  // (avvalgi bug: har bosishda birinchi variant qaytardi).
+  const norm = (s?: string | null) => (s ?? '').trim();
+  const vSizeKey = (v: ProductVariant) => norm(v.size) || norm(v.model);
 
-    // 4 darajali cascade — eng aniq → eng kengroq
-    return (
-      variants.find((v) => match(v, pref)) ||
-      variants.find((v) => match(v, { ...pref, size: undefined })) ||
-      variants.find((v) => match(v, { ...pref, quality: undefined })) ||
-      variants.find((v) => v.color === pref.color) ||
-      variants[0] ||
-      null
+  // locked — foydalanuvchi hozir bosgan o'lchov (majburiy filtr).
+  // Qaytadi: locked'ga mos, joriy tanlovni (color/quality/size) eng yaxshi
+  // saqlaydigan variant; teng bo'lsa OMBORDA BOR variant afzal (lekin bu hech
+  // qachon tugagan variantni tanlashni bloklamaydi — faqat teng holatda tanlaydi).
+  const pickVariant = (
+    locked: { color?: string; quality?: string; size?: string }
+  ): ProductVariant | null => {
+    const pool = variants.filter(
+      (v) =>
+        (locked.color === undefined   || norm(v.color)   === norm(locked.color)) &&
+        (locked.quality === undefined || norm(v.quality) === norm(locked.quality)) &&
+        (locked.size === undefined    || vSizeKey(v)       === norm(locked.size))
     );
+    if (pool.length === 0) return null;
+
+    // Yumshoq afzalliklar — bosilgan o'lchov uchun locked qiymat, qolgani uchun
+    // joriy tanlov. Vaznlar: color ≫ quality ≫ size ≫ stock (tanlovni saqlash
+    // ombordan muhimroq; stock faqat TENG holatda hal qiladi).
+    const wantColor   = locked.color   !== undefined ? norm(locked.color)   : norm(selectedColor);
+    const wantQuality = locked.quality !== undefined ? norm(locked.quality) : norm(selectedQuality);
+    const wantSize    = locked.size    !== undefined ? norm(locked.size)    : norm(selectedSize);
+    const score = (v: ProductVariant) => {
+      let s = 0;
+      if (wantColor   && norm(v.color)   === wantColor)   s += 1000;
+      if (wantQuality && norm(v.quality) === wantQuality) s += 100;
+      if (wantSize    && vSizeKey(v)      === wantSize)    s += 10;
+      if (v.stock > 0) s += 1; // ombordagi variant faqat teng holatda afzal
+      return s;
+    };
+    return pool.reduce((best, v) => (score(v) > score(best) ? v : best), pool[0]);
   };
 
   const handleSelectColor = (color: string) => {
-    const next = findBestVariant({ color, quality: selectedQuality, size: selectedSize });
+    const next = pickVariant({ color });
     if (next) setSelectedVariantId(next.id);
   };
   const handleSelectQuality = (quality: string) => {
-    const next = findBestVariant({ color: selectedColor, quality, size: selectedSize });
+    const next = pickVariant({ quality });
     if (next) setSelectedVariantId(next.id);
   };
   const handleSelectSize = (size: string) => {
-    const next = findBestVariant({ color: selectedColor, quality: selectedQuality, size });
+    const next = pickVariant({ size });
     if (next) setSelectedVariantId(next.id);
   };
   const cartItem = cart?.items.find(
@@ -900,36 +916,24 @@ const ProductDetail = () => {
 
       {(isSimilarLoading || similarProducts.length > 0) && (
         <section className="md:col-span-12 mt-lg border-t border-outline-variant pt-lg">
-          <div className="mb-md flex items-center justify-between gap-3">
-            <h2 className="text-h3 font-h3 text-on-surface">{t.product.similar}</h2>
-          </div>
-
-          {/* GORIZONTAL scroll karusel — mashhur saytlardagidek. Barcha o'xshash
-              mahsulotlar (5 tadan ko'p) o'ngga surganda ochilib boradi. Har karta
-              belgilangan enda (min-w) — grid emas, oqim. */}
+          {/* GORIZONTAL karusel — Aros uslubidagi CHAP/O'NG strelkalar bilan.
+              Kartalar o'ngga surgan/strelka bosgan sari OCHILIB boradi (client
+              tomonda, serverga qo'shimcha so'rovsiz). Ko'rinmas scrollbar. */}
           {isSimilarLoading ? (
-            <div className="flex gap-md overflow-x-auto pb-2">
-              {[1, 2, 3, 4, 5, 6].map((item) => (
-                <div key={item} className="w-[45%] shrink-0 sm:w-[30%] md:w-[23%] lg:w-[18.5%] xl:w-[15.5%]">
-                  <ProductSkeleton />
-                </div>
-              ))}
-            </div>
+            <>
+              <div className="mb-md flex items-center justify-between gap-3">
+                <h2 className="text-h3 font-h3 text-on-surface">{t.product.similar}</h2>
+              </div>
+              <div className="flex gap-md overflow-x-auto pb-2 scrollbar-hide">
+                {[1, 2, 3, 4, 5, 6].map((item) => (
+                  <div key={item} className="w-[45%] shrink-0 sm:w-[30%] md:w-[23%] lg:w-[18.5%] xl:w-[15.5%]">
+                    <ProductSkeleton />
+                  </div>
+                ))}
+              </div>
+            </>
           ) : (
-            <div
-              className="-mx-4 flex snap-x snap-mandatory gap-md overflow-x-auto scroll-px-4 px-4 pb-3 [scrollbar-width:thin] md:mx-0 md:px-0 md:scroll-px-0"
-              role="list"
-            >
-              {similarProducts.map((item) => (
-                <div
-                  key={item.card_id ?? item.id}
-                  role="listitem"
-                  className="w-[45%] shrink-0 snap-start sm:w-[30%] md:w-[23%] lg:w-[18.5%] xl:w-[15.5%]"
-                >
-                  <ProductCard product={item} />
-                </div>
-              ))}
-            </div>
+            <SimilarCarousel products={similarProducts} title={t.product.similar} />
           )}
         </section>
       )}

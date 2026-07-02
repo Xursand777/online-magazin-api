@@ -150,11 +150,7 @@ class _ProductDetailView extends StatelessWidget {
                 if (state.similarProducts.isNotEmpty) ...[
                   const Divider(),
                   const SizedBox(height: 16),
-                  Text("O'xshash mahsulotlar",
-                      style: theme.textTheme.titleMedium
-                          ?.copyWith(fontWeight: FontWeight.bold)),
-                  const SizedBox(height: 12),
-                  _buildSimilarProducts(state.similarProducts),
+                  _SimilarCarousel(products: state.similarProducts),
                 ],
 
                 const SizedBox(height: 90), // bottomSheet uchun joy
@@ -576,26 +572,6 @@ class _ProductDetailView extends StatelessWidget {
     );
   }
 
-  /// O'xshash mahsulotlar listi — sayt va home grid bilan bir xil o'lcham.
-  ///
-  /// Home GridView'da `mainAxisExtent: 320` (kvadrat rasmlar + matn maydon).
-  /// Bu yerda ham bir xil 320×170 o'lcham — barcha kartochkalar **uniform**.
-  /// Avval 280×160 edi → 14px overflow (button kesilar edi). Tuzatildi.
-  Widget _buildSimilarProducts(List<ProductModel> products) {
-    return SizedBox(
-      height: 320, // ✅ Home grid bilan bir xil; overflow yo'q
-      child: ListView.separated(
-        scrollDirection: Axis.horizontal,
-        itemCount: products.length,
-        separatorBuilder: (_, __) => const SizedBox(width: 12),
-        itemBuilder: (_, i) => SizedBox(
-          width: 170, // ✅ Bir oz kengroq — matn yaxshiroq sig'adi
-          child: ProductCard(product: products[i]),
-        ),
-      ),
-    );
-  }
-
   Widget _buildBottomBar(
       BuildContext context, ProductDetailLoaded state, ThemeData theme) {
     final variant = state.selectedVariant;
@@ -750,4 +726,150 @@ class _ProductDetailView extends StatelessWidget {
     'desert': '#c9a274',
     'midnight black': '#0a0a23',
   };
+}
+
+/// O'xshash mahsulotlar karuseli — Aros uslubidagi CHAP/O'NG strelkalar bilan.
+///
+/// - Strelka bosilganda ro'yxat silliq suriladi (bir ekran eni ~85%).
+/// - Chekkaga yetganda tegishli strelka avtomatik o'chadi (kulrang).
+/// - `ListView.builder` tabiiy ravishda LAZY — faqat ko'rinadigan kartalar
+///   chiziladi, hammasi birdaniga emas. O'xshash mahsulotlar allaqachon bitta
+///   so'rovda kelgani uchun surish SERVERGA qo'shimcha yuk BERMAYDI.
+class _SimilarCarousel extends StatefulWidget {
+  final List<ProductModel> products;
+  const _SimilarCarousel({required this.products});
+
+  @override
+  State<_SimilarCarousel> createState() => _SimilarCarouselState();
+}
+
+class _SimilarCarouselState extends State<_SimilarCarousel> {
+  final ScrollController _controller = ScrollController();
+  bool _canPrev = false;
+  bool _canNext = true;
+
+  static const double _cardWidth = 170;
+  static const double _gap = 12;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller.addListener(_syncArrows);
+    WidgetsBinding.instance.addPostFrameCallback((_) => _syncArrows());
+  }
+
+  @override
+  void didUpdateWidget(covariant _SimilarCarousel oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // Ro'yxat almashsa (variant o'zgarsa) — boshiga qaytamiz.
+    if (!identical(oldWidget.products, widget.products)) {
+      if (_controller.hasClients) _controller.jumpTo(0);
+      WidgetsBinding.instance.addPostFrameCallback((_) => _syncArrows());
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller.removeListener(_syncArrows);
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _syncArrows() {
+    if (!_controller.hasClients) return;
+    final pos = _controller.position;
+    final prev = pos.pixels > 4;
+    final next = pos.pixels < pos.maxScrollExtent - 4;
+    if (prev != _canPrev || next != _canNext) {
+      setState(() {
+        _canPrev = prev;
+        _canNext = next;
+      });
+    }
+  }
+
+  void _scrollBy(int dir) {
+    if (!_controller.hasClients) return;
+    final viewport = _controller.position.viewportDimension;
+    final target = (_controller.offset + dir * viewport * 0.85)
+        .clamp(0.0, _controller.position.maxScrollExtent);
+    _controller.animateTo(
+      target,
+      duration: const Duration(milliseconds: 320),
+      curve: Curves.easeOutCubic,
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Expanded(
+              child: Text("O'xshash mahsulotlar",
+                  style: theme.textTheme.titleMedium
+                      ?.copyWith(fontWeight: FontWeight.bold)),
+            ),
+            Row(
+              children: [
+                _arrowButton(theme, Icons.chevron_left, _canPrev,
+                    () => _scrollBy(-1)),
+                const SizedBox(width: 8),
+                _arrowButton(theme, Icons.chevron_right, _canNext,
+                    () => _scrollBy(1)),
+              ],
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        SizedBox(
+          height: 320, // Home grid bilan bir xil; overflow yo'q
+          child: ListView.separated(
+            controller: _controller,
+            scrollDirection: Axis.horizontal,
+            physics: const BouncingScrollPhysics(),
+            itemCount: widget.products.length,
+            separatorBuilder: (_, __) => const SizedBox(width: _gap),
+            itemBuilder: (_, i) => SizedBox(
+              width: _cardWidth,
+              child: ProductCard(product: widget.products[i]),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _arrowButton(
+      ThemeData theme, IconData icon, bool enabled, VoidCallback onTap) {
+    return Material(
+      color: Colors.transparent,
+      shape: CircleBorder(
+        side: BorderSide(
+          color: enabled
+              ? theme.colorScheme.outlineVariant
+              : theme.colorScheme.outlineVariant.withValues(alpha: 0.4),
+        ),
+      ),
+      child: InkWell(
+        customBorder: const CircleBorder(),
+        onTap: enabled ? onTap : null,
+        child: SizedBox(
+          width: 34,
+          height: 34,
+          child: Icon(
+            icon,
+            size: 22,
+            color: enabled
+                ? theme.colorScheme.onSurface
+                : theme.colorScheme.onSurface.withValues(alpha: 0.3),
+          ),
+        ),
+      ),
+    );
+  }
 }
