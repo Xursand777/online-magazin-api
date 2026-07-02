@@ -214,9 +214,23 @@ class SectionPagination(PageNumberPagination):
 _MAX_SEARCH_RESULTS = 50
 
 class CategoryListView(generics.ListAPIView):
-    queryset = Category.objects.filter(parent=None, is_active=True) # Only top level categories as tree roots
+    # Katalog daraxti (top-level root'lar + ichma-ich `children`).
+    #
+    # ⚠ MUHIM (BUG FIX): `pagination_class = None` SHART. DRF global default
+    # paginatsiyasi (PAGE_SIZE=10) bu endpointga ham qo'llanardi — 25 ta root
+    # kategoriyadan faqat 10 tasi qaytardi. Qolgan root'lar VA ularning BARCHA
+    # sub-kategoriyalari (masalan "Telefon ehtiyot qismlari → Ekran") umuman
+    # kelmasdi. Frontend daraxtdan slug bo'yicha kategoriyani topgani uchun
+    # (findCategory), yo'q kategoriyaning mahsulotlari ham ochilmasdi.
+    # Katalog daraxti KICHIK va TO'LIQ kelishi shart — shuning uchun paginatsiya
+    # o'chirilgan (butun daraxt bir javobda).
+    queryset = (
+        Category.objects.filter(parent=None, is_active=True)
+        .order_by('order', 'name')
+    )
     serializer_class = CategorySerializer
     permission_classes = (AllowAny,)
+    pagination_class = None
 
 
 class HomeCategoryListView(generics.ListAPIView):
