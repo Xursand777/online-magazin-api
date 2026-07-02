@@ -429,16 +429,16 @@ class _ProductDetailView extends StatelessWidget {
           runSpacing: 10,
           children: state.colorOptions.map((v) {
             final active = v.color == selected;
-            final disabled = v.stock <= 0;
+            // Tugagan bo'lsa ham TANLASH mumkin (narx/rasm/modelni ko'rish uchun).
+            // Faqat vizual belgi qoladi; sotib olish tugmasi baribir bloklanadi.
+            final outOfStock = v.stock <= 0;
             final hex = v.colorHex ?? _colorToHex(v.color);
             final color = _parseHex(hex) ?? theme.colorScheme.surfaceContainer;
 
             return InkWell(
-              onTap: disabled
-                  ? null
-                  : () => context
-                      .read<ProductDetailBloc>()
-                      .add(SelectByColor(v.color ?? '')),
+              onTap: () => context
+                  .read<ProductDetailBloc>()
+                  .add(SelectByColor(v.color ?? '')),
               child: Container(
                 width: 48,
                 height: 48,
@@ -465,7 +465,7 @@ class _ProductDetailView extends StatelessWidget {
                     color: color,
                     border: Border.all(color: Colors.black12),
                   ),
-                  child: disabled
+                  child: outOfStock
                       ? const Icon(Icons.do_not_disturb,
                           size: 18, color: Colors.white70)
                       : null,
@@ -492,12 +492,12 @@ class _ProductDetailView extends StatelessWidget {
           children: state.qualityOptions.map((v) {
             final label = v.quality ?? '';
             final active = label == selected;
-            final disabled = v.stock <= 0;
+            final outOfStock = v.stock <= 0;
             return _pillButton(
               theme: theme,
               label: label,
               active: active,
-              disabled: disabled,
+              outOfStock: outOfStock,
               onTap: () =>
                   context.read<ProductDetailBloc>().add(SelectByQuality(label)),
             );
@@ -521,12 +521,12 @@ class _ProductDetailView extends StatelessWidget {
           children: state.sizeOptions.map((v) {
             final label = v.size ?? v.model ?? '';
             final active = label == selected;
-            final disabled = v.stock <= 0;
+            final outOfStock = v.stock <= 0;
             return _pillButton(
               theme: theme,
               label: label,
               active: active,
-              disabled: disabled,
+              outOfStock: outOfStock,
               onTap: () =>
                   context.read<ProductDetailBloc>().add(SelectBySize(label)),
             );
@@ -540,11 +540,13 @@ class _ProductDetailView extends StatelessWidget {
     required ThemeData theme,
     required String label,
     required bool active,
-    required bool disabled,
+    required bool outOfStock,
     required VoidCallback onTap,
   }) {
+    // Tugagan bo'lsa ham TANLASH mumkin (narx/model ko'rish uchun) — onTap doim
+    // ishlaydi. Faqat vizual: kul rang + o'chirilgan chiziq (line-through).
     return InkWell(
-      onTap: disabled ? null : onTap,
+      onTap: onTap,
       borderRadius: BorderRadius.circular(10),
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
@@ -560,13 +562,15 @@ class _ProductDetailView extends StatelessWidget {
         ),
         child: Text(label,
             style: theme.textTheme.labelLarge?.copyWith(
-              color: disabled
-                  ? theme.colorScheme.onSurface.withValues(alpha: 0.4)
-                  : active
-                      ? theme.colorScheme.primary
+              color: active
+                  ? theme.colorScheme.primary
+                  : outOfStock
+                      ? theme.colorScheme.onSurface.withValues(alpha: 0.5)
                       : theme.colorScheme.onSurface,
               fontWeight: active ? FontWeight.bold : FontWeight.w500,
-              decoration: disabled ? TextDecoration.lineThrough : null,
+              decoration: (outOfStock && !active)
+                  ? TextDecoration.lineThrough
+                  : null,
             )),
       ),
     );

@@ -709,24 +709,26 @@ const ProductDetail = () => {
                 <div className="flex flex-wrap gap-sm">
                   {colorOptions.map((variant) => {
                     const active = variant.color === selectedColor;
-                    const disabled = variant.stock <= 0;
+                    // Tugagan bo'lsa ham TANLASH mumkin (narx/rasm/modelni ko'rish
+                    // uchun). Faqat vizual "tugagan" belgisi qoladi; sotib olish
+                    // tugmasi baribir bloklanadi.
+                    const outOfStock = variant.stock <= 0;
 
                     return (
                       <button
                         key={variant.color}
                         type="button"
-                        disabled={disabled}
                         onClick={() => handleSelectColor(variant.color)}
-                        title={variant.color}
+                        title={outOfStock ? `${variant.color} — ${t.product.outOfStock}` : variant.color}
                         className={`relative flex h-12 w-12 items-center justify-center rounded-full border-2 bg-surface-container-lowest transition-all ${
                           active ? 'border-primary shadow-[0_0_0_3px_rgb(var(--color-primary)/0.18)]' : 'border-outline hover:border-primary/70'
-                        } ${disabled ? 'cursor-not-allowed opacity-45' : ''}`}
+                        } ${outOfStock && !active ? 'opacity-60' : ''}`}
                       >
                         <span
                           className="h-9 w-9 rounded-full border border-black/10 shadow-inner"
                           style={{ backgroundColor: resolveColorHex(variant) }}
                         />
-                        {disabled && (
+                        {outOfStock && (
                           <span className="absolute inset-1 rounded-full bg-[linear-gradient(55deg,transparent_46%,rgb(var(--color-outline))_48%,rgb(var(--color-outline))_52%,transparent_54%)]" />
                         )}
                       </button>
@@ -742,20 +744,20 @@ const ProductDetail = () => {
                   {qualityOptions.map((variant) => {
                     const label = variant.quality || '';
                     const active = selectedQuality === label;
-                    const disabled = variant.stock <= 0;
+                    // Tugagan bo'lsa ham tanlanadi (narx ko'rinadi). Sotib olish bloklanadi.
+                    const outOfStock = variant.stock <= 0;
                     const qPrice = Number(variant.discount_price || variant.price || 0);
 
                     return (
                       <button
                         key={label}
                         type="button"
-                        disabled={disabled}
                         onClick={() => handleSelectQuality(label)}
                         className={`flex flex-col items-start gap-0.5 rounded-lg border px-3 py-2 transition-all text-sm ${
                           active
                             ? 'border-primary bg-primary-container/15 text-primary shadow-sm'
                             : 'border-outline-variant bg-surface-bright text-on-surface hover:border-primary hover:text-primary'
-                        } ${disabled ? 'cursor-not-allowed opacity-45' : ''}`}
+                        } ${outOfStock && !active ? 'opacity-70' : ''}`}
                       >
                         <span className="font-label-md">{label}</span>
                         {qPrice > 0 && (
@@ -763,7 +765,7 @@ const ProductDetail = () => {
                             {qPrice.toLocaleString('uz-UZ')} UZS
                           </span>
                         )}
-                        {disabled && <span className="text-[10px] text-error">{t.product.outOfStock}</span>}
+                        {outOfStock && <span className="text-[10px] text-error">{t.product.outOfStock}</span>}
                       </button>
                     );
                   })}
@@ -777,19 +779,20 @@ const ProductDetail = () => {
                   {sizeOptions.map((variant) => {
                     const label = variant.size || variant.model;
                     const active = selectedSize === label;
-                    const disabled = variant.stock <= 0;
+                    // Tugagan bo'lsa ham tanlanadi (model/narx/rasm ko'rinadi).
+                    const outOfStock = variant.stock <= 0;
 
                     return (
                     <button
                       key={label}
                       type="button"
-                      disabled={disabled}
                       onClick={() => handleSelectSize(label)}
+                      title={outOfStock ? `${label} — ${t.product.outOfStock}` : label}
                       className={`px-4 py-2 rounded-md border transition-colors font-label-md text-label-md text-sm ${
                         active
                           ? 'border-primary bg-primary-container/15 text-primary'
                           : 'border-outline-variant bg-surface-bright text-on-surface hover:border-primary hover:text-primary'
-                      } ${disabled ? 'cursor-not-allowed opacity-45' : ''}`}
+                      } ${outOfStock && !active ? 'opacity-70' : ''}`}
                     >
                       {label}
                     </button>
