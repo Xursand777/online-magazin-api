@@ -656,26 +656,6 @@ class _BannerFormSheetState extends State<_BannerFormSheet> {
     return null;
   }
 
-  List<DropdownMenuItem<int>> _buildProductItems(List<AdminProductModel> products) {
-    final items = <DropdownMenuItem<int>>[
-      const DropdownMenuItem(value: null, child: Text('-- Mahsulot bog\'lanmagan --')),
-    ];
-    final addedIds = <int>{};
-    for (final p in products) {
-      if (!addedIds.contains(p.id)) {
-        items.add(DropdownMenuItem(value: p.id, child: Text(p.name, overflow: TextOverflow.ellipsis)));
-        addedIds.add(p.id);
-      }
-    }
-    if (_selectedProductId != null && !addedIds.contains(_selectedProductId)) {
-      items.add(DropdownMenuItem(
-        value: _selectedProductId, 
-        child: Text(widget.banner?.productName ?? 'Mahsulot #$_selectedProductId')
-      ));
-    }
-    return items;
-  }
-
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -880,15 +860,15 @@ class _BannerFormSheetState extends State<_BannerFormSheet> {
                       ),
                       const SizedBox(height: 12),
 
-                      // ── Bog'liq mahsulot ──────────────────────────────────
+                      // ── Bog'liq mahsulot (QIDIRUVLI) ──────────────────────
+                      // Butun katalogni ochib tashlamaydi — nom yoki #ID yozib
+                      // izlab topiladi.
                       _FieldLabel('Bog\'liq mahsulot'),
                       const SizedBox(height: 6),
-                      DropdownButtonFormField<int>(
-                        value: _selectedProductId,
-                        hint: const Text('Mahsulot tanlang'),
-                        decoration: _inputDec(theme, ''),
-                        isExpanded: true,
-                        items: _buildProductItems(state.products),
+                      _ProductPicker(
+                        products: state.products,
+                        selectedId: _selectedProductId,
+                        fallbackName: widget.banner?.productName,
                         onChanged: (v) =>
                             setState(() => _selectedProductId = v),
                       ),
@@ -1374,6 +1354,212 @@ class _FieldLabel extends StatelessWidget {
       style: Theme.of(
         context,
       ).textTheme.labelMedium?.copyWith(fontWeight: FontWeight.w600),
+    );
+  }
+}
+
+/// Tanlash natijasi o'ralmasi — future null (bekor) ni id=null (bog'lanmagan)
+/// dan ajratish uchun.
+class _ProdPick {
+  const _ProdPick(this.id);
+  final int? id;
+}
+
+/// QIDIRUVLI mahsulot tanlovchi — banner uchun. Butun katalogni ochib
+/// tashlamaydi: bosilganda pastdan qidiruvli ro'yxat ochiladi, nom yoki #ID
+/// yozib topiladi.
+class _ProductPicker extends StatelessWidget {
+  const _ProductPicker({
+    required this.products,
+    required this.selectedId,
+    required this.onChanged,
+    this.fallbackName,
+  });
+  final List<AdminProductModel> products;
+  final int? selectedId;
+  final ValueChanged<int?> onChanged;
+  final String? fallbackName;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    String? selectedLabel;
+    for (final p in products) {
+      if (p.id == selectedId) {
+        selectedLabel = '#${p.id} — ${p.name}';
+        break;
+      }
+    }
+    // Tahrirda mahsulot ro'yxatda bo'lmasligi mumkin — fallback nom.
+    if (selectedLabel == null && selectedId != null) {
+      selectedLabel = fallbackName != null
+          ? '#$selectedId — $fallbackName'
+          : 'Mahsulot #$selectedId';
+    }
+
+    return InkWell(
+      borderRadius: BorderRadius.circular(14),
+      onTap: () async {
+        final result = await showModalBottomSheet<_ProdPick>(
+          context: context,
+          isScrollControlled: true,
+          backgroundColor: theme.colorScheme.surface,
+          shape: const RoundedRectangleBorder(
+            borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+          ),
+          builder: (ctx) => Padding(
+            padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom),
+            child: SizedBox(
+              height: MediaQuery.of(ctx).size.height * 0.75,
+              child: _ProductSearchSheet(
+                products: products,
+                selectedId: selectedId,
+              ),
+            ),
+          ),
+        );
+        if (result != null) onChanged(result.id);
+      },
+      child: InputDecorator(
+        decoration: InputDecoration(
+          filled: true,
+          fillColor: theme.colorScheme.surfaceContainer,
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(14),
+            borderSide: BorderSide(color: theme.colorScheme.outlineVariant),
+          ),
+          enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(14),
+            borderSide: BorderSide(color: theme.colorScheme.outlineVariant),
+          ),
+          contentPadding:
+              const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+          suffixIcon: const Icon(Icons.search),
+        ),
+        child: Text(
+          selectedLabel ?? 'Mahsulot tanlang (izlab)',
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(
+            color: selectedLabel != null
+                ? theme.colorScheme.onSurface
+                : theme.colorScheme.onSurfaceVariant,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Qidiruvli mahsulot ro'yxati (bottom sheet ichi).
+class _ProductSearchSheet extends StatefulWidget {
+  const _ProductSearchSheet({required this.products, required this.selectedId});
+  final List<AdminProductModel> products;
+  final int? selectedId;
+
+  @override
+  State<_ProductSearchSheet> createState() => _ProductSearchSheetState();
+}
+
+class _ProductSearchSheetState extends State<_ProductSearchSheet> {
+  final _searchCtrl = TextEditingController();
+  String _query = '';
+
+  @override
+  void dispose() {
+    _searchCtrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final q = _query.trim().toLowerCase();
+    final idQ = q.replaceAll('#', '');
+    final filtered = q.isEmpty
+        ? widget.products
+        : widget.products
+            .where((p) =>
+                p.name.toLowerCase().contains(q) ||
+                p.id.toString() == idQ ||
+                p.id.toString().contains(idQ))
+            .toList();
+
+    return Column(
+      children: [
+        const SizedBox(height: 8),
+        Container(
+          width: 40,
+          height: 4,
+          decoration: BoxDecoration(
+            color: theme.colorScheme.outlineVariant,
+            borderRadius: BorderRadius.circular(2),
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+          child: TextField(
+            controller: _searchCtrl,
+            autofocus: true,
+            onChanged: (v) => setState(() => _query = v),
+            textInputAction: TextInputAction.search,
+            decoration: InputDecoration(
+              prefixIcon: const Icon(Icons.search),
+              hintText: 'Tovar nomi yoki #ID izlash...',
+              isDense: true,
+              filled: true,
+              fillColor:
+                  theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.4),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: BorderSide.none,
+              ),
+            ),
+          ),
+        ),
+        Expanded(
+          child: (q.isNotEmpty && filtered.isEmpty)
+              ? Center(
+                  child: Text(
+                    'Hech narsa topilmadi',
+                    style: TextStyle(color: theme.colorScheme.onSurfaceVariant),
+                  ),
+                )
+              : ListView.builder(
+                  keyboardDismissBehavior:
+                      ScrollViewKeyboardDismissBehavior.onDrag,
+                  itemCount: filtered.length + 1,
+                  itemBuilder: (ctx, i) {
+                    if (i == 0) {
+                      final isSel = widget.selectedId == null;
+                      return ListTile(
+                        dense: true,
+                        selected: isSel,
+                        title: Text('-- Bog\'lanmagan --',
+                            style: TextStyle(
+                                color: theme.colorScheme.onSurfaceVariant)),
+                        trailing:
+                            isSel ? const Icon(Icons.check, size: 18) : null,
+                        onTap: () => Navigator.pop(ctx, const _ProdPick(null)),
+                      );
+                    }
+                    final p = filtered[i - 1];
+                    final isSel = p.id == widget.selectedId;
+                    return ListTile(
+                      dense: true,
+                      selected: isSel,
+                      title: Text('#${p.id} — ${p.name}',
+                          overflow: TextOverflow.ellipsis),
+                      trailing: isSel
+                          ? Icon(Icons.check,
+                              size: 18, color: theme.colorScheme.primary)
+                          : null,
+                      onTap: () => Navigator.pop(ctx, _ProdPick(p.id)),
+                    );
+                  },
+                ),
+        ),
+        SizedBox(height: MediaQuery.of(context).padding.bottom),
+      ],
     );
   }
 }

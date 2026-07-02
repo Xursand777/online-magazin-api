@@ -71,9 +71,6 @@ const formatMoney = (value: string | number | null | undefined, suffix = 'UZS') 
   return `${Number(value).toLocaleString('uz-UZ')} ${suffix}`;
 };
 
-const activeProductPrice = (product?: Product | null) =>
-  product?.is_discount && product.discount_price ? product.discount_price : product?.price;
-
 const categoryIcon = (name: string) => {
   const normalized = name.toLowerCase();
   if (normalized.includes('telefon') || normalized.includes('redmi')) return 'smartphone';
@@ -202,33 +199,6 @@ const Home = () => {
   const recommendedProducts: Product[] = mainData?.recommended_products || [];
   const adminBanners: HomeBanner[] = mainData?.banners || [];
 
-  const heroProducts = useMemo(() => {
-    const seen = new Set<number | string>();
-    return [...recommendedProducts, ...discountProducts, ...newProducts, ...popularProducts].filter((product) => {
-      if (seen.has(product.id)) return false;
-      seen.add(product.id);
-      return true;
-    });
-  }, [recommendedProducts, discountProducts, newProducts, popularProducts]);
-
-  const xiaomiHero = useMemo(
-    () =>
-      heroProducts.find((product) => product.name.toLowerCase().includes('xiaomi redmi note 15')) ||
-      heroProducts.find((product) => product.name.toLowerCase().includes('redmi')) ||
-      heroProducts[0] ||
-      null,
-    [heroProducts]
-  );
-
-  const premiumHero = useMemo(
-    () =>
-      heroProducts.find((product) => product.name.toLowerCase().includes('iphone 17 pro max')) ||
-      heroProducts.find((product) => product.name.toLowerCase().includes('samsung s26 ultra')) ||
-      heroProducts.find((product) => product.id !== xiaomiHero?.id) ||
-      xiaomiHero,
-    [heroProducts, xiaomiHero]
-  );
-
   // Home kategoriya chiplari — admin "homeda ko'rsatish" (is_popular) flagini
   // belgilagan kategoriyalar. Backend filtrlaydi → mobil bilan 100% bir xil.
   const { data: homeCategories = [] } = useQuery({
@@ -239,65 +209,34 @@ const Home = () => {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const displayCats: any[] = homeCategories;
 
-  const fallbackBannerSlides = useMemo<BannerSlide[]>(
-    () => [
-      {
-        id: 'xiaomi-redmi-note-15',
-        eyebrow: t.home.bannerAd,
-        title: t.home.bannerXiaomiTitle,
-        subtitle: t.home.bannerXiaomiSubtitle,
-        price: formatMoney(activeProductPrice(xiaomiHero)),
-        oldPrice:
-          xiaomiHero?.is_discount && xiaomiHero.price ? formatMoney(xiaomiHero.price) : null,
-        image: xiaomiHero?.main_image || null,
-        ctaLabel: t.home.viewProduct,
-        ctaHref: xiaomiHero ? `/products/${xiaomiHero.id}` : '/catalog',
-        backgroundColor: '#111433',
-        accentColor: '#12b981',
-        backgroundImage: null,
-      },
-      {
-        id: 'premium-products',
-        eyebrow: t.home.bannerSeason,
-        title: t.home.bannerPremiumTitle,
-        subtitle: t.home.bannerPremiumSubtitle,
-        price: premiumHero ? formatMoney(activeProductPrice(premiumHero), 'UZS') : null,
-        oldPrice:
-          premiumHero?.is_discount && premiumHero.price ? formatMoney(premiumHero.price, 'UZS') : null,
-        image: premiumHero?.main_image || null,
-        ctaLabel: t.home.goToCatalog,
-        ctaHref: premiumHero ? `/products/${premiumHero.id}` : '/catalog',
-        backgroundColor: '#007a4d',
-        accentColor: '#ffb23f',
-        backgroundImage: null,
-      },
-    ],
-    [premiumHero, xiaomiHero]
+  // FAQAT admin YARATGAN bannerlar ko'rsatiladi. Avval banner bo'lmasa, home
+  // avtomatik "hero" bannerlar yasab, TASODIFIY mahsulotlarni (xiaomi/iphone…)
+  // ko'rsatardi — admin kiritmagan tovarlar banner'da paydo bo'lardi. Endi
+  // bunday avto-tanlash YO'Q: banner bo'lmasa — banner ko'rinmaydi.
+  const bannerSlides = useMemo<BannerSlide[]>(
+    () =>
+      adminBanners.map((banner) => {
+        const salePrice = banner.discount_price || banner.original_price || null;
+        const oldPrice = banner.discount_price && banner.original_price ? banner.original_price : null;
+
+        return {
+          id: `admin-banner-${banner.id}`,
+          eyebrow: t.home.bannerAd,
+          title: banner.title || '',
+          subtitle: banner.subtitle || '',
+          // Narx kiritilmagan bo'lsa — "0 so'm" chiqmasin (null → yashiriladi).
+          price: salePrice ? formatMoney(salePrice) : null,
+          oldPrice: oldPrice ? formatMoney(oldPrice) : null,
+          image: banner.product_image_url || null,
+          ctaLabel: banner.button_label || t.home.viewProduct,
+          ctaHref: banner.target_url || (banner.product ? `/products/${banner.product}` : '/catalog'),
+          backgroundColor: banner.background_color || '#111827',
+          accentColor: banner.accent_color || '#007a4d',
+          backgroundImage: banner.background_image_url || null,
+        };
+      }),
+    [adminBanners, t],
   );
-
-  const bannerSlides = useMemo<BannerSlide[]>(() => {
-    if (adminBanners.length === 0) return fallbackBannerSlides;
-
-    return adminBanners.map((banner) => {
-      const salePrice = banner.discount_price || banner.original_price || null;
-      const oldPrice = banner.discount_price && banner.original_price ? banner.original_price : null;
-
-      return {
-        id: `admin-banner-${banner.id}`,
-        eyebrow: t.home.bannerAd,
-        title: banner.title || 'Tovar nomini kiriting',
-        subtitle: banner.subtitle || '',
-        price: formatMoney(salePrice),
-        oldPrice: formatMoney(oldPrice),
-        image: banner.product_image_url || null,
-        ctaLabel: banner.button_label || t.home.viewProduct,
-        ctaHref: banner.target_url || (banner.product ? `/products/${banner.product}` : '/catalog'),
-        backgroundColor: banner.background_color || '#111827',
-        accentColor: banner.accent_color || '#007a4d',
-        backgroundImage: banner.background_image_url || null,
-      };
-    });
-  }, [adminBanners, fallbackBannerSlides]);
 
   useEffect(() => {
     if (animationPhase !== 'prepare') return;
@@ -479,6 +418,7 @@ const Home = () => {
           Rasm ko'rinadi, balandligi past, barmoq bilan yon tomonga suriladi
           (snap-x snap-mandatory). Desktop'da yashirin — desktop o'z hero'sini
           ko'rsatadi (pastda hidden md:block). */}
+      {bannerSlides.length > 0 && (
       <section className="mb-md md:hidden">
         <div
           ref={mobileBannerRef}
@@ -525,8 +465,10 @@ const Home = () => {
           ))}
         </div>
       </section>
+      )}
 
-      {/* ── DESKTOP hero (FAQAT desktop) ── */}
+      {/* ── DESKTOP hero (FAQAT desktop) — faqat banner bo'lsa ── */}
+      {bannerSlides.length > 0 && (
       <section className="mb-xl hidden md:block">
         <div className="relative overflow-hidden rounded-[28px] border border-outline-variant bg-surface-container-lowest shadow-[0_24px_70px_rgba(15,23,42,0.12)]">
           <div className="relative min-h-[340px] md:min-h-[440px] lg:min-h-[480px]">
@@ -564,6 +506,7 @@ const Home = () => {
           </div>
         </div>
       </section>
+      )}
 
       {displayCats.length > 0 && (
       <section className="mb-lg md:mb-2xl">

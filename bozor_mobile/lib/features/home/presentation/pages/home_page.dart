@@ -133,137 +133,17 @@ class HomeView extends StatelessWidget {
     HomeState state,
     ThemeData theme,
   ) {
+    // FAQAT admin YARATGAN bannerlar ko'rsatiladi. Avval banner bo'lmasa,
+    // TASODIFIY mahsulot (chegirma/tavsiya/yangi) fallback banner sifatida
+    // chiqardi — admin kiritmagan tovar banner'da paydo bo'lardi. Endi bunday
+    // avto-tanlash YO'Q: banner bo'lmasa — hech narsa ko'rsatilmaydi.
     if (state.banners.isEmpty) {
-      // Fallback: bannersiz holda birinchi chegirma mahsulotni ko'rsatamiz
-      final fallback = [
-        ...state.discounted,
-        ...state.recommended,
-        ...state.newProducts,
-      ];
-      if (fallback.isEmpty) return const SizedBox.shrink();
-      return _buildFallbackBanner(context, fallback.first, theme);
+      return const SizedBox.shrink();
     }
 
     return _BannerCarousel(banners: state.banners);
   }
 
-
-  Widget _buildFallbackBanner(
-    BuildContext context,
-    ProductModel product,
-    ThemeData theme,
-  ) {
-    return InkWell(
-      borderRadius: BorderRadius.circular(18),
-      onTap: () => context.push('/product', extra: product),
-      child: Container(
-        constraints: const BoxConstraints(minHeight: 190),
-        clipBehavior: Clip.antiAlias,
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(18),
-          gradient: const LinearGradient(
-            begin: Alignment.centerLeft,
-            end: Alignment.centerRight,
-            colors: [Color(0xFF063F2B), Color(0xFF0A7C55)],
-          ),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.14),
-              blurRadius: 24,
-              offset: const Offset(0, 12),
-            ),
-          ],
-        ),
-        child: Stack(
-          children: [
-            Positioned(
-              right: -28,
-              bottom: -42,
-              child: Container(
-                width: 174,
-                height: 174,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: Colors.white.withValues(alpha: 0.12),
-                ),
-              ),
-            ),
-            Padding(
-              padding: const EdgeInsets.all(18),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 10,
-                            vertical: 5,
-                          ),
-                          decoration: BoxDecoration(
-                            color: Colors.white.withValues(alpha: 0.14),
-                            borderRadius: BorderRadius.circular(999),
-                          ),
-                          child: Text(
-                            'Reklama',
-                            style: theme.textTheme.labelSmall?.copyWith(
-                              color: Colors.white,
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: 12),
-                        Text(
-                          product.name,
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                          style: theme.textTheme.titleLarge?.copyWith(
-                            color: Colors.white,
-                            fontWeight: FontWeight.w900,
-                            height: 1.08,
-                          ),
-                        ),
-                        const SizedBox(height: 10),
-                        Text(
-                          _formatMoney(product.price),
-                          style: theme.textTheme.titleMedium?.copyWith(
-                            color: const Color(0xFFFFD166),
-                            fontWeight: FontWeight.w800,
-                          ),
-                        ),
-                        const SizedBox(height: 12),
-                        Text(
-                          'Mahsulotni ko‘rish',
-                          style: theme.textTheme.labelLarge?.copyWith(
-                            color: Colors.white,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  SizedBox(
-                    width: 128,
-                    height: 128,
-                    child: ClipRRect(
-                      borderRadius: BorderRadius.circular(16),
-                      child: CachedNetworkImage(
-                        imageUrl: product.imageUrl,
-                        fit: BoxFit.cover,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
 
   Widget _buildCategoryChips(BuildContext context, HomeState state, ThemeData theme) {
     if (state.categories.isEmpty) return const SizedBox.shrink();

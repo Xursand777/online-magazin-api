@@ -9,6 +9,7 @@ import {
   dateTimeLocalToIso, extractErrorMessage, StatusBadge, MiniBadge,
 } from './shared';
 import type { AdminBanner, AdminProduct, BannerFormState, BannerEditorState } from './shared';
+import { ProductSelect } from './ProductSelect';
 
 export const BannersTab = ({
   banners,
@@ -240,18 +241,11 @@ const BannerEditor = ({
             <label className='mb-1 block text-label-md font-label-md text-on-surface-variant'>
               Bog'langan tovar
             </label>
-            <select
+            <ProductSelect
+              products={products}
               value={form.product}
-              onChange={(e) => setForm((c) => ({ ...c, product: e.target.value }))}
-              className='w-full rounded-lg border border-outline-variant bg-surface-bright px-3 py-2 outline-none focus:border-primary'
-            >
-              <option value=''>-- Tovar tanlanmagan --</option>
-              {products.map((p) => (
-                <option key={p.id} value={p.id}>
-                  #{p.id} - {p.name}
-                </option>
-              ))}
-            </select>
+              onChange={(v) => setForm((c) => ({ ...c, product: v }))}
+            />
           </div>
           <div className='xl:col-span-3'>
             <label className='mb-1 block text-label-md font-label-md text-on-surface-variant'>
