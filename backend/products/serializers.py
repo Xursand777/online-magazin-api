@@ -385,6 +385,83 @@ def expand_products_to_cards(products, request, *, in_stock_only: bool = False) 
     return cards
 
 
+def _search_card_score(card_name: str, phrase: str, product) -> int:
+    """
+    Karta relevantlik bali (mashhur saytlar tartibi kabi):
+      • aniq mos (nom == so'rov)      → +100
+      • nom so'rov bilan boshlanadi   → +50
+      • so'rov nom ichida (substring) → +30
+      • ommabop / yangi bonuslari     → tenglik buzuvchi kichik ballar
+    """
+    n = card_name.lower()
+    score = 0
+    if n == phrase:
+        score += 100
+    elif n.startswith(phrase):
+        score += 50
+    elif phrase in n:
+        score += 30
+    if getattr(product, 'is_popular', False):
+        score += 8
+    if getattr(product, 'is_new', False):
+        score += 4
+    return score
+
+
+def search_expand_products_to_cards(products, request, query: str, *, limit: int = 50) -> list[dict]:
+    """
+    VARIANT-AWARE QIDIRUV — mashhur saytlardagidek "aqilli" qidiruv.
+
+    Har bir VARIANT uchun to'liq qidiruv matni quriladi:
+        mahsulot nomi + variant(sifat, model, o'lcham, rang, SKU, barcode) + kategoriya
+    So'rov SO'ZLARI (tokenlar) shu matnga AND-mantig'i bilan tekshiriladi —
+    har bir so'z matnning istalgan joyida bo'lishi kifoya (tartibi muhim emas).
+
+    Natija — FAQAT MOS KELGAN variantlar alohida karta sifatida (mos kelmagan
+    variantlar chiqmaydi). Masalan "16 pro max" → har mahsulotning aynan
+    "16 Pro Max" varianti (boshqa variantlari emas).
+
+    Relevantlik bo'yicha tartiblanadi (aniq mos > boshidan > ichida > ommabop).
+    """
+    phrase = (query or '').strip().lower()
+    tokens = [t for t in re.split(r'\s+', phrase) if t]
+    if not tokens:
+        return []
+
+    lang = get_lang({'request': request})
+    scored: list[tuple[int, str, dict]] = []
+
+    for product in products:
+        pname = localized(product, 'name', lang)
+        cat_name = product.category.name if product.category_id else ''
+        base_text = f"{pname} {cat_name}".lower()
+
+        active_variants = [v for v in product.variants.all() if v.is_active]
+
+        if not active_variants:
+            # Variantsiz mahsulot — bitta karta (matn: nom + kategoriya)
+            if all(tok in base_text for tok in tokens):
+                card = _build_card_dict(product, None, pname, request)
+                scored.append((_search_card_score(pname, phrase, product), pname, card))
+            continue
+
+        # Variantli mahsulot — HAR variant o'z to'liq matni bilan alohida tekshiriladi
+        for v in active_variants:
+            variant_bits = ' '.join(
+                str(x) for x in (v.quality, v.model, v.size, v.color, v.sku, v.barcode) if x
+            )
+            full_text = f"{base_text} {variant_bits}".lower()
+            if all(tok in full_text for tok in tokens):
+                card = _build_card_dict(product, v, pname, request)
+                scored.append(
+                    (_search_card_score(card['name'], phrase, product), card['name'], card)
+                )
+
+    # Ball (kamayish) → nom (alifbo) bo'yicha barqaror tartib
+    scored.sort(key=lambda item: (-item[0], item[1]))
+    return [card for _, _, card in scored[:limit]]
+
+
 def interleave_cards_by_product(cards: list[dict]) -> list[dict]:
     """
     Bir mahsulot variantlarini KO'P JOYDAN BIR-BIRIDAN UZOQ tarqatish.
@@ -540,6 +617,7 @@ def _build_card_dict(product, variant, product_name: str, request) -> dict:
         'variant_id':     variant.id if variant else None,
         'name':           name,
         'slug':           product.slug,
+        'category_name':  product.category.name if product.category_id else None,
         'price':          _variant_card_price(product, variant),
         'discount_price': _variant_card_discount_price(product, variant),
         'stock':          _variant_card_stock(product, variant),
@@ -571,6 +649,7 @@ class ProductCardSerializer(serializers.Serializer):
     variant_id     = serializers.IntegerField(allow_null=True)
     name           = serializers.CharField()
     slug           = serializers.CharField(allow_null=True, required=False)
+    category_name  = serializers.CharField(allow_null=True, required=False)
     price          = serializers.DecimalField(max_digits=12, decimal_places=2, allow_null=True)
     discount_price = serializers.DecimalField(max_digits=12, decimal_places=2, allow_null=True)
     stock          = serializers.IntegerField(allow_null=True)

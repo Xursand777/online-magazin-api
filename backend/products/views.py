@@ -25,7 +25,7 @@ from .serializers import (
     CompatibilityWriteSerializer, CompatibilityBulkSeriesSerializer, ProductCompatibilityReadSerializer,
     ProductCardSerializer, expand_products_to_cards,
     interleave_cards_by_product, in_stock_product_filter,
-    deduplicate_cards_by_product,
+    deduplicate_cards_by_product, search_expand_products_to_cards,
 )
 
 
@@ -289,83 +289,86 @@ class ProductListView(VariantExpandMixin, generics.ListAPIView):
         return qs
 
 class ProductSearchView(generics.ListAPIView):
-    serializer_class = ProductSearchSerializer
+    """
+    VARIANT-AWARE "aqilli" qidiruv (mashhur do'konlar uslubi).
+
+    Natija — VARIANT KARTALARI (ProductCardSerializer), FAQAT so'rovga mos
+    kelgan variantlar. Har variant o'z TO'LIQ matni bo'yicha tekshiriladi:
+        mahsulot nomi + variant(sifat, model, o'lcham, rang, SKU, barcode) + kategoriya
+    So'rov so'zlari (tokenlar) shu matnga AND-mantig'i bilan (istalgan joyda,
+    istalgan tartibda). Masalan "16 pro max" → har mahsulotning aynan
+    "16 Pro Max" varianti alohida karta bo'lib chiqadi (boshqa variantlari emas).
+
+    Mantiq (ikki bosqich — bashoratli va tez):
+      1. DB — NOMZOD mahsulotlar: har token nom/slug/kategoriya YOKI biror
+         variant maydonida bo'lishi shart (AND). Bu tor to'plamni beradi.
+      2. Python — HAR variant to'liq matniga token-AND tekshiruvi + relevantlik
+         bo'yicha tartiblash (aniq mos > boshidan > ichida > ommabop).
+    """
+    serializer_class = ProductCardSerializer
     permission_classes = (AllowAny,)
     pagination_class = None
+
+    # Python refine'gacha olinadigan nomzod mahsulotlar chegarasi (ommabopdan).
+    _CANDIDATE_CAP = 500
 
     def list(self, request, *args, **kwargs):
         track_requested = str(request.query_params.get('track', 'false')).lower() == 'true'
         guest_session_id = None
         if track_requested:
             guest_session_id = record_search_event(request, request.query_params.get('q'))
-        response = super().list(request, *args, **kwargs)
+
+        cards = self._search_cards(request)
+        serializer = ProductCardSerializer(
+            cards, many=True, context=self.get_serializer_context(),
+        )
+        response = Response(serializer.data)
         for header, value in recommendation_headers(guest_session_id).items():
             response[header] = value
         return response
 
-    def get_queryset(self):
-        """
-        "AQILLI" qidiruv — barcha DB uchun BIR XIL, deterministik mantiq
-        (mashhur do'konlar uslubi). So'rovdagi har bir so'z mahsulot nomining
-        istalgan joyida bo'lsa topiladi ("ABJ Naushnik" → "...Naushnik..." nomli
-        tovar). PostgreSQL FTS (SearchVector) OLIB TASHLANDI — u ko'p so'zli,
-        turli joydagi so'zlar uchun beqaror edi; token-AND-icontains esa
-        kafolatli va bashoratli.
+    def _search_cards(self, request):
+        query = (request.query_params.get('q') or '').strip()
+        tokens = [t for t in re.split(r'\s+', query) if t]
+        if not tokens:
+            return []
 
-        Tartiblash ustuvorligi (eng mos yuqorida):
-          1. exact_match     — nom/slug/kategoriya AYNAN so'rovga teng
-          2. starts_match    — nom so'rov bilan boshlanadi
-          3. token_lead      — nom BIRINCHI so'z bilan boshlanadi (mos'lik boosti)
-          4. contains_match  — to'liq ibora nomda ketma-ket bor
-          5. is_popular, is_new, name — teng bo'lganda
-        """
-        search_query = (self.request.query_params.get('q') or '').strip()
-        if not search_query:
-            return Product.objects.none()
-
-        exact_whens = [
-            When(name__iexact=search_query,          then=Value(5)),
-            When(slug__iexact=search_query,           then=Value(4)),
-            When(category__name__iexact=search_query, then=Value(3)),
-        ]
-        if search_query.isdigit():
-            exact_whens.insert(0, When(id=int(search_query), then=Value(6)))
-
-        # Birinchi mazmunli token — "nom shu so'z bilan boshlansa" boosti uchun
-        # (masalan "ABJ Naushnik"da 'ABJ' bilan boshlangan tovarlar yuqorida).
-        tokens = _search_tokens(search_query)
-        first_token = tokens[0] if tokens else search_query
-
-        return (
+        base = (
             Product.objects.filter(is_active=True)
             .select_related('category')
-            .prefetch_related('images')
-            .filter(build_product_search_filter(search_query))
-            .annotate(
-                exact_match=Case(
-                    *exact_whens, default=Value(0), output_field=IntegerField(),
-                ),
-                starts_match=Case(
-                    When(name__istartswith=search_query,          then=Value(3)),
-                    When(category__name__istartswith=search_query, then=Value(2)),
-                    default=Value(0), output_field=IntegerField(),
-                ),
-                token_lead=Case(
-                    When(name__istartswith=first_token, then=Value(1)),
-                    default=Value(0), output_field=IntegerField(),
-                ),
-                contains_match=Case(
-                    When(name__icontains=search_query,        then=Value(2)),
-                    When(description__icontains=search_query, then=Value(1)),
-                    When(category__name__icontains=search_query, then=Value(1)),
-                    default=Value(0), output_field=IntegerField(),
-                ),
+            .prefetch_related('variants', 'variants__images', 'images')
+        )
+
+        # ── 1) NOMZOD FILTRI (DB) — har token biror joyda (AND) ─────────────
+        # `variants__<maydon>` har token uchun ALOHIDA JOIN qiladi → tokenlar
+        # turli variantlarda ham bo'lishi mumkin (aniq "bitta variantda" mosligi
+        # 2-bosqich Python'da hal qilinadi — yolg'on-musbatsiz).
+        qs = base
+        for token in tokens:
+            qs = qs.filter(
+                Q(name__icontains=token)
+                | Q(slug__icontains=token)
+                | Q(category__name__icontains=token)
+                | Q(variants__quality__icontains=token)
+                | Q(variants__model__icontains=token)
+                | Q(variants__size__icontains=token)
+                | Q(variants__color__icontains=token)
+                | Q(variants__sku__icontains=token)
+                | Q(variants__barcode__icontains=token)
             )
-            .order_by(
-                '-exact_match', '-starts_match', '-token_lead',
-                '-contains_match', '-is_popular', '-is_new', 'name',
-            )
-            .distinct()[:_MAX_SEARCH_RESULTS]
+
+        candidate_ids = set(qs.values_list('id', flat=True))
+        if not candidate_ids:
+            return []
+
+        products = (
+            base.filter(id__in=candidate_ids)
+            .order_by('-is_popular', '-is_new', '-updated_at')[: self._CANDIDATE_CAP]
+        )
+
+        # ── 2) Python: variant to'liq matniga token-AND + relevantlik tartibi ─
+        return search_expand_products_to_cards(
+            products, request, query, limit=_MAX_SEARCH_RESULTS,
         )
 
 class ProductDetailView(generics.RetrieveAPIView):

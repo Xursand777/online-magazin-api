@@ -6,6 +6,9 @@ import { useTranslation } from '../i18n/useTranslation';
 
 interface SearchProduct {
   id: number;
+  // Qidiruv VARIANT kartalarini qaytaradi (mos variant alohida).
+  card_id?: string;
+  variant_id?: number | null;
   name: string;
   category_name: string | null;
   price: string;
@@ -143,8 +146,8 @@ const GlobalSearch = () => {
             <div className="max-h-[60vh] overflow-y-auto p-2">
               {results.map((product) => (
                 <Link
-                  key={product.id}
-                  to={`/products/${product.id}`}
+                  key={product.card_id ?? product.id}
+                  to={product.variant_id ? `/products/${product.id}?variant=${product.variant_id}` : `/products/${product.id}`}
                   onClick={() => {
                     if (normalizedQuery) void searchProducts(normalizedQuery, true);
                     setIsOpen(false);

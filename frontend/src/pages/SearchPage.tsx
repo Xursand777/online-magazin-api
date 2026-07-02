@@ -8,6 +8,10 @@ import { useTranslation } from '../i18n/useTranslation';
 
 interface SearchProduct {
   id: number;
+  // Qidiruv endi VARIANT kartalarini qaytaradi (mos variant alohida). Variantli
+  // karta uchun `card_id` ("80-29") va `variant_id` bo'ladi; variantsizda yo'q.
+  card_id?: string;
+  variant_id?: number | null;
   name: string;
   category_name: string | null;
   price: string;
@@ -188,8 +192,8 @@ const SearchPage = () => {
             <div className="space-y-2 mb-4">
               {results.slice(0, 5).map((p) => (
                 <Link
-                  key={p.id}
-                  to={`/products/${p.id}`}
+                  key={p.card_id ?? p.id}
+                  to={p.variant_id ? `/products/${p.id}?variant=${p.variant_id}` : `/products/${p.id}`}
                   className="flex items-center gap-3 p-3 bg-surface-container-lowest rounded-xl border border-outline-variant hover:border-primary/40 hover:bg-primary-container/5 transition-all"
                 >
                   <div className="w-14 h-14 rounded-xl border border-outline-variant overflow-hidden bg-surface-container flex items-center justify-center shrink-0">
