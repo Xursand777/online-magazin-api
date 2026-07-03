@@ -9,7 +9,7 @@ ISHLATISH:
     python manage.py check_deployment --quiet      # faqat fail bo'lganlar
 
 NIMA QILADI:
-    15 ta tekshiruvni bajaradi — kritik sozlamalar, tashqi xizmat
+    16 ta tekshiruvni bajaradi — kritik sozlamalar, tashqi xizmat
     ulanishlari, deploy oldidan tayyor bo'lishi shart bo'lgan narsalar.
 
 QAYTARADI:
@@ -46,7 +46,7 @@ class CheckResult:
 
 
 class Command(BaseCommand):
-    help = "Production deploy uchun tayyorlikni tekshirish (15 ta tekshiruv)"
+    help = "Production deploy uchun tayyorlikni tekshirish (16 ta tekshiruv)"
 
     def add_arguments(self, parser):
         parser.add_argument(
@@ -64,12 +64,13 @@ class Command(BaseCommand):
         self.strict = options['strict']
         self.quiet = options['quiet']
 
-        # 15 ta tekshiruv — tartib muhim (boshlanish: kritik, oxir: ixtiyoriy)
+        # 16 ta tekshiruv — tartib muhim (boshlanish: kritik, oxir: ixtiyoriy)
         checks: list[tuple[str, Callable]] = [
             ('Django settings', self._check_settings),
             ('Database connection', self._check_database),
             ('Redis cache', self._check_redis),
             ('Pending migrations', self._check_migrations),
+            ('Qidiruv indekslari (pg_trgm)', self._check_search_indexes),
             ('SECRET_KEY xavfsizlik', self._check_secret_key),
             ('ALLOWED_HOSTS', self._check_allowed_hosts),
             ('CORS_ALLOWED_ORIGINS', self._check_cors),
@@ -161,6 +162,47 @@ class Command(BaseCommand):
                 f'Birinchi: {plan[0][0].app_label}.{plan[0][0].name}'
             )
         return CheckResult.OK, 'Hamma migration\'lar tayyor'
+
+    def _check_search_indexes(self) -> tuple[str, str]:
+        """pg_trgm qidiruv indekslari sog'ligi (100k+ katalogda tez `icontains`)."""
+        from django.db import connection
+
+        # SQLite/dev — pg_trgm kerakmas, qidiruv baribir tez (kichik jadval).
+        if connection.vendor != 'postgresql':
+            return CheckResult.OK, f"{connection.vendor} — pg_trgm kerakmas (dev)"
+
+        try:
+            from products.management.commands.ensure_search_indexes import TRGM_INDEXES
+
+            with connection.cursor() as cur:
+                cur.execute("SELECT 1 FROM pg_extension WHERE extname = 'pg_trgm'")
+                if cur.fetchone() is None:
+                    return CheckResult.WARN, (
+                        "pg_trgm extension yo'q — qidiruv seq-scan (sekin). "
+                        "`python manage.py ensure_search_indexes`"
+                    )
+
+                broken = []
+                for name, _table, _col in TRGM_INDEXES:
+                    cur.execute(
+                        "SELECT i.indisvalid FROM pg_class c "
+                        "JOIN pg_index i ON i.indexrelid = c.oid "
+                        "WHERE c.relkind = 'i' AND c.relname = %s",
+                        [name],
+                    )
+                    row = cur.fetchone()
+                    if row is None or not row[0]:
+                        broken.append(name)
+
+            if broken:
+                return CheckResult.WARN, (
+                    f"{len(broken)}/{len(TRGM_INDEXES)} trgm indeks yo'q/nosog' — "
+                    "`ensure_search_indexes` ishga tushiring"
+                )
+            return CheckResult.OK, f"{len(TRGM_INDEXES)} trgm indeks sog'"
+
+        except Exception as exc:
+            return CheckResult.WARN, f"Indeks tekshiruvi xato: {str(exc)[:80]}"
 
     def _check_secret_key(self) -> tuple[str, str]:
         """SECRET_KEY default emasligi va uzunligi."""
