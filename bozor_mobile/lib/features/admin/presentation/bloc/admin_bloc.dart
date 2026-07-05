@@ -116,6 +116,10 @@ class AdminState extends Equatable {
   final bool hasReachedMaxProducts;
   final int productsPage;
   final String productsQuery;
+  // Nechta XIL mahsulot (backend `count`) va HAR VARIANT alohida sanalgan jami
+  // (`total_with_variants`) — sarlavhada "36 (45)" ko'rsatish uchun.
+  final int productsCount;
+  final int productsTotalWithVariants;
   final List<AdminCategoryModel> categories;
   final List<AdminBannerModel> banners;
   final bool isLoading;
@@ -131,6 +135,8 @@ class AdminState extends Equatable {
     this.hasReachedMaxProducts = false,
     this.productsPage = 1,
     this.productsQuery = '',
+    this.productsCount = 0,
+    this.productsTotalWithVariants = 0,
     this.categories = const [],
     this.banners = const [],
     this.isLoading = false,
@@ -146,6 +152,8 @@ class AdminState extends Equatable {
     bool? hasReachedMaxProducts,
     int? productsPage,
     String? productsQuery,
+    int? productsCount,
+    int? productsTotalWithVariants,
     List<AdminCategoryModel>? categories,
     List<AdminBannerModel>? banners,
     bool? isLoading,
@@ -163,6 +171,9 @@ class AdminState extends Equatable {
           hasReachedMaxProducts ?? this.hasReachedMaxProducts,
       productsPage: productsPage ?? this.productsPage,
       productsQuery: productsQuery ?? this.productsQuery,
+      productsCount: productsCount ?? this.productsCount,
+      productsTotalWithVariants:
+          productsTotalWithVariants ?? this.productsTotalWithVariants,
       categories: categories ?? this.categories,
       banners: banners ?? this.banners,
       isLoading: isLoading ?? this.isLoading,
@@ -182,6 +193,8 @@ class AdminState extends Equatable {
     hasReachedMaxProducts,
     productsPage,
     productsQuery,
+    productsCount,
+    productsTotalWithVariants,
     categories,
     banners,
     isLoading,
@@ -250,6 +263,8 @@ class AdminBloc extends Bloc<AdminEvent, AdminState> {
           products: productsResult.items,
           hasReachedMaxProducts: productsResult.hasReachedMax,
           productsPage: 1,
+          productsCount: productsResult.count,
+          productsTotalWithVariants: productsResult.totalWithVariants,
           categories: categories,
           banners: banners,
           isLoading: false,
@@ -284,6 +299,8 @@ class AdminBloc extends Bloc<AdminEvent, AdminState> {
           products: productsResult.items,
           hasReachedMaxProducts: productsResult.hasReachedMax,
           productsPage: 1,
+          productsCount: productsResult.count,
+          productsTotalWithVariants: productsResult.totalWithVariants,
           isLoading: false,
         ),
       );

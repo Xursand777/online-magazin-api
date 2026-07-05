@@ -116,6 +116,10 @@ class VariantImage {
 class ProductVariant {
   final int id;
   final String? color;
+  // Rang nomining TILGA moslangan ko'rinishi (backend `color_label`, masalan
+  // "Qora"→"Чёрный"→"Black"). `color` KANONIK qoladi (tanlash/hex uchun); UI
+  // ko'rsatishda `colorDisplay` (label fallback color) ishlatiladi.
+  final String? colorLabel;
   final String? colorHex;
   final String? imageUrl;
   final List<VariantImage> images;
@@ -132,6 +136,7 @@ class ProductVariant {
   const ProductVariant({
     required this.id,
     this.color,
+    this.colorLabel,
     this.colorHex,
     this.imageUrl,
     this.images = const [],
@@ -145,6 +150,14 @@ class ProductVariant {
     this.sku,
   });
 
+  /// Ko'rsatiladigan rang nomi — tilga moslangan label bo'lsa o'sha, aks holda
+  /// kanonik `color`.
+  String? get colorDisplay {
+    final label = colorLabel?.trim();
+    if (label != null && label.isNotEmpty) return label;
+    return color;
+  }
+
   /// Variantning amaldagi narxi (variant narxi yo'q bo'lsa null).
   double? get effectivePrice => discountPrice ?? price;
 
@@ -157,7 +170,9 @@ class ProductVariant {
     if (model != null && model!.trim().isNotEmpty) parts.add(model!.trim());
     if (quality != null && quality!.trim().isNotEmpty) parts.add(quality!.trim());
     if (size != null && size!.trim().isNotEmpty) parts.add(size!.trim());
-    if (color != null && color!.trim().isNotEmpty) parts.add(color!.trim());
+    // Rang — tilga moslangan label (colorDisplay) bilan.
+    final c = colorDisplay?.trim();
+    if (c != null && c.isNotEmpty) parts.add(c);
     return parts.join(' • ');
   }
 
@@ -171,6 +186,7 @@ class ProductVariant {
     return ProductVariant(
       id: (json['id'] as num?)?.toInt() ?? 0,
       color: json['color'] as String?,
+      colorLabel: json['color_label'] as String?,
       colorHex: json['color_hex'] as String?,
       imageUrl: json['image_url'] as String?,
       images: (json['images'] as List?)

@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo, useCallback } from 'react';
+import { useEffect, useState, useMemo, useCallback, useRef } from 'react';
 import { Link, useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { getProductDetail, getSimilarProducts } from '../api/endpoints';
@@ -17,6 +17,7 @@ interface ProductImage { id: number; image: string; is_main: boolean; }
 interface ProductVariant {
   id: number;
   color: string;
+  color_label?: string | null; // tilga moslangan rang nomi (backend)
   color_hex?: string | null;
   image_url?: string | null;
   images: { id: number | null; url: string }[];
@@ -300,6 +301,9 @@ const ProductDetail = () => {
   // selectedSize "size yoki model" — UI pill'lari uchun (eski kontrakt).
   // Sarlavhada ikkalasi alohida ko'rsatiladi (modelOnly + sizeOnly).
   const selectedColor    = currentVariant?.color || '';
+  // Ko'rsatiladigan rang nomi — TILGA moslangan (backend `color_label`). `color`
+  // KANONIK qoladi (tanlash/hex mantig'i uchun); UI faqat labelni ko'rsatadi.
+  const selectedColorLabel = currentVariant?.color_label || currentVariant?.color || '';
   const selectedQuality  = currentVariant?.quality || '';
   const selectedSize     = currentVariant?.size || currentVariant?.model || '';
   const selectedModelOnly = currentVariant?.model || '';
@@ -414,13 +418,24 @@ const ProductDetail = () => {
           : null;
 
   // ── Variant ID'ni initialize qilish ──────────────────────────────────────
-  // Mahsulot yuklangach yoki URL'dagi ?variant= o'zgargach, selectedVariantId
-  // yangilanadi. Endi cascade useEffectlar YO'Q — race condition yo'q.
+  // FAQAT boshlang'ich holatda (yoki mahsulot / URL ?variant= HAQIQATAN o'zgarsa)
+  // qo'llanadi. Aks holda foydalanuvchi variant tanlaganida react-query refetch
+  // (masalan oynaga qaytganda) `product.variants` yangi referens berib, bu effect
+  // qayta ishlar va tanlovni URL'dagi eski variantga QAYTARIB tashlar edi — mana
+  // shu "boshqasini tanlasam almashmaydi" bug'i. `initRef` guard buni to'xtatadi.
+  const initRef = useRef<{ productId?: number; urlVariant?: string | null }>({});
   useEffect(() => {
     if (!product?.variants?.length) {
       setSelectedVariantId(null);
+      initRef.current = {};
       return;
     }
+    const productChanged = initRef.current.productId !== product.id;
+    const urlChanged = initRef.current.urlVariant !== variantIdFromUrl;
+    // Bir xil mahsulot + bir xil URL — foydalanuvchi tanlovi ustuvor, tegmaymiz.
+    if (!productChanged && !urlChanged) return;
+    initRef.current = { productId: product.id, urlVariant: variantIdFromUrl };
+
     // 1. URL'dan variant ID bor va u haqiqatan ham mahsulot variantlari orasida
     if (variantIdFromUrl) {
       const vid = Number(variantIdFromUrl);
@@ -444,13 +459,13 @@ const ProductDetail = () => {
     if (selectedModelOnly) parts.push(selectedModelOnly);
     if (selectedQuality) parts.push(selectedQuality);
     if (selectedSizeOnly) parts.push(selectedSizeOnly);
-    if (selectedColor) parts.push(selectedColor);
+    if (selectedColorLabel) parts.push(selectedColorLabel);
 
     if (parts.length > 0) {
       return `${product.name} • ${parts.join(' • ')}`;
     }
     return product.name;
-  }, [product, selectedModelOnly, selectedQuality, selectedSizeOnly, selectedColor]);
+  }, [product, selectedModelOnly, selectedQuality, selectedSizeOnly, selectedColorLabel]);
 
   useEffect(() => {
     if (displayTitle) {
@@ -719,7 +734,7 @@ const ProductDetail = () => {
             {colorOptions.length > 0 && (
               <div className="flex flex-col gap-sm">
                 <span className="text-label-md font-label-md text-on-surface">
-                  {t.product.color}: <span className="font-bold">{selectedColorVariant?.color || selectedColor}</span>
+                  {t.product.color}: <span className="font-bold">{selectedColorVariant?.color_label || selectedColorVariant?.color || selectedColorLabel}</span>
                 </span>
 
                 <div className="flex flex-wrap gap-sm">
@@ -735,7 +750,7 @@ const ProductDetail = () => {
                         key={variant.color}
                         type="button"
                         onClick={() => handleSelectColor(variant.color)}
-                        title={outOfStock ? `${variant.color} — ${t.product.outOfStock}` : variant.color}
+                        title={outOfStock ? `${variant.color_label || variant.color} — ${t.product.outOfStock}` : (variant.color_label || variant.color)}
                         className={`relative flex h-12 w-12 items-center justify-center rounded-full border-2 bg-surface-container-lowest transition-all ${
                           active ? 'border-primary shadow-[0_0_0_3px_rgb(var(--color-primary)/0.18)]' : 'border-outline hover:border-primary/70'
                         } ${outOfStock && !active ? 'opacity-60' : ''}`}

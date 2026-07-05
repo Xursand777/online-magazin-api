@@ -406,15 +406,16 @@ class _ProductDetailView extends StatelessWidget {
 
   Widget _buildColorPicker(
       BuildContext context, ProductDetailLoaded state, ThemeData theme) {
-    final selected = state.selectedVariant?.color;
+    final selected = state.selectedVariant?.color; // kanonik — active taqqoslash
+    final selectedLabel = state.selectedVariant?.colorDisplay; // ko'rsatish (til)
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Row(children: [
           Text("Rang", style: theme.textTheme.titleSmall),
-          if (selected != null) ...[
+          if (selectedLabel != null && selectedLabel.isNotEmpty) ...[
             const SizedBox(width: 6),
-            Text(": $selected",
+            Text(": $selectedLabel",
                 style: theme.textTheme.titleSmall
                     ?.copyWith(fontWeight: FontWeight.bold)),
           ],

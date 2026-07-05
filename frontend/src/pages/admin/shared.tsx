@@ -98,6 +98,8 @@ export interface AdminPaginatedResponse<T> {
   next: string | null;
   previous: string | null;
   results: T[];
+  // Admin mahsulotlar ro'yxatida — HAR VARIANT alohida sanalgan jami (backend).
+  total_with_variants?: number;
 }
 
 export interface ProductFormState {

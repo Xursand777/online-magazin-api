@@ -311,6 +311,11 @@ const AdminDashboard = () => {
   const productCount = Array.isArray(productResponse)
     ? productResponse.length
     : productResponse?.count || 0;
+  // HAR VARIANT alohida sanalgan jami (backend `total_with_variants`) —
+  // "36 xil / 45 dona" ko'rsatish uchun. Yo'q bo'lsa distinct count'ga tushadi.
+  const productTotalWithVariants = Array.isArray(productResponse)
+    ? productResponse.length
+    : productResponse?.total_with_variants ?? productResponse?.count ?? 0;
   const productHasPrev = Array.isArray(productResponse)
     ? false
     : Boolean(productResponse?.previous);
@@ -534,6 +539,7 @@ const AdminDashboard = () => {
                   deleteProductMutation.mutate(id);
               }}
               totalCount={productCount}
+              totalWithVariants={productTotalWithVariants}
               hasPrevPage={productHasPrev}
               hasNextPage={productHasNext}
               products={products}

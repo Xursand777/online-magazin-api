@@ -19,6 +19,12 @@ class _AdminStockPageState extends State<AdminStockPage> {
   final _maxCtrl = TextEditingController(text: '10');
   final _searchCtrl = TextEditingController();
 
+  // Progressive reveal — boshda 50 ta, pastga scroll qilinganda yana 50 ta.
+  // (SliverList o'zi ham faqat ko'rinadigan qatorni quradi; bu esa DELEGATE
+  // hajmini ham cheklaydi va aniq "oz-ozdan ochilish" xatti-harakatini beradi.)
+  static const int _kStockPage = 50;
+  int _stockVisible = _kStockPage;
+
   @override
   void initState() {
     super.initState();
@@ -58,7 +64,14 @@ class _AdminStockPageState extends State<AdminStockPage> {
           ),
         ],
       ),
-      body: BlocBuilder<AdminStockBloc, AdminStockState>(
+      body: BlocConsumer<AdminStockBloc, AdminStockState>(
+        // Yangi ma'lumot yuklanganда (filtr/yangilash) — boshdan 50 ta.
+        listenWhen: (a, b) => b is AdminStockLoaded,
+        listener: (context, state) {
+          if (_stockVisible != _kStockPage) {
+            setState(() => _stockVisible = _kStockPage);
+          }
+        },
         builder: (context, state) {
           final isLoading = state is AdminStockLoading;
           final isError = state is AdminStockError;
@@ -70,11 +83,21 @@ class _AdminStockPageState extends State<AdminStockPage> {
             items = state.filteredItems;
           }
 
+          final int shown = items.length > _stockVisible ? _stockVisible : items.length;
+          final bool hasMore = _stockVisible < items.length;
+
           return RefreshIndicator(
             onRefresh: () async {
               context.read<AdminStockBloc>().add(LoadAdminStock());
             },
-            child: CustomScrollView(
+            child: NotificationListener<ScrollNotification>(
+              onNotification: (n) {
+                if (hasMore && n.metrics.pixels >= n.metrics.maxScrollExtent - 400) {
+                  setState(() => _stockVisible += _kStockPage);
+                }
+                return false;
+              },
+              child: CustomScrollView(
               physics: const AlwaysScrollableScrollPhysics(),
               slivers: [
                 SliverPadding(
@@ -100,7 +123,7 @@ class _AdminStockPageState extends State<AdminStockPage> {
                               style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: theme.colorScheme.onSurface),
                             ),
                             Text(
-                              '${items.length} ta',
+                              hasMore ? '$shown / ${items.length} ta' : '${items.length} ta',
                               style: TextStyle(fontSize: 14, color: theme.colorScheme.onSurfaceVariant),
                             ),
                           ],
@@ -140,7 +163,7 @@ class _AdminStockPageState extends State<AdminStockPage> {
                     ),
                   ),
                 ),
-                // ─── Items List (Lazy Loaded) ──────────────────────────────────
+                // ─── Items List (progressive — oz-ozdan ochiladi) ──────────────
                 if (!isLoading && !isError && items.isNotEmpty)
                   SliverPadding(
                     padding: const EdgeInsets.only(left: 16, right: 16, bottom: 16),
@@ -152,11 +175,31 @@ class _AdminStockPageState extends State<AdminStockPage> {
                             child: _buildItemCard(items[index], theme, isDark),
                           );
                         },
-                        childCount: items.length,
+                        childCount: shown,
+                      ),
+                    ),
+                  ),
+                // Yana yuklanmoqda indikatori (past scroll = yana 50 ta).
+                if (hasMore)
+                  SliverToBoxAdapter(
+                    child: Padding(
+                      padding: const EdgeInsets.only(bottom: 24),
+                      child: Center(
+                        child: Column(
+                          children: [
+                            const CircularProgressIndicator(strokeWidth: 2),
+                            const SizedBox(height: 8),
+                            Text(
+                              'Yana ${items.length - shown} ta',
+                              style: TextStyle(fontSize: 12, color: theme.colorScheme.onSurfaceVariant),
+                            ),
+                          ],
+                        ),
                       ),
                     ),
                   ),
               ],
+              ),
             ),
           );
         },

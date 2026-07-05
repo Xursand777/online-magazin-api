@@ -2,7 +2,7 @@ import random
 import re
 
 from django.db import transaction
-from django.db.models import Case, IntegerField, Min, Max, Q, Sum, Value, When
+from django.db.models import Case, Count, IntegerField, Min, Max, Q, Sum, Value, When
 from .serializers import absolute_media_url
 from django.utils import timezone
 from rest_framework import generics, views, status, viewsets
@@ -196,6 +196,31 @@ class AdminResultsPagination(PageNumberPagination):
     page_size = 20
     page_size_query_param = 'page_size'
     max_page_size = 100
+
+
+class AdminProductPagination(AdminResultsPagination):
+    """
+    Admin mahsulotlar ro'yxati uchun paginatsiya. Standart `count` (nechta XIL
+    mahsulot — variant-guruh boshi) yoniga `total_with_variants` qo'shadi:
+    HAR VARIANT alohida sanaladi (variantsiz mahsulot = 1). Ya'ni "90 xil / 247
+    dona" ni ko'rsatish uchun. Butun FILTRLANGAN to'plam bo'yicha (joriy sahifa
+    emas) — bitta agregat so'rov, sahifadan qat'iy nazar bir xil.
+    """
+    def get_paginated_response(self, data):
+        response = super().get_paginated_response(data)
+        try:
+            base = self.page.paginator.object_list
+            # _vtotal — barcha variantlar soni (LEFT JOIN; variantsizlar 0 beradi)
+            # _vless  — variantsiz mahsulotlar soni (har biri 1 dona hisoblanadi)
+            agg = base.aggregate(
+                _vtotal=Count('variants'),
+                _vless=Count('id', filter=Q(variants__isnull=True), distinct=True),
+            )
+            response.data['total_with_variants'] = (agg['_vtotal'] or 0) + (agg['_vless'] or 0)
+        except Exception:
+            # Xato bo'lsa — count'ni takrorlaymiz (UI hech bo'lmasa buzilmaydi).
+            response.data['total_with_variants'] = response.data.get('count')
+        return response
 
 class SectionPagination(PageNumberPagination):
     page_size = 40
@@ -857,7 +882,7 @@ class AdminProductViewSet(viewsets.ModelViewSet):
         if self.request.method in _SAFE:
             return [IsAuthenticated(), IsStaffMember()]
         return [IsAuthenticated(), IsAdminOrAbove()]
-    pagination_class = AdminResultsPagination
+    pagination_class = AdminProductPagination
 
     def get_queryset(self):
         """

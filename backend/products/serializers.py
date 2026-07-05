@@ -114,12 +114,17 @@ class ProductVariantSerializer(serializers.ModelSerializer):
     # Usta narxi — HAR VARIANT uchun alohida (optom variant'niki bo'lishi
     # mumkin). Avtoritar hisoblash backendda; non-master uchun null.
     master_price = serializers.SerializerMethodField()
+    # Rang nomining TILGA MOSLANGAN ko'rinishi (uz "Qora" → ru "Чёрный" → en
+    # "Black"). `color` KANONIK (o'zbekcha) qoladi — variant tanlash/hex mantig'i
+    # tilga bog'liq bo'lmasligi uchun; UI faqat KO'RSATISHDA color_label ishlatadi.
+    color_label = serializers.SerializerMethodField()
 
     class Meta:
         model = ProductVariant
         fields = (
             'id',
             'color',
+            'color_label',
             'color_hex',
             'image_url',
             'images',
@@ -143,6 +148,11 @@ class ProductVariantSerializer(serializers.ModelSerializer):
         from orders.services import master_line_price
         master = master_line_price(obj.product, obj, ctx)
         return str(master) if master is not None else None
+
+    def get_color_label(self, obj):
+        """Rang nomi — joriy tilga moslangan (ko'rsatish uchun)."""
+        from .color_i18n import localize_color
+        return localize_color(obj.color, get_lang(self.context))
 
     def get_image_url(self, obj):
         request = self.context.get('request')
@@ -228,7 +238,7 @@ class ProductListSerializer(serializers.ModelSerializer):
 # ═══════════════════════════════════════════════════════════════════════════════
 
 
-def _build_variant_card_name(product_name: str, variant) -> str:
+def _build_variant_card_name(product_name: str, variant, lang: str = 'uz') -> str:
     """
     Variant kartasi uchun to'liq nom yaratadi.
 
@@ -247,13 +257,18 @@ def _build_variant_card_name(product_name: str, variant) -> str:
     Eslatma: model odatda null — agar bor bo'lsa, brand-suffix sifatida
     (masalan "Pro") quality dan oldin keladi.
     """
+    from .color_i18n import localize_color
     parts = [product_name]
     # Yangi tartib: model → quality → size → color
     # (foydalanuvchi tabiiy o'qish — sifat, keyin xotira, keyin rang)
     for attr in ('model', 'quality', 'size', 'color'):
         value = getattr(variant, attr, None)
         if value and str(value).strip():
-            parts.append(str(value).strip())
+            text = str(value).strip()
+            # Rang — TILGA moslanadi (ro'yxat kartalarida ham tarjima ko'rinsin).
+            if attr == 'color':
+                text = localize_color(text, lang)
+            parts.append(text)
     return ' • '.join(parts)
 
 
@@ -609,8 +624,10 @@ def in_stock_product_filter():
 
 def _build_card_dict(product, variant, product_name: str, request) -> dict:
     """Bitta karta dict'ini yasaydi (ProductCardSerializer uchun)."""
+    from .color_i18n import localize_color
+    lang = get_lang({'request': request})
     card_id = f"{product.id}-{variant.id}" if variant else str(product.id)
-    name = _build_variant_card_name(product_name, variant) if variant else product_name
+    name = _build_variant_card_name(product_name, variant, lang) if variant else product_name
     return {
         'card_id':        card_id,
         'id':             product.id,         # product_id (navigatsiya uchun)
@@ -628,11 +645,12 @@ def _build_card_dict(product, variant, product_name: str, request) -> dict:
         '_product_obj':   product,  # master_price hisoblash uchun (serializer tashlaydi)
         '_variant_obj':   variant,
         'variant': None if variant is None else {
-            'color':     variant.color,
-            'color_hex': variant.color_hex,
-            'quality':   variant.quality,
-            'model':     variant.model,
-            'size':      variant.size,
+            'color':       variant.color,
+            'color_label': localize_color(variant.color, lang),
+            'color_hex':   variant.color_hex,
+            'quality':     variant.quality,
+            'model':       variant.model,
+            'size':        variant.size,
         },
     }
 

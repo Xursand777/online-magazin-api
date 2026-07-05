@@ -84,7 +84,7 @@ class AdminRepository {
 
   // ─── Products ────────────────────────────────────────────────────────────────
 
-  Future<({List<AdminProductModel> items, bool hasReachedMax})> getProducts({int page = 1, String query = ''}) async {
+  Future<({List<AdminProductModel> items, bool hasReachedMax, int count, int totalWithVariants})> getProducts({int page = 1, String query = ''}) async {
     final response = await apiClient.dio.get(
       ApiConstants.adminProducts,
       queryParameters: {
@@ -96,11 +96,15 @@ class AdminRepository {
     if (data is Map) {
       final list = data['results'] as List? ?? [];
       final items = list.map((j) => AdminProductModel.fromJson(j as Map<String, dynamic>)).toList();
-      return (items: items, hasReachedMax: data['next'] == null);
+      final count = (data['count'] as num?)?.toInt() ?? items.length;
+      // Har variant alohida sanalgan jami (backend). Yo'q bo'lsa count'ga tushadi.
+      final totalWithVariants =
+          (data['total_with_variants'] as num?)?.toInt() ?? count;
+      return (items: items, hasReachedMax: data['next'] == null, count: count, totalWithVariants: totalWithVariants);
     } else {
       final list = data as List? ?? [];
       final items = list.map((j) => AdminProductModel.fromJson(j as Map<String, dynamic>)).toList();
-      return (items: items, hasReachedMax: true);
+      return (items: items, hasReachedMax: true, count: items.length, totalWithVariants: items.length);
     }
   }
 

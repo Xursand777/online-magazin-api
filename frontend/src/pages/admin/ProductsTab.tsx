@@ -119,6 +119,7 @@ const totalVariantStock = (variants: AdminProductVariant[]): number =>
 export const ProductsTab = ({
   products,
   totalCount,
+  totalWithVariants,
   loading,
   categories,
   filters,
@@ -129,6 +130,7 @@ export const ProductsTab = ({
 }: {
   products: AdminProduct[];
   totalCount: number;
+  totalWithVariants: number;
   loading: boolean;
   categories: AdminCategory[];
   filters: {
@@ -161,7 +163,13 @@ export const ProductsTab = ({
     <div className='space-y-6'>
       <div className='flex flex-col gap-4 md:flex-row md:items-end md:justify-between'>
         <div>
-          <h2 className='font-h3 text-h3 text-on-surface'>Mahsulotlar ({totalCount})</h2>
+          {/* (36) = nechta XIL mahsulot · (45) = har variant alohida sanalgan jami */}
+          <h2 className='font-h3 text-h3 text-on-surface'>
+            Mahsulotlar ({totalCount})
+            {totalWithVariants > totalCount && (
+              <span className='ml-1 text-on-surface-variant'>({totalWithVariants})</span>
+            )}
+          </h2>
           <p className='mt-1 text-body-sm text-on-surface-variant'>
             Tovar ma'lumotlari, rasm va variantlarni shu yerdan to'liq boshqaring.
             Variantli mahsulotlar har variantni alohida qator bo'lib chiqaradi —

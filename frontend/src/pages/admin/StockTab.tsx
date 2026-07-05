@@ -1,9 +1,15 @@
 // admin/StockTab.tsx — Ombor (kam qolgan zaxira) hisoboti. #N3: AdminPanel'dan
 // AYNAN ko'chirildi (mantiq o'zgarmas).
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect, useRef } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { adminGetStockReport } from '../../api/endpoints';
 import type { AdminStockItem } from './shared';
+
+// Bir marta ko'rsatiladigan qatorlar soni. Zaxira hisoboti bitta so'rovda keladi
+// (serverga qo'shimcha yuk YO'Q), lekin minglab qatorni BIRDANIGA DOM ga chizish
+// brauzerni qotiradi. Shuning uchun 50 tadan chizamiz, pastga scroll qilinganda
+// yana 50 ta ochamiz (professional saytlardagi "progressive render").
+const STOCK_PAGE = 50;
 
 interface StockStats {
   total_products: number;
@@ -38,6 +44,35 @@ export const StockTab = () => {
         (item.variant_info && item.variant_info.toLowerCase().includes(q)),
     );
   }, [data, search]);
+
+  // ── Progressive render (infinite scroll) ─────────────────────────────────
+  const [visibleCount, setVisibleCount] = useState(STOCK_PAGE);
+  // Filtr/qidiruv/yangi data o'zgarsa — boshdan 50 ta.
+  useEffect(() => {
+    setVisibleCount(STOCK_PAGE);
+  }, [search, minStock, maxStock, data]);
+  const visibleItems = useMemo(
+    () => filteredItems.slice(0, visibleCount),
+    [filteredItems, visibleCount],
+  );
+  const hasMore = visibleCount < filteredItems.length;
+  // Sentinel ko'ringanda yana 50 ta ochamiz (yangi so'rov emas — sof klient).
+  const sentinelRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (!hasMore) return;
+    const el = sentinelRef.current;
+    if (!el) return;
+    const io = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting) {
+          setVisibleCount((c) => c + STOCK_PAGE);
+        }
+      },
+      { rootMargin: '400px' },
+    );
+    io.observe(el);
+    return () => io.disconnect();
+  }, [hasMore, visibleItems.length]);
   const fmt = (v: number) => Math.round(v).toLocaleString('uz-UZ');
   const stats = data?.stats;
   const kpiCards = [
@@ -162,7 +197,7 @@ export const StockTab = () => {
           <h3 className='font-semibold text-on-surface'>
             Zaxira holati{' '}
             <span className='ml-2 text-sm font-normal text-on-surface-variant'>
-              ({filteredItems.length} ta ko'rsatilmoqda)
+              ({visibleItems.length} / {filteredItems.length} ta)
             </span>
           </h3>
         </div>
@@ -189,7 +224,7 @@ export const StockTab = () => {
           <>
           {/* ── MOBIL KARTALAR (telefon) ── */}
           <div className='divide-y divide-outline-variant md:hidden'>
-            {filteredItems.map((item) => (
+            {visibleItems.map((item) => (
               <div key={`m-${item.type}-${item.id}`} className='flex gap-3 p-3'>
                 <div className='h-12 w-12 shrink-0 overflow-hidden rounded-xl border border-outline-variant bg-surface-container'>
                   {item.image ? (
@@ -247,7 +282,7 @@ export const StockTab = () => {
                 </tr>
               </thead>
               <tbody className='divide-y divide-outline-variant'>
-                {filteredItems.map((item) => (
+                {visibleItems.map((item) => (
                   <tr key={`${item.type}-${item.id}`} className='hover:bg-primary/5'>
                     <td className='px-5 py-4'>
                       <div className='flex items-center gap-3'>
@@ -323,6 +358,13 @@ export const StockTab = () => {
               </tbody>
             </table>
           </div>
+          {/* Infinite-scroll sentinel — ko'ringanda yana 50 ta ochiladi */}
+          {hasMore && (
+            <div ref={sentinelRef} className='flex items-center justify-center py-6 text-sm text-on-surface-variant'>
+              <span className='material-symbols-outlined mr-2 animate-spin text-[18px]'>progress_activity</span>
+              Yana yuklanmoqda… ({filteredItems.length - visibleItems.length} ta qoldi)
+            </div>
+          )}
           </>
         )}
       </div>

@@ -119,12 +119,26 @@ class _AdminProductsPageState extends State<AdminProductsPage> {
       backgroundColor: const Color(0xFF063F2B),
       foregroundColor: Colors.white,
       elevation: 0,
-      title: Text(
-        'Mahsulotlar',
-        style: theme.textTheme.titleLarge?.copyWith(
-          color: Colors.white,
-          fontWeight: FontWeight.w800,
-        ),
+      // Sarlavha: "Mahsulotlar (36 (45))" — 36 = nechta XIL mahsulot,
+      // 45 = har variant alohida sanalgan jami (backend total_with_variants).
+      title: BlocBuilder<AdminBloc, AdminState>(
+        buildWhen: (a, b) =>
+            a.productsCount != b.productsCount ||
+            a.productsTotalWithVariants != b.productsTotalWithVariants,
+        builder: (context, state) {
+          final base = state.productsCount > 0 ? ' (${state.productsCount}' : '';
+          final extra = (state.productsTotalWithVariants > state.productsCount)
+              ? ' (${state.productsTotalWithVariants})'
+              : '';
+          final suffix = base.isEmpty ? '' : '$base$extra)';
+          return Text(
+            'Mahsulotlar$suffix',
+            style: theme.textTheme.titleLarge?.copyWith(
+              color: Colors.white,
+              fontWeight: FontWeight.w800,
+            ),
+          );
+        },
       ),
       actions: [
         // #N3: Excel/CSV ommaviy import
