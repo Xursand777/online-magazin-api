@@ -135,7 +135,7 @@ const MasterStatusCard = () => {
 };
 
 const Profile = () => {
-  const { isAuthenticated, user, logout } = useAuthStore();
+  const { isAuthenticated, user, logout, logoutAll } = useAuthStore();
   const resetCart = useCartStore((state) => state.resetCart);
   const navigate = useNavigate();
   const location = useLocation();
@@ -264,6 +264,14 @@ const Profile = () => {
     navigate('/auth');
   };
 
+  const handleLogoutAll = () => {
+    if (window.confirm("Xavfsizlik maqsadida barcha qurilmalar (web, mobil, eski keshlar) dan chiqmoqchimisiz?")) {
+      logoutAll();
+      resetCart();
+      navigate('/auth');
+    }
+  };
+
   const noOrdersDesc = orderFilter === 'unpaid'
     ? t.profile.noUnpaidOrdersDesc
     : orderFilter === 'active'
@@ -346,10 +354,18 @@ const Profile = () => {
             <div className="mt-4 pt-4 border-t border-outline-variant/50">
               <button
                 onClick={handleLogout}
-                className="flex w-full items-center gap-3 px-6 py-3.5 text-[#ef4444] hover:bg-red-50 dark:hover:bg-red-950/20 transition-colors text-base font-medium"
+                className="flex w-full items-center gap-3 px-6 py-3.5 text-on-surface hover:bg-surface-container-low transition-colors text-base font-medium"
               >
                 <span className="material-symbols-outlined text-[22px] font-light">logout</span>
                 {t.profile.logoutText}
+              </button>
+
+              <button
+                onClick={handleLogoutAll}
+                className="flex w-full items-center gap-3 px-6 py-3.5 text-[#ef4444] hover:bg-red-50 dark:hover:bg-red-950/20 transition-colors text-base font-bold mt-1"
+              >
+                <span className="material-symbols-outlined text-[22px] font-medium">phonelink_erase</span>
+                Barcha qurilmalardan chiqish
               </button>
             </div>
           </nav>

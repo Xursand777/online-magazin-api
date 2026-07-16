@@ -31,7 +31,7 @@ class RoleAwareJWTAuthentication(JWTAuthentication):
     def get_user(self, validated_token):
         user = super().get_user(validated_token)
 
-        invalidated_at = getattr(user, 'role_invalidated_at', None)
+        invalidated_at = getattr(user, 'tokens_invalidated_at', None)
         if invalidated_at is None:
             return user
 
@@ -54,8 +54,8 @@ class RoleAwareJWTAuthentication(JWTAuthentication):
             if token_issued < invalidated_at:
                 raise AuthenticationFailed(
                     detail={
-                        'code': 'role_invalidated',
-                        'detail': "Sizning ruxsatingiz o'zgartirildi. Qayta kiring.",
+                        'code': 'token_invalidated',
+                        'detail': "Sizning barcha joriy sessiyalaringiz xavfsizlik yuzasidan to'xtatildi. Iltimos qaytadan kiring.",
                     }
                 )
         except (TypeError, ValueError, OSError):

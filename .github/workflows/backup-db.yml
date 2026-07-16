@@ -1,0 +1,134 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Bozor — Kunlik DB backup (Backblaze B2'ga)
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# ⚠️ DIQQAT: BU WORKFLOW HOZIR LEGACY — Hetzner migratsiyasidan keyin
+#   `cron:` triggeri OLIB TASHLANGAN. Sabab: Hetzner PostgreSQL faqat
+#   docker compose ichki tarmog'ida — GitHub Actions runner ULANA OLMAYDI.
+#
+#   YANGI ARXITEKTURA (Phase 0.3+):
+#     Celery Beat (Hetzner ichida) har kuni 03:00 UTC da
+#     `core.backup_db_task` ni navbatga qo'yadi. Worker uni bajaradi —
+#     `python manage.py backup_db` → pg_dump | gzip | AES-256-GCM → B2.
+#     Tafsilot: backend/core/tasks.py va backend/core/settings.py.
+#
+# NIMA UCHUN HALI HAM SAQLAB QOLAMIZ?
+#   `workflow_dispatch` — Render'ga vaqtinchalik fallback (DNS flip) yoki
+#   off-site backup smoke testi uchun manual qulaylik. Cron yo'q —
+#   avtomatik ishlamaydi, faqat admin "Run workflow" bosganda.
+# ─────────────────────────────────────────────────────────────────────────────
+
+name: Database Backup (manual fallback)
+
+on:
+  # Manual trigger only. Avtomatik kunlik backup endi Celery Beat (Hetzner
+  # ichida) tomonidan boshqariladi — yuqoridagi diqqat blokini o'qing.
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Dry run (faqat dump yaratish, yuklamaslik)'
+        required: false
+        default: 'false'
+        type: choice
+        options:
+          - 'false'
+          - 'true'
+
+jobs:
+  backup:
+    name: Backup database to B2
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      # ── 1. Code ─────────────────────────────────────────────────────────
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # ── 2. PostgreSQL client (pg_dump uchun) ────────────────────────────
+      # Render PostgreSQL versiyasiga mos kelishi uchun postgresql-client-16
+      # o'rnatamiz. Mos kelmasa pg_dump xato berishi mumkin.
+      - name: Install PostgreSQL 16 client
+        run: |
+          sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
+          wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo apt-key add -
+          sudo apt-get update -qq
+          sudo apt-get install -y postgresql-client-16
+          pg_dump --version
+
+      # ── 3. Python ───────────────────────────────────────────────────────
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+          cache-dependency-path: 'backend/requirements.txt'
+
+      - name: Install Python dependencies
+        working-directory: backend
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      # ── 4. Backup ishga tushirish ────────────────────────────────────────
+      # Django management command — backup_db.py o'zi:
+      #   • DATABASE_URL'dan PostgreSQL ulanish
+      #   • pg_dump | gzip → temp file
+      #   • B2 ga put_object
+      #   • head_object orqali tasdiqlash
+      #   • 30 kundan eski backup'larni o'chirish
+      #   • Telegram alert (success/failure)
+      - name: Run database backup
+        working-directory: backend
+        env:
+          # ── Production DB (Render PostgreSQL) ────────────────────────
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+
+          # ── B2 credentials (backup bucket — media bucket'dan ALOHIDA) ──
+          B2_KEY_ID:         ${{ secrets.B2_KEY_ID }}
+          B2_APPLICATION_KEY: ${{ secrets.B2_APPLICATION_KEY }}
+          B2_BUCKET_BACKUPS:  ${{ secrets.B2_BUCKET_BACKUPS }}
+          B2_ENDPOINT_URL:    ${{ secrets.B2_ENDPOINT_URL }}
+          B2_REGION:          ${{ secrets.B2_REGION }}
+
+          # ── Phase 0.3+ — Client-side encryption passphrase ────────────
+          # Hetzner .env'dagi BACKUP_ENCRYPTION_PASSPHRASE bilan AYNAN bir
+          # xil bo'lishi shart — aks holda restore vaqtida deshifrlay olmaymiz.
+          BACKUP_ENCRYPTION_PASSPHRASE: ${{ secrets.BACKUP_ENCRYPTION_PASSPHRASE }}
+
+          # ── Telegram alerts (Phase 0.5 dagi bot) ─────────────────────
+          TELEGRAM_BOT_TOKEN:     ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_ADMIN_CHAT_ID: ${{ secrets.TELEGRAM_ADMIN_CHAT_ID }}
+
+          # ── Minimal Django sozlamalari (backup job uchun) ──────────────
+          # DEBUG=True qilamiz — bu job HTTP serve qilmaydi, xavfsizlik
+          # talablari (REDIS_URL, ALLOWED_HOSTS) bu yerda kerakmas.
+          DJANGO_DEBUG: 'True'
+          DJANGO_SECRET_KEY: 'backup-job-temporary-key-not-used'
+          DJANGO_ALLOWED_HOSTS: '*'
+          CDN_PROVIDER: 'local'
+        run: |
+          if [ "${{ github.event.inputs.dry_run }}" = "true" ]; then
+            python manage.py backup_db --dry-run
+          else
+            python manage.py backup_db
+          fi
+
+      # ── 5. Workflow muvaffaqiyatsiz bo'lsa Telegram'ga xabar ─────────────
+      # backup_db.py o'zi Telegram alert yuborishga harakat qiladi, lekin
+      # agar settings load bo'lmasa yoki Python o'rnatilmasa, alert ham
+      # ishlamaydi. Shuning uchun GitHub Actions tomonidan ham xabar.
+      - name: Notify Telegram on workflow failure
+        if: failure()
+        env:
+          TELEGRAM_BOT_TOKEN:     ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_ADMIN_CHAT_ID: ${{ secrets.TELEGRAM_ADMIN_CHAT_ID }}
+        run: |
+          if [ -z "$TELEGRAM_BOT_TOKEN" ] || [ -z "$TELEGRAM_ADMIN_CHAT_ID" ]; then
+            echo "Telegram secrets sozlanmagan — alert yuborilmadi"
+            exit 0
+          fi
+          curl -sS -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+            -d "chat_id=${TELEGRAM_ADMIN_CHAT_ID}" \
+            -d "parse_mode=Markdown" \
+            -d "text=🔴 *CRITICAL* — \`GitHub Actions\`%0A%0ABackup workflow muvaffaqiyatsiz tugadi.%0A%0AHavola: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"

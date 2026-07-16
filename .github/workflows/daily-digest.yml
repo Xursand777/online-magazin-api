@@ -1,0 +1,106 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Bozor — Kunlik biznes hisoboti (Mobrion_bot orqali Telegram'ga)
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# NIMA QILADI:
+#   Har kuni 09:00 Toshkent vaqti (04:00 UTC) — kechagi buyurtmalar, daromad,
+#   kredit holati, kam stock, SMS balans haqida xulasaani Telegram'ga yuboradi.
+#
+# NIMA UCHUN GITHUB ACTIONS:
+#   Render free tier'da cron yo'q. Tashqi cron — ishonchli yondashuv.
+#   Free reja: 2000 daqiqa/oy. Bizning ishlatish: ~150 daqiqa/oy (kuniga 5).
+#
+# DEBUG / TEST:
+#   workflow_dispatch — qo'lda ishga tushirish mumkin (Actions tab → Run workflow)
+#   Bunda dry_run=true berib, Telegram'ga yubormasdan tekshirish mumkin.
+# ─────────────────────────────────────────────────────────────────────────────
+
+name: Daily Admin Digest
+
+on:
+  schedule:
+    # 04:00 UTC = 09:00 Toshkent (UTC+5)
+    - cron: '0 4 * * *'
+
+  # Qo'lda ishga tushirish (test va emergency uchun)
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Dry run (Telegramga yubormasdan)"
+        required: false
+        default: 'false'
+        type: choice
+        options:
+          - 'false'
+          - 'true'
+      date:
+        description: "Sana (YYYY-MM-DD), bo'sh bo'lsa — kecha"
+        required: false
+        default: ''
+
+jobs:
+  digest:
+    name: Send daily business digest
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+          cache-dependency-path: 'backend/requirements.txt'
+
+      - name: Install dependencies
+        working-directory: backend
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Send daily digest
+        working-directory: backend
+        env:
+          # ── Production DB ────────────────────────────────────────────────
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+
+          # ── Telegram bot (Phase 0.5 — Mobrion_bot) ───────────────────────
+          TELEGRAM_BOT_TOKEN:     ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_ADMIN_CHAT_ID: ${{ secrets.TELEGRAM_ADMIN_CHAT_ID }}
+
+          # ── Eskiz (Phase 0.4 — SMS balans hisobotga kiradi) ──────────────
+          ESKIZ_EMAIL:    ${{ secrets.ESKIZ_EMAIL }}
+          ESKIZ_PASSWORD: ${{ secrets.ESKIZ_PASSWORD }}
+
+          # ── Minimal Django sozlamalar (digest job uchun) ─────────────────
+          DJANGO_DEBUG: 'True'  # Bu job HTTP serve qilmaydi
+          DJANGO_SECRET_KEY: 'digest-job-temporary-key-not-used'
+          DJANGO_ALLOWED_HOSTS: '*'
+          CDN_PROVIDER: 'local'
+        run: |
+          ARGS=""
+          if [ -n "${{ github.event.inputs.date }}" ]; then
+            ARGS="$ARGS --date ${{ github.event.inputs.date }}"
+          fi
+          if [ "${{ github.event.inputs.dry_run }}" = "true" ]; then
+            ARGS="$ARGS --dry-run"
+          fi
+          python manage.py send_daily_digest $ARGS
+
+      # ── Workflow muvaffaqiyatsiz bo'lsa, qo'shimcha Telegram alert ─────────
+      - name: Notify Telegram on workflow failure
+        if: failure()
+        env:
+          TELEGRAM_BOT_TOKEN:     ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_ADMIN_CHAT_ID: ${{ secrets.TELEGRAM_ADMIN_CHAT_ID }}
+        run: |
+          if [ -z "$TELEGRAM_BOT_TOKEN" ] || [ -z "$TELEGRAM_ADMIN_CHAT_ID" ]; then
+            exit 0
+          fi
+          curl -sS -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+            -d "chat_id=${TELEGRAM_ADMIN_CHAT_ID}" \
+            -d "parse_mode=Markdown" \
+            -d "text=🟠 *ERROR* — \`Daily Digest\`%0A%0AKunlik hisobot workflow muvaffaqiyatsiz tugadi.%0A%0AHavola: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"

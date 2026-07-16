@@ -46,6 +46,7 @@ interface AuthState {
   isAuthenticated: boolean;
   login: (user: AuthUser) => void;
   logout: () => void;
+  logoutAll: () => void;
   updateUser: (user: Partial<AuthUser>) => void;
 }
 
@@ -96,6 +97,29 @@ export const useAuthStore = create<AuthState>((set) => ({
     localStorage.removeItem('_token_issued_at');
     
     // Clear favorites safely avoiding circular import
+    import('./favoritesStore')
+      .then((m) => m.useFavoritesStore.getState().resetFavorites())
+      .catch(console.error);
+
+    set({ user: null, isAuthenticated: false });
+  },
+
+  logoutAll: () => {
+    broadcastLogout();
+
+    const BASE_URL = import.meta.env.VITE_API_URL ?? 'http://127.0.0.1:8000/api';
+    // Use the backend endpoint that invalidates ALL sessions (access & refresh)
+    fetch(`${BASE_URL}/auth/logout-all/`, {
+      method:      'POST',
+      credentials: 'include',
+      headers:     { 'Content-Type': 'application/json' },
+    }).catch(() => {});
+
+    localStorage.removeItem('user');
+    localStorage.removeItem('access_token');
+    localStorage.removeItem('refresh_token');
+    localStorage.removeItem('_token_issued_at');
+    
     import('./favoritesStore')
       .then((m) => m.useFavoritesStore.getState().resetFavorites())
       .catch(console.error);

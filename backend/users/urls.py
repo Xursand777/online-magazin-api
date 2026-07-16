@@ -1,7 +1,7 @@
 from django.urls import path
 from .views import (
     RegisterView, SendOTPView, VerifyOTPView, LoginView, PasswordLoginView,
-    CookieTokenRefreshView, CookieLogoutView,
+    CookieTokenRefreshView, CookieLogoutView, GlobalLogoutView,
     UserProfileView, AddressListCreateView, AddressDetailView, FeedbackCreateView,
     AdminUserSearchView, AdminUserListView, AdminUserDetailView,
     AdminLiftCreditBanView, AdminUserToggleActiveView,
@@ -22,6 +22,8 @@ urlpatterns = [
     path('auth/refresh/', CookieTokenRefreshView.as_view(), name='token_refresh'),
     # Logout: cookie blacklist'ga qo'shiladi va o'chiriladi
     path('auth/logout/', CookieLogoutView.as_view(), name='token_logout'),
+    # Barcha qurilmalardan xavfsiz chiqish
+    path('auth/logout-all/', GlobalLogoutView.as_view(), name='token_logout_all'),
 
     path('profile/', UserProfileView.as_view(), name='profile'),
     path('master/status/', MasterStatusView.as_view(), name='master_status'),

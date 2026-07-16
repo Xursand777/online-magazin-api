@@ -54,11 +54,11 @@ class User(AbstractUser):
         help_text="Xodim roli. Bo'sh bo'lsa — oddiy foydalanuvchi.",
     )
 
-    # Rol o'zgarganda eski JWT tokenlarni bloklash uchun timestamp
-    # CustomJWTAuth: token.iat < role_invalidated_at → rad etiladi
-    role_invalidated_at = models.DateTimeField(
+    # Rol o'zgarganda yoki "Barcha qurilmalardan chiqish" bosilganda eski JWT tokenlarni bloklash uchun timestamp
+    # CustomJWTAuth: token.iat < tokens_invalidated_at → rad etiladi
+    tokens_invalidated_at = models.DateTimeField(
         null=True, blank=True,
-        help_text="Rol o'zgartirilgan vaqt. Bundan oldingi tokenlar bekor bo'ladi.",
+        help_text="Tokenlar bekor qilingan vaqt. Bundan oldingi tokenlar xavfsizlik yuzasidan ishlamaydi.",
     )
 
     # Usta (master/craftsman) — maxsus chegirma tizimi
@@ -122,14 +122,14 @@ class User(AbstractUser):
         elif not self.role and not self.is_superuser and self.is_staff:
             self.is_staff = False
 
-        # Rol o'zgarganda role_invalidated_at ni yangilaymiz
+        # Rol o'zgarganda tokens_invalidated_at ni yangilaymiz
         # Bu eski JWT tokenlarni avtomatik bloklaydi
         if self.pk:
             try:
                 old = User.objects.only('role').get(pk=self.pk)
                 if old.role != self.role:
                     from django.utils import timezone
-                    self.role_invalidated_at = timezone.now()
+                    self.tokens_invalidated_at = timezone.now()
             except User.DoesNotExist:
                 pass
 

@@ -832,6 +832,41 @@ class CookieLogoutView(views.APIView):
         return resp
 
 
+class GlobalLogoutView(views.APIView):
+    """
+    POST /api/auth/logout-all/
+    Foydalanuvchining BARCHA qurilmalardan va sessiyalaridan chiqishi.
+    Xavfsizlik maqsadida `tokens_invalidated_at` maydonini yangilaydi
+    va joriy barcha outstanding refresh tokenlarni qora ro'yxatga kiritadi.
+    """
+    permission_classes = (IsAuthenticated,)
+
+    def post(self, request):
+        user = request.user
+        from django.utils import timezone
+        from rest_framework_simplejwt.token_blacklist.models import OutstandingToken, BlacklistedToken
+
+        # 1. Barcha joriy access tokenlarni bekor qilish
+        user.tokens_invalidated_at = timezone.now()
+        user.save(update_fields=['tokens_invalidated_at'])
+
+        # 2. Barcha mavjud refresh tokenlarni qora ro'yxatga kiritish
+        outstanding_tokens = OutstandingToken.objects.filter(user=user)
+        for t in outstanding_tokens:
+            BlacklistedToken.objects.get_or_create(token=t)
+
+        resp = Response({'detail': "Barcha qurilmalardan xavfsiz chiqdingiz."})
+        
+        # Web cookie ni tozalaymiz
+        resp.delete_cookie('access', path='/', samesite='Lax')
+        resp.delete_cookie(
+            key=settings.REFRESH_TOKEN_COOKIE_NAME,
+            path=settings.REFRESH_TOKEN_COOKIE_PATH,
+            samesite=settings.REFRESH_TOKEN_COOKIE_SAMESITE,
+        )
+        return resp
+
+
 # ── Xodim boshqaruvi (faqat Super Admin) ─────────────────────────────────────
 
 class StaffListView(generics.ListAPIView):
@@ -907,7 +942,7 @@ class FireStaffView(views.APIView):
     """
     DELETE /api/admin/staff/<pk>/fire/
     Xodimni ishdan bo'shatish: rolini olib tashlaydi va barcha tokenlarini
-    darhol bekor qiladi (role_invalidated_at yangilanadi).
+    darhol bekor qiladi (tokens_invalidated_at yangilanadi).
     Faqat Super Admin ishlatishi mumkin.
     """
     permission_classes = (IsAuthenticated, IsSuperAdmin)
@@ -941,7 +976,7 @@ class FireStaffView(views.APIView):
 
         fired_role = target.role
         target.role = None
-        # save() avtomatik: is_staff=False + role_invalidated_at=now() → eski tokenlar bekor
+        # save() avtomatik: is_staff=False + tokens_invalidated_at=now() → eski tokenlar bekor
         target.save()
 
         return Response({
