@@ -1,21 +1,41 @@
 #!/usr/bin/env bash
 # ═══════════════════════════════════════════════════════════════════════════
-#  Hetzner backend kodini yangilash (kod drift tuzatish)
+#  ⚠️  FAQAT FAVQULODDA (EMERGENCY-ONLY) — ODATIY DEPLOY UCHUN ISHLATMANG  ⚠️
+# ═══════════════════════════════════════════════════════════════════════════
 #
-#  MUAMMO: server image'lari ~2 hafta eski koddan build qilingan, DB esa yangi
-#  (Render'dan). Yangi funksiyalar (Qaytarish, received-code, courier nav,
-#  Favorite) kodda yo'q. Bu script kodni lokal main HEAD ga keltiradi.
+#  NORMAL DEPLOY = shunchaki `git push` (main).
+#    • backend/**  → `.github/workflows/deploy-backend.yml` avtomat deploy qiladi
+#    • frontend/** → `.github/workflows/deploy-frontend.yml` avtomat deploy qiladi
+#  Bu skript QO'LDA rsync qiladi — auto-deploy (git reset --hard) bilan DRIFT
+#  keltirib chiqarishi mumkin. Faqat GitHub Actions ishlamay qolganда (favqulodda)
+#  yoki bir martalik maxsus holatда ishlating.
+#
+#  ── Nima qiladi (tarixiy: Render→Hetzner migratsiya drift tuzatuvchisi) ──
+#  Lokal kodni serverga rsync qiladi va Docker'ni qayta quradi.
 #
 #  XAVFSIZLIK:
 #   • DB backup + joriy image'lar :rollback tag (build'dan oldin)
-#   • rsync .env / db.sqlite3 / media / venv / test_* ni TEGMAYDI
-#   • migrate = no-op kutilgan (DB allaqachon shu migratsiyalarda)
+#   • rsync .env / db.sqlite3 / media / logs / venv / test_* ni TEGMAYDI
 #   • health/kod tekshiruvi muvaffaqiyatsiz bo'lsa → AVTO-ROLLBACK (eski image)
-#   • Render hali tirik — oxirgi himoya sifatida (DNS flip)
+#   • DIQQAT: Render endi O'CHIRILGAN — eski "DNS flip" himoyasi yo'q.
 #
 #  Mac'da ishga tushiriladi:  bash deploy/deploy_backend_update.sh
 # ═══════════════════════════════════════════════════════════════════════════
 set -uo pipefail
+
+# ── FAVQULODDA TASDIQLASH ───────────────────────────────────────────────────
+# Odatiy deploy `git push` orqali. Bu skript tasodifan ishlamasligi uchun
+# tasdiqlash so'raydi. Avtomatlashtirishда o'chirish: DEPLOY_FORCE=1 bering.
+if [ "${DEPLOY_FORCE:-0}" != "1" ]; then
+  echo "⚠️  Bu — FAQAT FAVQULODDA qo'lда deploy skripti."
+  echo "    Odatiy deploy: git push (GitHub Actions avtomat chiqaradi)."
+  printf "    Davom etish uchun 'favqulodda' deb yozing: "
+  read -r _confirm
+  if [ "$_confirm" != "favqulodda" ]; then
+    echo "Bekor qilindi. (To'g'ri yo'l: git commit + git push)"
+    exit 1
+  fi
+fi
 
 LOCAL_BACKEND="/Users/xursand/Online Magazin API/backend"
 LOCAL_FRONTEND="/Users/xursand/Online Magazin API/frontend"
