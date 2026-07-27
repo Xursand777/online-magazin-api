@@ -42,7 +42,7 @@ echo "== 2) Backend kodini rsync (push) =="
 rsync -az \
   --exclude 'venv/' --exclude '__pycache__/' --exclude '*.pyc' \
   --exclude '.env' --exclude '.env.*' --exclude 'db.sqlite3' \
-  --exclude 'media/' --exclude 'staticfiles/' \
+  --exclude 'media/' --exclude 'staticfiles/' --exclude 'logs/' \
   --exclude 'test_*.py' --exclude 'get_orders.py' --exclude '.DS_Store' \
   -e "ssh -o BatchMode=yes" \
   "$LOCAL_BACKEND/" "root@$IP:/opt/bozor/backend/" \
