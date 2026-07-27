@@ -3,6 +3,8 @@ import { Link, useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { getProductDetail, getSimilarProducts } from '../api/endpoints';
 import { useCartStore } from '../store/cartStore';
+import { useOrderWindow } from '../hooks/useOrderWindow';
+import { useOrderReminderStore } from '../store/orderReminderStore';
 import { useFavoritesStore } from '../store/favoritesStore';
 import { useAuthStore } from '../store/authStore';
 import { toast } from '../utils/toast';
@@ -255,6 +257,8 @@ const ProductDetail = () => {
 
   const { addItem, updateItem, removeItem, addingId, updatingItemIds } = useCartStore();
   const cart = useCartStore((state) => state.cart);
+  const { isOpen: orderingOpen, openTime, closeTime } = useOrderWindow();
+  const showOrderReminder = useOrderReminderStore((s) => s.show);
   const isAdding = addingId === Number(id);
 
   const { toggleFavorite, isFavorite } = useFavoritesStore();
@@ -873,13 +877,20 @@ const ProductDetail = () => {
           ) : (
             <button
               disabled={isOutOfStock || isAdding}
-              onClick={() => addItem(addToCartPayload)}
-              className="flex-1 bg-primary text-on-primary py-3 px-6 rounded-lg font-label-md text-label-md shadow-sm hover:opacity-90 transition-opacity flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+              onClick={() => {
+                if (!orderingOpen) { showOrderReminder(); return; }
+                addItem(addToCartPayload);
+              }}
+              className={`flex-1 py-3 px-6 rounded-lg font-label-md text-label-md shadow-sm transition-opacity flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed ${
+                !orderingOpen
+                  ? 'bg-amber-500/15 text-amber-600 hover:bg-amber-500/25 dark:text-amber-400'
+                  : 'bg-primary text-on-primary hover:opacity-90'
+              }`}
             >
               <span className={`material-symbols-outlined ${isAdding ? 'animate-spin' : ''}`}>
-                {isAdding ? 'progress_activity' : 'shopping_cart'}
+                {!orderingOpen ? 'schedule' : isAdding ? 'progress_activity' : 'shopping_cart'}
               </span>
-              {isAdding ? t.product.adding : isOutOfStock ? t.product.outOfStock : t.product.addToCart}
+              {!orderingOpen ? `${openTime} - ${closeTime}` : isAdding ? t.product.adding : isOutOfStock ? t.product.outOfStock : t.product.addToCart}
             </button>
           )}
           <Link

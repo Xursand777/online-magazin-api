@@ -15,6 +15,7 @@ import ComingSoon from './pages/ComingSoon';
 import PrivacyPolicy from './pages/PrivacyPolicy';
 import NotFound from './pages/NotFound';
 import ProtectedRoute from './components/ProtectedRoute';
+import OrderClosedModal from './components/OrderClosedModal';
 import { useCartStore } from './store/cartStore';
 import { useFavoritesStore } from './store/favoritesStore';
 import { useAuthStore } from './store/authStore';
@@ -89,6 +90,8 @@ function App() {
   return (
     <BrowserRouter>
       <ScrollToTop />
+      <OrderClosedModal />
+
       <Routes>
         {/* Admin route - protected + lazy loaded */}
         <Route element={<ProtectedRoute />}>

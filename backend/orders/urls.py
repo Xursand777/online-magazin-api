@@ -31,6 +31,7 @@ from .views import (
     CustomerOrderDisputesView,
     QuickOrderView,
     OrderFromCartView,
+    OrderWindowView,
     OrderListView,
     OrderDetailView,
     UserCancelOrderView,
@@ -98,4 +99,6 @@ urlpatterns = [
          CustomerMyReturnsView.as_view(), name='customer_my_returns'),
     path('quick/', QuickOrderView.as_view(), name='quick_order'),
     path('from-cart/', OrderFromCartView.as_view(), name='order_from_cart'),
+    # Buyurtma qabul qilish vaqt oynasi holati (public — UI uchun)
+    path('window/', OrderWindowView.as_view(), name='order_window'),
 ]

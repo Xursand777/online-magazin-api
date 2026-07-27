@@ -378,6 +378,9 @@ const translations = {
     },
     product: {
       addToCart: "Savatga qo'shish",
+      orderClosedTitle: "Hozircha yopiqmiz 🌙",
+      orderClosedBody: "Buyurtmalar har kuni {open} dan {close} gacha qabul qilinadi. Belgilangan vaqtda qaytib keling — sizni mamnuniyat bilan kutib qolamiz! 💚",
+      orderClosedGotIt: "Tushunarli",
       addedToCart: "Savatga qo'shildi",
       inCart: "Savatda",
       inStock: "Mavjud",
@@ -874,6 +877,9 @@ const translations = {
     },
     product: {
       addToCart: "В корзину",
+      orderClosedTitle: "Пока закрыто 🌙",
+      orderClosedBody: "Заказы принимаются ежедневно с {open} до {close}. Возвращайтесь в рабочее время — мы будем рады вас видеть! 💚",
+      orderClosedGotIt: "Понятно",
       addedToCart: "Добавлено в корзину",
       inCart: "В корзине",
       inStock: "В наличии",
@@ -1370,6 +1376,9 @@ const translations = {
     },
     product: {
       addToCart: "Add to cart",
+      orderClosedTitle: "We're closed right now 🌙",
+      orderClosedBody: "Orders are accepted every day from {open} to {close}. Come back during working hours — we'll be happy to see you! 💚",
+      orderClosedGotIt: "Got it",
       addedToCart: "Added to cart",
       inCart: "In cart",
       inStock: "In stock",

@@ -3,6 +3,8 @@ import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import '../models/product_model.dart';
 import '../../features/cart/presentation/bloc/cart_bloc.dart';
+import '../network/order_window_service.dart';
+import 'order_closed_dialog.dart';
 
 /// Variant-aware cart action button.
 ///
@@ -148,53 +150,77 @@ class CartActionButton extends StatelessWidget {
     ThemeData theme,
     double height,
   ) {
-    return SizedBox(
-      height: height,
-      width: double.infinity,
-      child: ElevatedButton(
-        onPressed: _isOutOfStock
-            ? null
-            : () {
-                HapticFeedback.lightImpact();
-                context.read<CartBloc>().add(AddToCart(product));
-                ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-                  content: const Text("Savatga qo'shildi"),
-                  backgroundColor: theme.colorScheme.primary,
-                  duration: const Duration(milliseconds: 1200),
-                  behavior: SnackBarBehavior.floating,
-                ));
-              },
-        style: ElevatedButton.styleFrom(
-          backgroundColor: theme.colorScheme.primary,
-          foregroundColor: theme.colorScheme.onPrimary,
-          elevation: 0,
-          padding: EdgeInsets.zero,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(10),
-          ),
-          disabledBackgroundColor: theme.colorScheme.surfaceContainerHighest,
-          disabledForegroundColor: theme.colorScheme.onSurfaceVariant,
-        ),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(
-              _isOutOfStock
-                  ? Icons.do_not_disturb_outlined
-                  : Icons.shopping_cart_outlined,
-              size: large ? 20 : 18,
-            ),
-            const SizedBox(width: 6),
-            Text(
-              _isOutOfStock ? "Sotuvda yo'q" : 'Savatga',
-              style: TextStyle(
-                fontSize: large ? 16 : 14,
-                fontWeight: FontWeight.bold,
+    // Vaqt oynasiga reaktiv: 19:00 ga yetganda tugma avtomat "09:00-19:00" ga
+    // o'zgaradi. Server vaqti asos — client soatiga bog'liq emas.
+    return ValueListenableBuilder<OrderWindowStatus>(
+      valueListenable: OrderWindowService.instance.status,
+      builder: (context, window, _) {
+        final closed = !window.isOpen;
+        const amberBg = Color(0x26F59E0B); // amber 15%
+        const amberFg = Color(0xFFD97706);
+        return SizedBox(
+          height: height,
+          width: double.infinity,
+          child: ElevatedButton(
+            onPressed: _isOutOfStock
+                ? null
+                : () {
+                    if (closed) {
+                      HapticFeedback.lightImpact();
+                      showOrderClosedDialog(context, window);
+                      return;
+                    }
+                    HapticFeedback.lightImpact();
+                    context.read<CartBloc>().add(AddToCart(product));
+                    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                      content: const Text("Savatga qo'shildi"),
+                      backgroundColor: theme.colorScheme.primary,
+                      duration: const Duration(milliseconds: 1200),
+                      behavior: SnackBarBehavior.floating,
+                    ));
+                  },
+            style: ElevatedButton.styleFrom(
+              backgroundColor:
+                  closed ? amberBg : theme.colorScheme.primary,
+              foregroundColor:
+                  closed ? amberFg : theme.colorScheme.onPrimary,
+              elevation: 0,
+              padding: EdgeInsets.zero,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(10),
               ),
+              disabledBackgroundColor:
+                  theme.colorScheme.surfaceContainerHighest,
+              disabledForegroundColor: theme.colorScheme.onSurfaceVariant,
             ),
-          ],
-        ),
-      ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(
+                  _isOutOfStock
+                      ? Icons.do_not_disturb_outlined
+                      : closed
+                          ? Icons.schedule_rounded
+                          : Icons.shopping_cart_outlined,
+                  size: large ? 20 : 18,
+                ),
+                const SizedBox(width: 6),
+                Text(
+                  _isOutOfStock
+                      ? "Sotuvda yo'q"
+                      : closed
+                          ? '${window.openTime} - ${window.closeTime}'
+                          : 'Savatga',
+                  style: TextStyle(
+                    fontSize: large ? 16 : 14,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
     );
   }
 }

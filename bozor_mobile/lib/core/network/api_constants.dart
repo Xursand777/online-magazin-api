@@ -73,6 +73,8 @@ class ApiConstants {
   static const String creditStatus = '/api/orders/credit-status/';
   static const String ordersFromCart = '/api/orders/from-cart/';
   static const String ordersQuick = '/api/orders/quick/';
+  // Buyurtma qabul qilish vaqt oynasi holati (public — UI uchun)
+  static const String orderWindow = '/api/orders/window/';
 
   // ─── Admin: Katalog ─────────────────────────────────────────────────────────
   static const String adminProducts = '/api/admin/products/';

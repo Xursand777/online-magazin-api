@@ -1,6 +1,6 @@
 from rest_framework import generics, serializers as drf_serializers, views, status
 from rest_framework.pagination import PageNumberPagination
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import IsAuthenticated, AllowAny
 from users.permissions import (
     IsStaffMember, IsAdminOrAbove, IsSuperAdmin,
     CanAccessKassa, CanAccessReports, CanCreatePOS,
@@ -45,7 +45,10 @@ from .services import (
     create_order_dispute,
     create_order_with_items,
     get_kassa_balance,
+    get_order_window,
+    is_ordering_open,
     mark_overdue_credits,
+    order_closed_message,
     pay_credit_order,
     transition_order_status,
     transition_return_status,
@@ -58,6 +61,32 @@ from .idempotency import (
     release_idempotency_lock,
     save_idempotency_response,
 )
+
+
+class OrderWindowView(views.APIView):
+    """
+    GET /api/orders/window/ — buyurtma qabul qilish vaqt oynasi holati (public).
+
+    Server vaqti (Asia/Tashkent) bilan hisoblanadi — client soatiga bog'liq emas.
+    Frontend/mobil buni "Savatga qo'shish" tugmasi va eslatma uchun ishlatadi.
+    """
+    permission_classes = (AllowAny,)
+    authentication_classes = ()
+
+    def get(self, request):
+        from django.utils import timezone
+        now = timezone.localtime()
+        open_h, close_h = get_order_window()
+        is_open = is_ordering_open(now)
+        return Response({
+            'is_open': is_open,
+            'open_hour': open_h,
+            'close_hour': close_h,
+            'open_time': f'{open_h:02d}:00',
+            'close_time': f'{close_h:02d}:00',
+            'server_time': now.isoformat(),
+            'message': None if is_open else order_closed_message(),
+        })
 
 
 class QuickOrderView(views.APIView):
@@ -1370,6 +1399,7 @@ class AdminPOSOrderView(views.APIView):
             credit_days=credit_days,
             skip_credit_check=True,  # POS admin o'zi nazorat qiladi
             allow_price_override=True,  # POS'da kelishuv narxi (chegirma) mumkin
+            enforce_order_window=False,  # POS = do'kondagi xodim, vaqt oynasidan ozod
         )
 
         # --- Statusni RECEIVED ga to'g'ridan-to'g'ri o'tkazish (do'konda xaridorga topshirildi) ---

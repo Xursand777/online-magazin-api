@@ -82,6 +82,12 @@ const Map<String, String> translationsUz = {
   'cart.free': 'Bepul',
   'cart.totalAmount': 'Jami summa',
   'cart.checkout': 'Rasmiylashtirish',
+  // Buyurtma vaqt oynasi (9:00–19:00) eslatmasi
+  'orderWindow.title': 'Hozircha yopiqmiz 🌙',
+  'orderWindow.body':
+      'Buyurtmalar har kuni {open} dan {close} gacha qabul qilinadi. '
+          'Belgilangan vaqtda qaytib keling — sizni mamnuniyat bilan kutib qolamiz! 💚',
+  'orderWindow.gotIt': 'Tushunarli',
   'cart.removeAll': "Hammasini o'chirish",
   'cart.removeConfirm':
       "Savatdagi barcha mahsulotlarni o'chirishni xohlaysizmi?",

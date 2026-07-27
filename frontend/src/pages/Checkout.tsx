@@ -5,6 +5,8 @@ import { useAuthStore } from '../store/authStore';
 import { createOrderFromCart, generateIdempotencyKey, getCreditStatus, getProfile } from '../api/endpoints';
 import { toast } from '../utils/toast';
 import { useTranslation } from '../i18n/useTranslation';
+import { useOrderWindow } from '../hooks/useOrderWindow';
+import { useOrderReminderStore } from '../store/orderReminderStore';
 import AddressPicker from '../components/AddressPicker';
 import { formatStructuredAddress, parseStructuredAddress, type StructuredAddress } from '../utils/address';
 
@@ -86,6 +88,8 @@ const Checkout = () => {
   const navigate = useNavigate();
   const { cart, fetchCart, loading: cartLoading } = useCartStore();
   const { isAuthenticated, user } = useAuthStore();
+  const { isOpen: orderingOpen } = useOrderWindow();
+  const showOrderReminder = useOrderReminderStore((s) => s.show);
   // Muddatli to'lov — FAQAT ustalar uchun. Backend authoritative tarzda
   // blocklaydi; bu yerda UX gating (option umuman ko'rinmaydi).
   // App.tsx page load'da is_master va can_use_credit'ni server'dan
@@ -229,6 +233,12 @@ const Checkout = () => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
+    // ── Buyurtma vaqt oynasi (UI oldindan tekshiruv; backend baribir majburlaydi) ──
+    if (!orderingOpen) {
+      showOrderReminder();
+      return;
+    }
+
     // ── ULTRA-SECURE: telefon ALWAYS user.phone'dan olinadi.
     // Frontend formData.receiver_phone backend tomondan e'tiborga olinmaydi,
     // lekin biz UI tutarli bo'lishi uchun bu yerda ham user.phone'ni
@@ -320,6 +330,10 @@ const Checkout = () => {
       const status = err?.response?.status;
       if (status === 409 && code === 'idempotency_in_progress') {
         toast.error("So'rov ishlamoqda. Bir necha soniyada qayta urinib ko'ring.");
+      } else if (code === 'ordering_closed') {
+        // Sahifa ochilgandan keyin vaqt oynasi yopilgan bo'lishi mumkin
+        idempotencyKeyRef.current = null;
+        showOrderReminder();
       } else {
         // Boshqa xato — keyingi urinishda YANGI key (forma o'zgargan bo'lishi
         // mumkin: validatsiya xato bo'lib qolgan field tuzatildi).

@@ -79,6 +79,12 @@ const Map<String, String> translationsEn = {
   'cart.free': 'Free',
   'cart.totalAmount': 'Total amount',
   'cart.checkout': 'Checkout',
+  // Order acceptance window (9:00–19:00)
+  'orderWindow.title': "We're closed right now 🌙",
+  'orderWindow.body':
+      'Orders are accepted every day from {open} to {close}. '
+          "Come back during working hours — we'll be happy to see you! 💚",
+  'orderWindow.gotIt': 'Got it',
   'cart.removeAll': 'Clear cart',
   'cart.removeConfirm': 'Remove all items from the cart?',
 

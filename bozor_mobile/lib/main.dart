@@ -8,6 +8,7 @@ import 'package:sentry_flutter/sentry_flutter.dart';
 import 'core/theme/app_theme.dart';
 import 'core/router/app_router.dart';
 import 'core/storage/local_storage.dart';
+import 'core/network/order_window_service.dart';
 import 'core/di/injection_container.dart' as di;
 import 'core/i18n/app_languages.dart';
 import 'core/i18n/language_cubit.dart';
@@ -63,6 +64,9 @@ Future<void> _initApp() async {
 
   // ── Server warm-up (fonda, kutmaymiz) ────────────────────────────────────
   _warmUpServer();
+
+  // ── Buyurtma vaqt oynasi (9:00–19:00) — fonda yuklab, har daqiqa yangilaydi ─
+  OrderWindowService.instance.start();
 
   runApp(const BozorApp());
 }

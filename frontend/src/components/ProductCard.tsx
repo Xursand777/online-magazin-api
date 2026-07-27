@@ -4,6 +4,8 @@ import { useFavoritesStore } from '../store/favoritesStore';
 import { useAuthStore } from '../store/authStore';
 import { toast } from '../utils/toast';
 import { useTranslation } from '../i18n/useTranslation';
+import { useOrderWindow } from '../hooks/useOrderWindow';
+import { useOrderReminderStore } from '../store/orderReminderStore';
 
 export interface Product {
   id: number | string;
@@ -109,6 +111,8 @@ const ProductCard = ({ product, onToggleFavorite, isFavorite: propIsFavorite, la
   };
 
   const { addItem, updateItem, removeItem, addingId, updatingItemIds } = useCartStore();
+  const { isOpen: orderingOpen, openTime, closeTime } = useOrderWindow();
+  const showOrderReminder = useOrderReminderStore((s) => s.show);
   // Eslatma: addingId faqat product_id ni ushlaydi (variant'ga moslashtirilmagan).
   // Bu — har variant kartasi alohida bo'lsa ham — bitta mahsulotning HAR variantida
   // "yuklanmoqda" holati ko'rinadi. Bu juda kichik UX kompromiss (1-2 soniya).
@@ -207,6 +211,10 @@ const ProductCard = ({ product, onToggleFavorite, isFavorite: propIsFavorite, la
         onClick={(event) => {
           event.preventDefault();
           event.stopPropagation();
+          if (!orderingOpen) {
+            showOrderReminder();
+            return;
+          }
           if (isOutOfStock) {
             toast.error(t.product.outOfStock);
             return;
@@ -214,13 +222,23 @@ const ProductCard = ({ product, onToggleFavorite, isFavorite: propIsFavorite, la
           addItem(addPayload);
         }}
         disabled={isAdding || isOutOfStock}
-        className={`flex w-full items-center justify-center gap-2 rounded-lg bg-primary text-on-primary transition-all hover:opacity-90 active:scale-95 disabled:opacity-60 ${compact ? 'py-2' : 'py-2.5'}`}
+        className={`flex w-full items-center justify-center gap-2 rounded-lg transition-all active:scale-95 disabled:opacity-60 ${compact ? 'py-2' : 'py-2.5'} ${
+          !orderingOpen
+            ? 'bg-amber-500/15 text-amber-600 hover:bg-amber-500/25 dark:text-amber-400'
+            : 'bg-primary text-on-primary hover:opacity-90'
+        }`}
       >
         <span className={`material-symbols-outlined text-[18px] ${isAdding ? 'animate-spin' : ''}`}>
-          {isAdding ? 'progress_activity' : 'shopping_cart'}
+          {!orderingOpen ? 'schedule' : isAdding ? 'progress_activity' : 'shopping_cart'}
         </span>
         <span className="text-label-md font-label-md">
-          {isAdding ? t.product.addedToCart : isOutOfStock ? t.product.outOfStock : t.product.addToCart}
+          {!orderingOpen
+            ? `${openTime} - ${closeTime}`
+            : isAdding
+            ? t.product.addedToCart
+            : isOutOfStock
+            ? t.product.outOfStock
+            : t.product.addToCart}
         </span>
       </button>
     );

@@ -7,6 +7,8 @@ import '../../../../core/di/injection_container.dart';
 import '../../../../core/i18n/language_extension.dart';
 import '../../../../core/network/api_client.dart';
 import '../../../../core/network/api_constants.dart';
+import '../../../../core/network/order_window_service.dart';
+import '../../../../core/widgets/order_closed_dialog.dart';
 import '../../../../core/models/product_model.dart';
 import '../../../../core/utils/address.dart';
 import '../../../../core/widgets/address_picker.dart';
@@ -131,6 +133,12 @@ class _CheckoutViewState extends State<CheckoutView> {
   }
 
   void _submit() {
+    // ── Buyurtma vaqt oynasi (UI oldindan tekshiruv; backend baribir majburlaydi) ──
+    if (!OrderWindowService.instance.status.value.isOpen) {
+      showOrderClosedDialog(
+        context, OrderWindowService.instance.status.value);
+      return;
+    }
     if (_formKey.currentState?.validate() ?? false) {
       final cleanPhone = _phoneController.text.replaceAll(RegExp(r'\s+'), '');
       final phoneRegex = RegExp(r'^\+998[0-9]{9}$');
@@ -299,6 +307,10 @@ class _CheckoutViewState extends State<CheckoutView> {
                         duration: const Duration(seconds: 4),
                       ),
                     );
+                  } else if (state.code == 'ordering_closed') {
+                    // Sahifa ochilgandan keyin vaqt oynasi yopilgan bo'lishi mumkin
+                    showOrderClosedDialog(
+                        context, OrderWindowService.instance.status.value);
                   } else {
                     ScaffoldMessenger.of(context).showSnackBar(
                       SnackBar(

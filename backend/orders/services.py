@@ -453,17 +453,66 @@ def trigger_refund(payment):
 
 
 @transaction.atomic
+# ─────────────────────────────────────────────────────────────────────────────
+# BUYURTMA VAQT OYNASI (server-authoritative, Asia/Tashkent) — XAVFSIZ tekshiruv
+# Buyurtmalar faqat [open, close) oralig'ida (masalan 09:00–19:00), HAR KUNI.
+# Bu backend'da server vaqti bilan majburlanadi — client soatini o'zgartirish
+# orqali chetlab bo'lmaydi. UI faqat qulaylik uchun aks ettiradi.
+# ─────────────────────────────────────────────────────────────────────────────
+def get_order_window() -> tuple[int, int]:
+    """(open_hour, close_hour) — settings'dan (env orqali sozlanadi)."""
+    return (
+        int(getattr(settings, 'ORDER_WINDOW_OPEN_HOUR', 9)),
+        int(getattr(settings, 'ORDER_WINDOW_CLOSE_HOUR', 19)),
+    )
+
+
+def is_ordering_open(now=None) -> bool:
+    """
+    Hozir buyurtma qabul qilinadimi? Server vaqti (Asia/Tashkent) bilan.
+    Oyna [open, close): 19:00 dan yopiq. Har kuni ishlaydi (dam olish kuni yo'q).
+    """
+    if now is None:
+        now = timezone.localtime()          # settings.TIME_ZONE = Asia/Tashkent
+    open_h, close_h = get_order_window()
+    return open_h <= now.hour < close_h
+
+
+def order_closed_message() -> str:
+    """Yopiq vaqtda foydalanuvchiga ko'rsatiladigan iliq eslatma (fallback)."""
+    open_h, close_h = get_order_window()
+    return (
+        f"Buyurtmalar faqat {open_h:02d}:00 dan {close_h:02d}:00 gacha qabul "
+        f"qilinadi. Belgilangan vaqtda buyurtma berishingiz mumkin — sizni "
+        f"kutib qolamiz."
+    )
+
+
 def create_order_with_items(
     *, user, receiver_name, receiver_phone, delivery_address,
     payment_method, items, credit_days=None, skip_credit_check=False,
     delivery_lat=None, delivery_lng=None, delivery_notes='',
-    allow_price_override=False,
+    allow_price_override=False, enforce_order_window=True,
 ):
     import logging
     _log = logging.getLogger('orders.create')
 
     if not items:
         raise serializers.ValidationError({'error': "Savat bo'sh."})
+
+    # ── VAQT OYNASI (xavfsiz, server-authoritative) ──────────────────────────
+    # Mijoz buyurtmalari faqat belgilangan soatlarda. Admin POS / return-
+    # replacement ichki yo'llari `enforce_order_window=False` beradi. Test
+    # suite (IS_TESTING) vaqtdan qat'i nazar ishlaydi.
+    if (
+        enforce_order_window
+        and not getattr(settings, 'IS_TESTING', False)
+        and not is_ordering_open()
+    ):
+        raise serializers.ValidationError({
+            'error': order_closed_message(),
+            'code': 'ordering_closed',
+        })
 
     # ⚠ DEFENSIVE NORMALIZATION (Phase 3.0): payment_method qiymatini
     # qat'iy normallashtirish — frontend bug, race condition yoki encoding
@@ -2027,6 +2076,7 @@ def create_replacement_order_for_return(return_obj: 'OrderReturn', *, actor) -> 
         delivery_notes=f"Almashtirish ({return_obj.return_number}) — Buyurtma #{original.id} o'rniga",
         allow_price_override=True,    # aynan original narxlarda
         skip_credit_check=True,        # credit emas
+        enforce_order_window=False,    # ichki tizim amali (almashtirish) — vaqtdan ozod
     )
 
     # Status'ni CONFIRMED ga olib chiqamiz (PENDING'dan o'tkazib) — bu allaqachon

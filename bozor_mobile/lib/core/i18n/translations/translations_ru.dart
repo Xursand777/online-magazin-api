@@ -79,6 +79,12 @@ const Map<String, String> translationsRu = {
   'cart.free': 'Бесплатно',
   'cart.totalAmount': 'Итоговая сумма',
   'cart.checkout': 'Оформить',
+  // Окно приёма заказов (9:00–19:00)
+  'orderWindow.title': 'Пока закрыто 🌙',
+  'orderWindow.body':
+      'Заказы принимаются ежедневно с {open} до {close}. '
+          'Возвращайтесь в рабочее время — мы будем рады вас видеть! 💚',
+  'orderWindow.gotIt': 'Понятно',
   'cart.removeAll': 'Очистить корзину',
   'cart.removeConfirm':
       'Вы хотите удалить все товары из корзины?',

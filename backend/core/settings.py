@@ -159,6 +159,15 @@ USE_I18N = True
 USE_TZ = True
 
 # ─────────────────────────────────────────────────────────────────────────────
+# BUYURTMA QABUL QILISH VAQT OYNASI (Asia/Tashkent, HAR KUNI — dam olish yo'q)
+# Buyurtmalar faqat [OPEN, CLOSE) oralig'ida qabul qilinadi (masalan 09:00–19:00).
+# Xavfsizlik: bu backend'da server vaqti bilan majburlanadi (client soatini
+# o'zgartirish orqali chetlab bo'lmaydi). UI faqat qulaylik uchun ko'rsatadi.
+# ─────────────────────────────────────────────────────────────────────────────
+ORDER_WINDOW_OPEN_HOUR = int(os.getenv('ORDER_WINDOW_OPEN_HOUR', '9'))
+ORDER_WINDOW_CLOSE_HOUR = int(os.getenv('ORDER_WINDOW_CLOSE_HOUR', '19'))
+
+# ─────────────────────────────────────────────────────────────────────────────
 # STATIK VA MEDIA FAYLLAR
 # ─────────────────────────────────────────────────────────────────────────────
 STATIC_URL = '/static/'
