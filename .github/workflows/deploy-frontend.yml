@@ -1,0 +1,105 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# 700Mobile — Frontend AUTO-DEPLOY (Hetzner nginx)
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# NIMA QILADI:
+#   `main` branch'ga `frontend/**` o'zgarishi push qilinsa — GitHub runner'da
+#   Vite build qiladi va tayyor `dist/` ni Hetzner serverga (nginx serve
+#   qiladigan `/opt/bozor/frontend/dist/`) rsync qiladi. Qo'lda deploy shart emas.
+#
+# NIMA UCHUN RUNNER'DA BUILD (serverda emas):
+#   Kichik VPS'ni build bilan yuklamaslik uchun; runner tez va toza. Faqat
+#   tayyor statik `dist` serverga ko'chiriladi (nginx bind-mount orqali darhol
+#   xizmat qiladi — konteyner qayta qurish/restart SHART EMAS).
+#
+# XAVFSIZLIK (backend workflow bilan bir xil qatlamlar):
+#   1. `on: push: branches: [main]` — faqat main'ga push (PR/fork trigger yo'q,
+#      secret'lar fork'larga berilmaydi).
+#   2. `paths: frontend/**` — faqat frontend o'zgarsa (behuda deploy yo'q).
+#   3. `concurrency` — bir vaqtda bitta deploy.
+#   4. Backend'nikidek alohida deploy SSH kaliti (GitHub Secret'da).
+#   5. Action'lar versiyaga bog'langan (supply-chain himoyasi).
+#
+#   Backend auto-deploy `git reset --hard` qiladi, lekin `frontend/dist`
+#   gitignore'da — shuning uchun bu ikki workflow BIR-BIRINI BUZMAYDI.
+#
+# KERAKLI SECRETS (backend workflow bilan bir xil — allaqachon sozlangan):
+#   HETZNER_HOST, HETZNER_USER, HETZNER_SSH_KEY, HETZNER_SSH_PORT (ixtiyoriy)
+#
+# QO'LDA ISHGA TUSHIRISH: Actions → "Deploy Frontend (Hetzner)" → Run workflow.
+# ─────────────────────────────────────────────────────────────────────────────
+
+name: Deploy Frontend (Hetzner)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'frontend/**'
+      - '.github/workflows/deploy-frontend.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-frontend-hetzner
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Build + rsync → Hetzner nginx
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          # Lokal build muhiti bilan mos (Vite 8 yangi Node talab qiladi).
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Vite build (VITE_API_URL productionga qotirilgan)
+        working-directory: frontend
+        env:
+          # MUHIM: production API manzili shu yerda majburiy — build vaqtida
+          # bundle'ga kiritiladi (aks holda frontend localhost'ga tushib qoladi).
+          VITE_API_URL: https://api.700mobile.uz/api
+        run: |
+          npm run build
+          test -f dist/index.html || { echo "XATO: dist/index.html topilmadi"; exit 1; }
+          echo "Bundle: $(grep -oE 'assets/index-[A-Za-z0-9_-]+\.js' dist/index.html | head -1)"
+
+      - name: SSH kalitini sozlash
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "${{ secrets.HETZNER_SSH_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -p "${{ secrets.HETZNER_SSH_PORT || 22 }}" "${{ secrets.HETZNER_HOST }}" >> ~/.ssh/known_hosts 2>/dev/null || true
+
+      - name: rsync dist → Hetzner (/opt/bozor/frontend/dist)
+        run: |
+          rsync -az --delete \
+            -e "ssh -i ~/.ssh/deploy_key -p ${{ secrets.HETZNER_SSH_PORT || 22 }} -o StrictHostKeyChecking=accept-new" \
+            frontend/dist/ \
+            "${{ secrets.HETZNER_USER }}@${{ secrets.HETZNER_HOST }}:/opt/bozor/frontend/dist/"
+          echo "✅ Frontend dist serverga ko'chirildi — nginx darhol xizmat qiladi."
+
+      - name: Notify Telegram on failure
+        if: failure()
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_ADMIN_CHAT_ID: ${{ secrets.TELEGRAM_ADMIN_CHAT_ID }}
+        run: |
+          if [ -n "${TELEGRAM_BOT_TOKEN}" ] && [ -n "${TELEGRAM_ADMIN_CHAT_ID}" ]; then
+            curl -sS -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+              -d "chat_id=${TELEGRAM_ADMIN_CHAT_ID}" \
+              -d "parse_mode=Markdown" \
+              -d "text=🔴 *FRONTEND DEPLOY XATO* — sayt Hetzner'ga chiqmadi.%0A%0AHavola: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          fi
