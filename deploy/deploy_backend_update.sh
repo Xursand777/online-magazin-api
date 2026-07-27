@@ -60,7 +60,12 @@ echo "== 2b) Frontend build (Vite) + rsync =="
     npm ci --silent 2>&1 | tail -3 || { echo "XATO: npm ci"; exit 1; }
   fi
   echo "  vite build ..."
-  npm run build 2>&1 | tail -5 || { echo "XATO: vite build"; exit 1; }
+  # VITE_API_URL bu yerda MAJBURIY o'rnatiladi. Ilgari bu qiymat Vercel
+  # dashboard'idan kelardi; Hetzner'ga ko'chgach build lokal bo'lgani uchun,
+  # aks holda frontend `localhost:8000` ga tushib, production sayt API'ga
+  # ulanolmay qoladi. (frontend/.env.production ham bor, lekin gitignore'da —
+  # shuning uchun yagona ishonchli manba shu commit qilingan qator.)
+  VITE_API_URL="${VITE_API_URL:-https://api.700mobile.uz/api}" npm run build 2>&1 | tail -5 || { echo "XATO: vite build"; exit 1; }
   [ -f dist/index.html ] || { echo "XATO: dist/index.html topilmadi"; exit 1; }
   bundle=$(grep -oE 'assets/index-[a-zA-Z0-9_-]+\.js' dist/index.html | head -1)
   echo "  build OK — bundle: $bundle"
