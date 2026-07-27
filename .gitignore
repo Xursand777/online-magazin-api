@@ -52,3 +52,6 @@ logs/
 *.log
 .vercel
 .env*
+
+# Claude Code — shaxsiy/lokal sozlamalar (commit qilinmaydi)
+.claude/settings.local.json

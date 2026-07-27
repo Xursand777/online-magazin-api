@@ -1,4 +1,4 @@
-package com.example.bozor_mobile
+package uz.mobile700.app
 
 import io.flutter.embedding.android.FlutterActivity
 
